@@ -195,16 +195,98 @@ async fn enforce_mutation_locks_in_namespace_on<C: ConnectionTrait>(
     let ancestor_ids = load_ancestor_ids(txn, target.workspace, parent_folder_id).await?;
     let now = Utc::now();
 
-    for lock in lock_repo::find_all_by_namespace_for_update(txn, namespace_id).await? {
-        if lock.timeout_at.is_some_and(|expires_at| expires_at <= now)
-            || !lock_covers_target(&lock, target, &ancestor_ids)
-            || lock_is_satisfied(&lock, credentials)
-        {
+    let locks = lock_repo::find_all_by_namespace_for_update(txn, namespace_id).await?;
+    for lock in &locks {
+        let expired_or_satisfied = lock.timeout_at.is_some_and(|expires_at| expires_at <= now)
+            || locks.iter().any(|candidate| {
+                candidate.root_kind == lock.root_kind
+                    && candidate.root_folder_id == lock.root_folder_id
+                    && candidate.root_file_id == lock.root_file_id
+                    && candidate.timeout_at.is_none_or(|expiry| expiry > now)
+                    && lock_is_satisfied(candidate, credentials)
+            });
+        if expired_or_satisfied {
             continue;
+        }
+        let covers = lock_covers_target(lock, target, &ancestor_ids)
+            || target_covers_lock_on(txn, target, lock).await?;
+        match covers {
+            true => {}
+            false => continue,
         }
         return Err(AsterError::resource_locked("resource is locked"));
     }
     Ok(())
+}
+
+/// 判断请求的深度范围是否包含已有锁。旧 evaluator 只检查“已有锁覆盖目标”，
+/// 忽略请求的 Infinity，导致移动/删除未上锁的祖先时绕过其后代锁。
+/// 只遍历 namespace 内实际锁的 canonical root，不扫描整棵文件树，也不依赖
+/// 可能因祖先重命名而过期的 lockroot_path。
+async fn target_covers_lock_on<C: ConnectionTrait>(
+    db: &C,
+    target: LockTarget,
+    lock: &resource_lock::Model,
+) -> Result<bool> {
+    match target.depth {
+        LockDepth::Infinity => {}
+        _ => return Ok(false),
+    }
+    let folder_id = match target.root {
+        LockRoot::WorkspaceRoot => return Ok(true),
+        LockRoot::File { .. } => return Ok(false),
+        LockRoot::Folder { folder_id } => folder_id,
+    };
+    let parent_id = match lock.root_kind {
+        LockRootKind::WorkspaceRoot => return Ok(false),
+        LockRootKind::File => {
+            let Some(id) = lock.root_file_id else {
+                return Err(AsterError::internal_error(
+                    "file lock has no canonical root",
+                ));
+            };
+            crate::db::repository::file_repo::find_by_id(db, id)
+                .await?
+                .folder_id
+        }
+        LockRootKind::Folder => {
+            let Some(id) = lock.root_folder_id else {
+                return Err(AsterError::internal_error(
+                    "folder lock has no canonical root",
+                ));
+            };
+            if id == folder_id {
+                return Ok(true);
+            }
+            Some(id)
+        }
+    };
+    Ok(load_ancestor_ids(db, target.workspace, parent_id)
+        .await?
+        .contains(&folder_id))
+}
+
+/// Shared canonical overlap decision for protocol adapters and lock acquisition. Presentation
+/// paths may differ between mounts; all callers use current entity identity and ancestry.
+pub(crate) async fn lock_overlaps_target_on<C: ConnectionTrait>(
+    db: &C,
+    lock: &resource_lock::Model,
+    target: LockTarget,
+) -> Result<bool> {
+    let parent_id = match target.root {
+        LockRoot::WorkspaceRoot => None,
+        LockRoot::File { file_id } => {
+            crate::db::repository::file_repo::find_by_id(db, file_id)
+                .await?
+                .folder_id
+        }
+        LockRoot::Folder { folder_id } => folder_repo::find_by_id(db, folder_id).await?.parent_id,
+    };
+    let ancestors = load_ancestor_ids(db, target.workspace, parent_id).await?;
+    match lock_covers_target(lock, target, &ancestors) {
+        true => Ok(true),
+        false => target_covers_lock_on(db, target, lock).await,
+    }
 }
 
 async fn load_ancestor_ids<C: ConnectionTrait>(

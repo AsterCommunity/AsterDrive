@@ -701,11 +701,6 @@ async fn test_state_with_driver_and_options(
     let storage_change_bus = crate::services::events::storage_change::StorageChangeBus::new(
         crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
     );
-    let share_download_rollback =
-        crate::services::share::spawn_detached_share_download_rollback_queue(
-            db.clone(),
-            crate::config::operations::share_download_rollback_queue_capacity(&runtime_config),
-        );
 
     PrimaryAppState {
         audit_writer: crate::runtime::test_support::audit_writer(&db).await,
@@ -719,7 +714,7 @@ async fn test_state_with_driver_and_options(
         metrics: aster_drive_metrics::NoopMetrics::arc(),
         mail_sender: aster_forge_mail::memory_sender(),
         storage_change_bus,
-        share_download_rollback,
+        storage_event_streams: Default::default(),
         background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
         remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
     }

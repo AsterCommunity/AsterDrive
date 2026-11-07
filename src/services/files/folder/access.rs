@@ -24,7 +24,13 @@ pub async fn verify_folder_in_scope(
 
     let chain_map = super::hierarchy::load_folder_chain_map(db, &[folder_id]).await?;
     let mut current_id = Some(folder_id);
+    let mut seen = std::collections::HashSet::new();
     while let Some(id) = current_id {
+        if !seen.insert(id) {
+            return Err(AsterError::validation_error(
+                "folder hierarchy contains a cycle",
+            ));
+        }
         let folder = chain_map
             .get(&id)
             .ok_or_else(|| AsterError::record_not_found(format!("folder #{id}")))?;

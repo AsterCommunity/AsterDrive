@@ -15,25 +15,121 @@ use super::contract::{
 use super::prepare::PreparedStoreFromTemp;
 use super::write_record::WriteFileRecordFromTempParams;
 
+#[derive(Clone)]
+enum TempBlobPublication {
+    ExistingDedup {
+        blob_id: i64,
+        hash: String,
+        size: i64,
+        policy_id: i64,
+    },
+    Staged(VerifiedTempStoreBlob),
+}
+
 pub(super) async fn persist_temp_store(
     state: &PrimaryAppState,
     prepared: PreparedStoreFromTemp,
     new_file_mode: super::NewFileMode,
 ) -> Result<(file::Model, bool)> {
+    prepared.operation_context.checkpoint()?;
+    if prepared.storage_delta > 0 && !prepared.quota_prechecked {
+        check_quota(state.writer_db(), prepared.scope, prepared.storage_delta).await?;
+    }
+    prepared.operation_context.checkpoint()?;
+    match &prepared.blob_plan {
+        TempBlobPlan::Dedup(target) => {
+            if let Some(existing) = file_repo::find_active_blob_by_hash(
+                state.writer_db(),
+                &target.file_hash,
+                prepared.policy.id,
+            )
+            .await?
+                && !existing.is_virtual_empty()
+                && let Some(published) = publish_temp_store(
+                    state,
+                    &prepared,
+                    TempBlobPublication::ExistingDedup {
+                        blob_id: existing.id,
+                        hash: target.file_hash.clone(),
+                        size: prepared.size,
+                        policy_id: prepared.policy.id,
+                    },
+                    new_file_mode,
+                )
+                .await?
+            {
+                return Ok(published);
+            }
+        }
+        TempBlobPlan::Preuploaded(_) => {}
+    }
+    let staged_dedup_target = stage_temp_blob_before_transaction(
+        &prepared.blob_plan,
+        prepared.driver.as_ref(),
+        prepared.size,
+        &prepared.temp_path,
+        &prepared.operation_context,
+    )
+    .await?;
+    let verified_blob = match VerifiedTempStoreBlob::from_staged_plan(
+        &prepared.blob_plan,
+        prepared.size,
+        prepared.policy.id,
+        staged_dedup_target,
+    ) {
+        Ok(verified) => verified,
+        Err(error) => {
+            cleanup_staged_blob_plan_after_contract_failure(
+                &prepared.blob_plan,
+                staged_dedup_target,
+                prepared.driver.as_ref(),
+                "verified temp store contract failure",
+            )
+            .await;
+            return Err(error);
+        }
+    };
+    if let Err(error) = prepared.operation_context.checkpoint() {
+        cleanup_unpublished_temp_blob(
+            &verified_blob,
+            prepared.driver.as_ref(),
+            "cancellation after temp file upload",
+        )
+        .await;
+        return Err(error);
+    }
+    publish_temp_store(
+        state,
+        &prepared,
+        TempBlobPublication::Staged(verified_blob),
+        new_file_mode,
+    )
+    .await?
+    .ok_or_else(|| AsterError::internal_error("staged blob publication resolved no object"))
+}
+
+/// One metadata transaction publishes either a currently adoptable blob or an owned candidate.
+async fn publish_temp_store(
+    state: &PrimaryAppState,
+    prepared: &PreparedStoreFromTemp,
+    publication_source: TempBlobPublication,
+    new_file_mode: super::NewFileMode,
+) -> Result<Option<(file::Model, bool)>> {
     let PreparedStoreFromTemp {
         scope,
+        access_constraints,
         folder_id,
         filename,
-        temp_path,
+        temp_path: _,
         size,
-        existing_file_id: _,
-        policy,
+        existing_file_id,
+        policy: _,
         driver,
-        blob_plan,
+        blob_plan: _,
         overwrite_ctx,
         operation_context,
         storage_delta,
-        quota_prechecked,
+        quota_prechecked: _,
         mime,
         now,
         actor_username,
@@ -44,55 +140,12 @@ pub(super) async fn persist_temp_store(
         revision_etag,
         complete_upload_id,
         task_publication,
-    } = prepared;
-
-    operation_context.checkpoint()?;
-    if storage_delta > 0 && !quota_prechecked {
-        check_quota(state.writer_db(), scope, storage_delta).await?;
-    }
-    operation_context.checkpoint()?;
-    let staged_dedup_target = stage_temp_blob_before_transaction(
-        &blob_plan,
-        driver.as_ref(),
-        size,
-        &temp_path,
-        &operation_context,
-    )
-    .await?;
-    let verified_blob = match VerifiedTempStoreBlob::from_staged_plan(
-        &blob_plan,
-        size,
-        policy.id,
-        staged_dedup_target,
-    ) {
-        Ok(verified_blob) => verified_blob,
-        Err(error) => {
-            cleanup_staged_blob_plan_after_contract_failure(
-                state,
-                &blob_plan,
-                staged_dedup_target,
-                driver.as_ref(),
-                policy.id,
-                "verified temp store contract failure",
-            )
-            .await;
-            return Err(error);
-        }
-    };
-    if let Err(error) = operation_context.checkpoint() {
-        cleanup_verified_temp_blob_after_db_failure(
-            state,
-            &verified_blob,
-            driver.as_ref(),
-            "cancellation after temp file upload",
-        )
-        .await;
-        return Err(error);
-    }
+    } = prepared.clone();
 
     let retry_on_mysql_deadlock = state.writer_db().get_database_backend() == DbBackend::MySql;
+    let transaction_access_constraints = access_constraints.clone();
     let transaction_operation_context = operation_context.clone();
-    let transaction_verified_blob = verified_blob.clone();
+    let transaction_source = publication_source.clone();
     let transaction_filename = filename.clone();
     let transaction_mime = mime.clone();
     let transaction_overwrite_ctx = overwrite_ctx.clone();
@@ -104,12 +157,14 @@ pub(super) async fn persist_temp_store(
     let transaction_revision_etag = revision_etag;
     let transaction_complete_upload_id = complete_upload_id;
     let transaction_now = now;
+    let transaction_policy_snapshot = state.policy_snapshot.clone();
     let create_result = aster_forge_db::transaction::with_transaction_retry(
         state.writer_db(),
         &aster_forge_db::retry::RetryConfig::deadlock(),
         move |txn| {
+            let access_constraints = transaction_access_constraints.clone();
             let operation_context = transaction_operation_context.clone();
-            let verified_blob = transaction_verified_blob.clone();
+            let publication_source = transaction_source.clone();
             let filename = transaction_filename.clone();
             let mime = transaction_mime.clone();
             let overwrite_ctx = transaction_overwrite_ctx.clone();
@@ -121,12 +176,36 @@ pub(super) async fn persist_temp_store(
             let revision_etag = transaction_revision_etag.clone();
             let complete_upload_id = transaction_complete_upload_id.clone();
             let now = transaction_now;
+            let policy_snapshot = transaction_policy_snapshot.clone();
             let publication = task_publication.clone();
             Box::pin(async move {
+                // 每次重试重新授权，绝不把第一次事务的授权证明带进重试事务。
+                let access = crate::services::workspace::scope::authorize_workspace_on(
+                    txn,
+                    scope,
+                    crate::services::workspace::scope::WorkspaceOperation::UpdateContent,
+                    &access_constraints,
+                )
+                .await?;
+                if existing_file_id.is_some() {
+                    crate::services::workspace::storage::ensure_blob_write_admission(
+                        &policy_snapshot,
+                        &crate::services::workspace::storage::BlobPolicyRequest {
+                            scope,
+                            folder_id,
+                            folder_hint: None,
+                            filename: &filename,
+                            file_size: size,
+                            mime_type: &mime,
+                            existing_file_id,
+                        },
+                    )?;
+                }
                 if let Some(publication) = &publication {
                     publication.lock_owner(txn).await?;
                     if let Some(file) = publication.find_file(txn).await? {
-                        return Ok((file, false));
+                        access.file(&file).await?;
+                        return Ok(Some((file, false, false)));
                     }
                 }
                 let workspace = match scope {
@@ -170,12 +249,15 @@ pub(super) async fn persist_temp_store(
                 }
                 operation_context.checkpoint()?;
 
-                let blob = persist_temp_blob(txn, &verified_blob).await?;
+                let Some(blob) = resolve_publication_blob(txn, &publication_source).await? else {
+                    // Cleanup or migration won the row before the adoption lock.
+                    // The caller will materialize a private candidate outside this Tx.
+                    return Ok(None);
+                };
                 operation_context.checkpoint()?;
                 let result = super::write_record::write_file_record_from_temp(
-                    txn,
+                    access,
                     WriteFileRecordFromTempParams {
-                        scope,
                         activity_source: operation_context.activity_source(),
                         activity_action: operation_context.content_action(),
                         folder_id,
@@ -212,7 +294,17 @@ pub(super) async fn persist_temp_store(
                     publication.insert_file(txn, &result).await?;
                 }
                 operation_context.checkpoint()?;
-                Ok::<(file::Model, bool), AsterError>((result, true))
+                let retained_candidate = match &publication_source {
+                    TempBlobPublication::Staged(verified) => {
+                        blob.storage_path.as_deref() == Some(verified.storage_path())
+                    }
+                    TempBlobPublication::ExistingDedup { .. } => false,
+                };
+                Ok::<Option<(file::Model, bool, bool)>, AsterError>(Some((
+                    result,
+                    true,
+                    retained_candidate,
+                )))
             })
         },
         move |error: &AsterError| {
@@ -223,27 +315,35 @@ pub(super) async fn persist_temp_store(
     .await;
 
     match create_result {
-        Ok((result, created)) => {
-            if !created {
-                cleanup_verified_temp_blob_after_db_failure(
-                    state,
-                    &verified_blob,
-                    driver.as_ref(),
-                    "task entry was already published",
-                )
-                .await;
+        Ok(Some((result, created, retained_candidate))) => {
+            match (&publication_source, retained_candidate) {
+                (TempBlobPublication::Staged(verified), false) => {
+                    cleanup_unpublished_temp_blob(
+                        verified,
+                        driver.as_ref(),
+                        "candidate was not selected for publication",
+                    )
+                    .await;
+                }
+                (TempBlobPublication::Staged(_), true)
+                | (TempBlobPublication::ExistingDedup { .. }, _) => {}
             }
-            Ok((result, created))
+            Ok(Some((result, created)))
         }
+        Ok(None) => Ok(None),
         Err(error) => {
             if !error.database_commit_outcome_uncertain() {
-                cleanup_verified_temp_blob_after_db_failure(
-                    state,
-                    &verified_blob,
-                    driver.as_ref(),
-                    "DB error after temp file upload",
-                )
-                .await;
+                match &publication_source {
+                    TempBlobPublication::Staged(verified) => {
+                        cleanup_unpublished_temp_blob(
+                            verified,
+                            driver.as_ref(),
+                            "DB error after temp file upload",
+                        )
+                        .await;
+                    }
+                    TempBlobPublication::ExistingDedup { .. } => {}
+                }
             }
             Err(error)
         }
@@ -258,39 +358,35 @@ async fn stage_temp_blob_before_transaction(
     operation_context: &StorageOperationContext,
 ) -> Result<bool> {
     match blob_plan {
-        TempBlobPlan::Dedup(target) => Ok(
-            crate::storage::drivers::local::promote_local_file_if_absent_with_check(
+        TempBlobPlan::Dedup(target) => {
+            let promoted = crate::storage::drivers::local::promote_local_file_if_absent(
                 driver,
                 &target.storage_path,
                 temp_path,
                 size,
                 || operation_context.checkpoint(),
             )
-            .await?
-            .created(),
-        ),
+            .await?;
+            if !promoted.created() {
+                return Err(AsterError::conflict(
+                    "upload candidate storage key already exists",
+                ));
+            }
+            Ok(true)
+        }
         TempBlobPlan::Preuploaded(_) => Ok(false),
     }
 }
 
 async fn cleanup_staged_blob_plan_after_contract_failure(
-    state: &PrimaryAppState,
     blob_plan: &TempBlobPlan,
     staged_dedup_target: bool,
     driver: &dyn aster_drive_storage::StorageDriver,
-    policy_id: i64,
     reason: &str,
 ) {
     match blob_plan {
         TempBlobPlan::Dedup(target) if staged_dedup_target => {
-            rollback_staged_dedup_blob(
-                state,
-                &target.file_hash,
-                &target.storage_path,
-                driver,
-                policy_id,
-            )
-            .await;
+            delete_owned_dedup_candidate(driver, &target.storage_path, reason).await;
         }
         TempBlobPlan::Dedup(_) => {}
         TempBlobPlan::Preuploaded(preuploaded_blob) => {
@@ -299,26 +395,14 @@ async fn cleanup_staged_blob_plan_after_contract_failure(
     }
 }
 
-async fn cleanup_verified_temp_blob_after_db_failure(
-    state: &PrimaryAppState,
+async fn cleanup_unpublished_temp_blob(
     verified_blob: &VerifiedTempStoreBlob,
     driver: &dyn aster_drive_storage::StorageDriver,
     reason: &str,
 ) {
     match verified_blob.cleanup() {
-        TempStoreBlobCleanupPlan::RollbackStagedDedupIfUnreferenced => {
-            if let VerifiedTempStoreBlobSource::ContentAddressed { file_hash } =
-                verified_blob.source()
-            {
-                rollback_staged_dedup_blob(
-                    state,
-                    file_hash,
-                    verified_blob.storage_path(),
-                    driver,
-                    verified_blob.policy_id(),
-                )
-                .await;
-            }
+        TempStoreBlobCleanupPlan::DeleteOwnedDedupCandidate => {
+            delete_owned_dedup_candidate(driver, verified_blob.storage_path(), reason).await;
         }
         TempStoreBlobCleanupPlan::CleanupPreuploadedBlobOnDbFailure => {
             if let VerifiedTempStoreBlobSource::PreuploadedNonDedup { prepared } =
@@ -327,62 +411,322 @@ async fn cleanup_verified_temp_blob_after_db_failure(
                 cleanup_preuploaded_blob_upload(driver, prepared, reason).await;
             }
         }
-        TempStoreBlobCleanupPlan::RetainExistingDedupObject => {}
     }
 }
 
-async fn rollback_staged_dedup_blob(
-    state: &PrimaryAppState,
-    file_hash: &str,
-    storage_path: &str,
+async fn delete_owned_dedup_candidate(
     driver: &dyn aster_drive_storage::StorageDriver,
-    policy_id: i64,
+    storage_path: &str,
+    reason: &str,
 ) {
-    match file_repo::find_blob_by_hash(state.writer_db(), file_hash, policy_id).await {
-        Ok(Some(blob)) => {
-            tracing::debug!(
-                blob_id = blob.id,
-                storage_path,
-                "skipping staged dedup blob rollback because a blob row now references it"
-            );
-            return;
-        }
-        Ok(None) => {}
-        Err(error) => {
-            tracing::warn!(
-                storage_path,
-                "failed to verify staged dedup blob before rollback; keeping object: {error}"
-            );
-            return;
-        }
-    }
-
+    // The key is generated for this attempt and is never reused by hash. No
+    // reference lookup can authorize deleting another attempt's private key.
     if let Err(error) = driver.delete(storage_path).await {
         tracing::warn!(
             storage_path,
-            "failed to rollback staged dedup blob after DB error: {error}"
+            "failed to cleanup private dedup candidate after {reason}: {error}"
         );
     }
 }
 
-async fn persist_temp_blob<C: ConnectionTrait>(
+async fn resolve_publication_blob<C: ConnectionTrait>(
     txn: &C,
-    verified_blob: &VerifiedTempStoreBlob,
-) -> Result<file_blob::Model> {
-    match verified_blob.source() {
-        VerifiedTempStoreBlobSource::ContentAddressed { file_hash } => {
-            let blob = file_repo::find_or_create_blob(
-                txn,
-                file_hash,
-                verified_blob.size(),
-                verified_blob.policy_id(),
-                verified_blob.storage_path(),
+    publication: &TempBlobPublication,
+) -> Result<Option<file_blob::Model>> {
+    match publication {
+        TempBlobPublication::ExistingDedup {
+            blob_id,
+            hash,
+            size,
+            policy_id,
+        } => {
+            crate::services::workspace::storage::try_adopt_existing_dedup_blob_on(
+                txn, *blob_id, hash, *size, *policy_id,
             )
-            .await?;
-            Ok(blob.model)
+            .await
         }
-        VerifiedTempStoreBlobSource::PreuploadedNonDedup { prepared } => {
-            persist_preuploaded_blob(txn, prepared).await
+        TempBlobPublication::Staged(verified_blob) => {
+            let blob = match verified_blob.source() {
+                VerifiedTempStoreBlobSource::DeduplicatedContent { file_hash } => {
+                    file_repo::find_or_create_blob(
+                        txn,
+                        file_hash,
+                        verified_blob.size(),
+                        verified_blob.policy_id(),
+                        verified_blob.storage_path(),
+                    )
+                    .await?
+                    .model
+                }
+                VerifiedTempStoreBlobSource::PreuploadedNonDedup { prepared } => {
+                    persist_preuploaded_blob(txn, prepared).await?
+                }
+            };
+            Ok(Some(blob))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::services::workspace::storage::store::from_temp::prepare::prepare_store_from_temp;
+    use crate::services::workspace::storage::tests::{build_test_state, replace_test_policy};
+    use crate::services::workspace::storage::{StoreFromTempHints, StoreFromTempParams};
+
+    async fn stage_candidate(
+        state: &PrimaryAppState,
+        root: &std::path::Path,
+        policy: &aster_drive_model::entities::storage_policy::Model,
+        user_id: i64,
+        name: &str,
+        payload: &[u8],
+    ) -> (PreparedStoreFromTemp, VerifiedTempStoreBlob) {
+        let temp = root.join(name);
+        tokio::fs::write(&temp, payload).await.unwrap();
+        let prepared = prepare_store_from_temp(
+            state,
+            StoreFromTempParams::new(
+                WorkspaceStorageScope::Personal { user_id },
+                None,
+                name,
+                temp.to_str().unwrap(),
+                payload.len() as i64,
+            ),
+            StoreFromTempHints {
+                resolved_policy: Some(policy.clone()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        let created = stage_temp_blob_before_transaction(
+            &prepared.blob_plan,
+            prepared.driver.as_ref(),
+            prepared.size,
+            &prepared.temp_path,
+            &prepared.operation_context,
+        )
+        .await
+        .unwrap();
+        let verified = VerifiedTempStoreBlob::from_staged_plan(
+            &prepared.blob_plan,
+            prepared.size,
+            policy.id,
+            created,
+        )
+        .unwrap();
+        (prepared, verified)
+    }
+
+    #[tokio::test]
+    async fn failed_dedup_publisher_cleanup_preserves_another_staged_publication() {
+        let (state, root, policy, user) = build_test_state().await;
+        let replacement =
+            crate::storage::connectors::test_support::with_local_content_dedup(&policy, true);
+        let policy = replace_test_policy(&state, &policy, replacement).await;
+        let payload = b"same bytes from two independent uploads";
+        let (first, first_blob) =
+            stage_candidate(&state, &root, &policy, user.id, "first.bin", payload).await;
+        let (second, second_blob) =
+            stage_candidate(&state, &root, &policy, user.id, "second.bin", payload).await;
+
+        // A fails before metadata commit while B has already accepted its staged bytes.
+        cleanup_unpublished_temp_blob(
+            &first_blob,
+            first.driver.as_ref(),
+            "failed independent publisher",
+        )
+        .await;
+        let (published, _) = publish_temp_store(
+            &state,
+            &second,
+            TempBlobPublication::Staged(second_blob),
+            super::super::NewFileMode::ResolveUnique,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let blob = file_repo::find_blob_by_id(state.writer_db(), published.blob_id)
+            .await
+            .unwrap();
+        assert_eq!(
+            first
+                .driver
+                .get(blob.storage_path_for_connector().unwrap())
+                .await
+                .unwrap(),
+            payload
+        );
+    }
+
+    #[tokio::test]
+    async fn dedup_publication_after_last_reference_cleanup_keeps_its_source_bytes() {
+        let (state, root, policy, user) = build_test_state().await;
+        let replacement =
+            crate::storage::connectors::test_support::with_local_content_dedup(&policy, true);
+        let policy = replace_test_policy(&state, &policy, replacement).await;
+        let payload = b"new publication overlaps the previous blob retirement";
+        let (first, first_blob) =
+            stage_candidate(&state, &root, &policy, user.id, "first.bin", payload).await;
+        let (old, _) = publish_temp_store(
+            &state,
+            &first,
+            TempBlobPublication::Staged(first_blob),
+            super::super::NewFileMode::ResolveUnique,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let (second, second_blob) =
+            stage_candidate(&state, &root, &policy, user.id, "second.bin", payload).await;
+        let driver = second.driver.clone();
+
+        // The last reference disappears after B staged, before B opens its metadata Tx.
+        crate::services::files::file::purge(&state, old.id, user.id)
+            .await
+            .unwrap();
+        let (published, _) = publish_temp_store(
+            &state,
+            &second,
+            TempBlobPublication::Staged(second_blob),
+            super::super::NewFileMode::ResolveUnique,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let blob = file_repo::find_blob_by_id(state.writer_db(), published.blob_id)
+            .await
+            .unwrap();
+        assert_eq!(
+            driver
+                .get(blob.storage_path_for_connector().unwrap())
+                .await
+                .unwrap(),
+            payload
+        );
+    }
+
+    #[tokio::test]
+    async fn successful_dedup_loser_discards_only_its_candidate_and_preserves_retries() {
+        let (state, root, policy, user) = build_test_state().await;
+        let replacement =
+            crate::storage::connectors::test_support::with_local_content_dedup(&policy, true);
+        let policy = replace_test_policy(&state, &policy, replacement).await;
+        let payload = b"same logical blob, distinct unpublished candidates";
+        let (first, first_blob) =
+            stage_candidate(&state, &root, &policy, user.id, "first.bin", payload).await;
+        let (second, second_blob) =
+            stage_candidate(&state, &root, &policy, user.id, "second.bin", payload).await;
+        assert_ne!(first_blob.storage_path(), second_blob.storage_path());
+        let unused_path = second_blob.storage_path().to_string();
+        let driver = first.driver.clone();
+        let (first_file, _) = publish_temp_store(
+            &state,
+            &first,
+            TempBlobPublication::Staged(first_blob),
+            super::super::NewFileMode::ResolveUnique,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let (second_file, _) = publish_temp_store(
+            &state,
+            &second,
+            TempBlobPublication::Staged(second_blob),
+            super::super::NewFileMode::ResolveUnique,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(first_file.blob_id, second_file.blob_id);
+        assert!(!driver.exists(&unused_path).await.unwrap());
+        let blob = file_repo::find_blob_by_id(state.writer_db(), first_file.blob_id)
+            .await
+            .unwrap();
+        assert_eq!(blob.ref_count, 2);
+        assert_eq!(
+            driver
+                .get(blob.storage_path_for_connector().unwrap())
+                .await
+                .unwrap(),
+            payload
+        );
+        assert!(root.join("first.bin").exists());
+        assert!(root.join("second.bin").exists());
+    }
+
+    #[tokio::test]
+    async fn dedup_adoption_race_falls_back_to_owned_bytes_after_cleanup_wins() {
+        let (state, root, policy, user) = build_test_state().await;
+        let replacement =
+            crate::storage::connectors::test_support::with_local_content_dedup(&policy, true);
+        let policy = replace_test_policy(&state, &policy, replacement).await;
+        let payload = b"dedup cache hit becomes stale before metadata admission";
+        let (first, first_blob) =
+            stage_candidate(&state, &root, &policy, user.id, "first.bin", payload).await;
+        let (old, _) = publish_temp_store(
+            &state,
+            &first,
+            TempBlobPublication::Staged(first_blob),
+            super::super::NewFileMode::ResolveUnique,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let old_blob = file_repo::find_blob_by_id(state.writer_db(), old.blob_id)
+            .await
+            .unwrap();
+        let source = root.join("second.bin");
+        tokio::fs::write(&source, payload).await.unwrap();
+        let prepared = prepare_store_from_temp(
+            &state,
+            StoreFromTempParams::new(
+                WorkspaceStorageScope::Personal { user_id: user.id },
+                None,
+                "second.bin",
+                source.to_str().unwrap(),
+                payload.len() as i64,
+            ),
+            StoreFromTempHints {
+                resolved_policy: Some(policy),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        let driver = prepared.driver.clone();
+        crate::services::files::file::purge(&state, old.id, user.id)
+            .await
+            .unwrap();
+        let stale_adoption = publish_temp_store(
+            &state,
+            &prepared,
+            TempBlobPublication::ExistingDedup {
+                blob_id: old_blob.id,
+                hash: old_blob.hash,
+                size: old_blob.size,
+                policy_id: old_blob.policy_id,
+            },
+            super::super::NewFileMode::ResolveUnique,
+        )
+        .await
+        .unwrap();
+        assert!(stale_adoption.is_none());
+        let (published, _) =
+            persist_temp_store(&state, prepared, super::super::NewFileMode::ResolveUnique)
+                .await
+                .unwrap();
+        let blob = file_repo::find_blob_by_id(state.writer_db(), published.blob_id)
+            .await
+            .unwrap();
+        assert_eq!(
+            driver
+                .get(blob.storage_path_for_connector().unwrap())
+                .await
+                .unwrap(),
+            payload
+        );
+        assert!(source.exists());
     }
 }

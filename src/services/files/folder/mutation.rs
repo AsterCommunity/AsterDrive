@@ -26,6 +26,7 @@ use aster_drive_model::types::EntityType;
 use aster_forge_api::NullablePatch;
 use aster_forge_utils::numbers::u64_to_usize;
 
+use super::hierarchy::load_active_chain_on;
 use super::{collect_folder_tree_in_scope, ensure_folder_model_in_scope};
 
 const STORAGE_USED_VERSION_SUM_CHUNK_SIZE: usize = 500;
@@ -86,7 +87,8 @@ async fn load_child_folder_ids(
         }
         WorkspaceResourceScope::Team { team_id } => folder_repo::FolderScope::Team { team_id },
     };
-    folder_repo::find_child_ids_in_parents(state.reader_db(), folder_scope, folder_ids).await
+    folder_repo::find_child_ids_in_parents(state.reader_db(), folder_scope, folder_ids, false, None)
+        .await
 }
 
 /// 递归计算文件夹详情页展示的占用空间。
@@ -106,6 +108,8 @@ async fn compute_folder_storage_used(
 ) -> Result<i64> {
     let mut total = 0i64;
     let mut frontier = vec![folder_id];
+    let mut seen = BTreeSet::new();
+    let mut depth = 0;
     let file_page_size = u64_to_usize(
         STORAGE_USED_FILE_PAGE_SIZE,
         "folder storage_used file page size",
@@ -114,6 +118,13 @@ async fn compute_folder_storage_used(
     while !frontier.is_empty() {
         frontier.sort_unstable();
         frontier.dedup();
+        super::hierarchy::ensure_result_depth(depth, 1)?;
+        depth += 1;
+        if frontier.iter().any(|id| !seen.insert(*id)) {
+            return Err(AsterError::validation_error(
+                "folder hierarchy contains a cycle",
+            ));
+        }
         let mut next_frontier = Vec::new();
 
         for folder_chunk in frontier.chunks(STORAGE_USED_FOLDER_QUERY_CHUNK_SIZE) {
@@ -186,8 +197,16 @@ pub(crate) async fn create_in_scope(
         actor_user_id,
     } = scope
     {
-        storage::require_team_access_with_db(state, state.writer_db(), team_id, actor_user_id)
-            .await?;
+        crate::services::workspace::scope::authorize_workspace_on(
+            state.writer_db(),
+            crate::services::workspace::scope::WorkspaceStorageScope::Team {
+                team_id,
+                actor_user_id,
+            },
+            crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+            &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+        )
+        .await?;
     }
 
     let name = aster_forge_validation::filename::normalize_validate_name(name)?;
@@ -199,6 +218,16 @@ pub(crate) async fn create_in_scope(
 
     let now = Utc::now();
     let created = transaction::with_transaction(state.writer_db(), async |txn| {
+        let access = crate::services::workspace::scope::authorize_workspace_on(
+            txn,
+            scope,
+            crate::services::workspace::scope::WorkspaceOperation::CreateFolder,
+            &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+        )
+        .await?;
+        access
+            .collection(parent_id, &lock_credentials.submitted())
+            .await?;
         let workspace = match scope {
             WorkspaceStorageScope::Personal { user_id } => {
                 crate::services::files::lock::LockWorkspace::Personal { user_id }
@@ -216,6 +245,8 @@ pub(crate) async fn create_in_scope(
             let parent = folder_repo::lock_by_id(txn, pid).await?;
             ensure_folder_model_in_scope(&parent, scope)?;
         }
+
+        super::hierarchy::ensure_insertion_depth_on(txn, scope, parent_id, 1).await?;
 
         if find_folder_by_name_in_scope(txn, scope, parent_id, &name)
             .await?
@@ -294,7 +325,16 @@ pub(crate) async fn delete_in_scope(
     // 删除整棵树时先锁目录树，再确认树结构没有变化；否则并发移动/创建子目录
     // 可能导致只删除到遍历时看到的一部分节点。
     let outcome = transaction::with_transaction(state.writer_db(), async |txn| {
-        delete_tree_in_scope_on(txn, scope, folder_id, traversal_limits, now, false, source).await
+        delete_tree_in_scope_on(
+            txn,
+            scope,
+            folder_id,
+            traversal_limits,
+            now,
+            &crate::services::files::lock::SubmittedLockCredentials::none(),
+            source,
+        )
+        .await
     })
     .await?;
     let FolderTreeDeletion {
@@ -345,44 +385,36 @@ pub(crate) async fn lock_tree_for_deletion_on<C: ConnectionTrait>(
     scope: WorkspaceStorageScope,
     folder_id: i64,
     traversal_limits: Option<super::FolderTreeTraversalLimits>,
-    allow_locked_root: bool,
+    credentials: &crate::services::files::lock::SubmittedLockCredentials<'_>,
 ) -> Result<LockedFolderTreeDeletion> {
     crate::services::files::trash::coordination::admit_mutation_on(db, scope).await?;
+    let access = crate::services::workspace::scope::authorize_workspace_on(
+        db,
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::Delete,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let snapshot = folder_repo::find_by_id(db, folder_id).await?;
-    ensure_folder_model_in_scope(&snapshot, scope)?;
-    let folder = if allow_locked_root {
-        folder_repo::lock_by_id(db, folder_id).await?
-    } else {
-        crate::services::files::lock::enforce_folder_mutation_on(
-            db,
-            &snapshot,
-            aster_drive_model::types::LockDepth::Infinity,
-            &crate::services::files::lock::SubmittedLockCredentials::none(),
-        )
-        .await?
-    };
+    access.folder(&snapshot).await?;
+    // Infinity evaluator 同时检查当前实体、祖先和所有已加锁的 canonical 后代。
+    let folder = crate::services::files::lock::enforce_folder_mutation_on(
+        db,
+        &snapshot,
+        aster_drive_model::types::LockDepth::Infinity,
+        credentials,
+    )
+    .await?;
+    let workspace = crate::services::files::lock::LockWorkspace::from_folder(&folder)?;
+    crate::services::files::lock::enforce_collection_membership_mutation_on(
+        db,
+        workspace,
+        folder.parent_id,
+        credentials,
+    )
+    .await?;
     let (files, folder_ids) =
         collect_locked_folder_tree_in_scope(db, scope, folder_id, traversal_limits).await?;
-    if !allow_locked_root {
-        for file in &files {
-            crate::services::files::lock::enforce_file_mutation_on(
-                db,
-                file,
-                &crate::services::files::lock::SubmittedLockCredentials::none(),
-            )
-            .await?;
-        }
-        for descendant_id in folder_ids.iter().copied().filter(|id| *id != folder_id) {
-            let descendant = folder_repo::find_by_id(db, descendant_id).await?;
-            crate::services::files::lock::enforce_folder_mutation_on(
-                db,
-                &descendant,
-                aster_drive_model::types::LockDepth::Resource,
-                &crate::services::files::lock::SubmittedLockCredentials::none(),
-            )
-            .await?;
-        }
-    }
     Ok(LockedFolderTreeDeletion {
         actor_user_id: scope.actor_user_id(),
         folder,
@@ -432,7 +464,7 @@ pub(crate) async fn apply_locked_tree_deletion_on<C: ConnectionTrait>(
 
 /// Soft-deletes a locked folder snapshot on the caller's transaction.
 ///
-/// `allow_locked_root` is reserved for protocol adapters that revalidate the current lock rows in
+/// Submitted credentials are validated against current canonical lock roots in
 /// the same transaction. Ordinary product flows use the authoritative lock evaluator.
 pub(crate) async fn delete_tree_in_scope_on<C: ConnectionTrait>(
     db: &C,
@@ -440,12 +472,11 @@ pub(crate) async fn delete_tree_in_scope_on<C: ConnectionTrait>(
     folder_id: i64,
     traversal_limits: Option<super::FolderTreeTraversalLimits>,
     now: chrono::DateTime<Utc>,
-    allow_locked_root: bool,
+    credentials: &crate::services::files::lock::SubmittedLockCredentials<'_>,
     source: crate::services::workspace::activity::ActivitySource,
 ) -> Result<FolderTreeDeletion> {
     let locked =
-        lock_tree_for_deletion_on(db, scope, folder_id, traversal_limits, allow_locked_root)
-            .await?;
+        lock_tree_for_deletion_on(db, scope, folder_id, traversal_limits, credentials).await?;
     apply_locked_tree_deletion_on(db, locked, now, source).await
 }
 
@@ -551,6 +582,13 @@ pub(crate) async fn update_in_scope(
     };
 
     let (updated, previous_parent_id) = transaction::with_transaction(db, async |txn| {
+        let access = crate::services::workspace::scope::authorize_workspace_on(
+            txn,
+            scope,
+            crate::services::workspace::scope::WorkspaceOperation::Move,
+            &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+        )
+        .await?;
         let preview = folder_repo::find_by_id(txn, id).await?;
         ensure_folder_model_in_scope(&preview, scope)?;
         let preview_target_parent = match parent_id {
@@ -558,8 +596,8 @@ pub(crate) async fn update_in_scope(
             NullablePatch::Null => None,
             NullablePatch::Value(pid) => Some(pid),
         };
-        let initial_target_chain =
-            load_folder_chain_in_scope(txn, scope, preview_target_parent).await?;
+        access.folder(&preview).await?;
+        let initial_target_chain = load_active_chain_on(txn, scope, preview_target_parent).await?;
         // 固定按 id 顺序加锁，降低多个移动操作互相等待时形成死锁的概率。
         let mut lock_ids = vec![id];
         lock_ids.extend(initial_target_chain.iter().map(|folder| folder.id));
@@ -579,29 +617,39 @@ pub(crate) async fn update_in_scope(
             NullablePatch::Null => None,
             NullablePatch::Value(pid) => Some(pid),
         };
-        let target_chain = load_folder_chain_in_scope(txn, scope, target_parent).await?;
-        if target_parent != current.parent_id {
-            let workspace = crate::services::files::lock::LockWorkspace::from_folder(&current)?;
-            crate::services::files::lock::enforce_collection_membership_mutation_on(
-                txn,
-                workspace,
-                current.parent_id,
-                &crate::services::files::lock::SubmittedLockCredentials::none(),
-            )
-            .await?;
-            crate::services::files::lock::enforce_collection_membership_mutation_on(
-                txn,
-                workspace,
-                target_parent,
-                &crate::services::files::lock::SubmittedLockCredentials::none(),
-            )
-            .await?;
+        let target_chain = load_active_chain_on(txn, scope, target_parent).await?;
+        match target_parent != current.parent_id
+            || name.as_ref().is_some_and(|name| name != &current.name)
+        {
+            false => {}
+            true => {
+                let workspace = crate::services::files::lock::LockWorkspace::from_folder(&current)?;
+                crate::services::files::lock::enforce_collection_membership_mutation_on(
+                    txn,
+                    workspace,
+                    current.parent_id,
+                    &crate::services::files::lock::SubmittedLockCredentials::none(),
+                )
+                .await?;
+                crate::services::files::lock::enforce_collection_membership_mutation_on(
+                    txn,
+                    workspace,
+                    target_parent,
+                    &crate::services::files::lock::SubmittedLockCredentials::none(),
+                )
+                .await?;
+            }
         }
         // 目标父目录链里不能出现自己，否则会制造目录环。
         if target_chain.iter().any(|folder| folder.id == id) {
             return Err(AsterError::validation_error(
                 "cannot move folder into its own subfolder",
             ));
+        }
+
+        if target_parent != current.parent_id {
+            super::hierarchy::ensure_subtree_placement_on(txn, scope, id, target_chain.len())
+                .await?;
         }
 
         let final_name = name.clone().unwrap_or_else(|| current.name.clone());
@@ -691,8 +739,17 @@ pub(crate) async fn set_icon_in_scope(
 ) -> Result<(folder::Model, folder::Model)> {
     let (icon_kind, icon_value) = icon.normalize()?;
     let (previous, updated) = transaction::with_transaction(state.writer_db(), async |txn| {
+        // 资源归属只说明“这是谁的目录”，不能说明 actor 有权进入该团队。
+        // 在实际写入事务内取得授权，并与成员移除/团队归档共享团队行锁。
+        let access = crate::services::workspace::scope::authorize_workspace_on(
+            txn,
+            scope,
+            crate::services::workspace::scope::WorkspaceOperation::UpdateMetadata,
+            &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+        )
+        .await?;
         let preview = folder_repo::find_by_id(txn, folder_id).await?;
-        ensure_folder_model_in_scope(&preview, scope)?;
+        access.folder(&preview).await?;
         let current = crate::services::files::lock::enforce_folder_mutation_on(
             txn,
             &preview,
@@ -847,29 +904,6 @@ async fn collect_locked_folder_tree_in_scope<C: ConnectionTrait>(
     Err(AsterError::internal_error(
         "folder tree did not stabilize while acquiring delete locks",
     ))
-}
-
-async fn load_folder_chain_in_scope<C: ConnectionTrait>(
-    db: &C,
-    scope: WorkspaceStorageScope,
-    start_id: Option<i64>,
-) -> Result<Vec<folder::Model>> {
-    // 从目标父目录一路向根走，用于校验 scope、检测环，以及决定移动时要锁哪些目录。
-    let mut chain = Vec::new();
-    let mut seen = BTreeSet::new();
-    let mut cursor = start_id;
-    while let Some(folder_id) = cursor {
-        if !seen.insert(folder_id) {
-            return Err(AsterError::validation_error(
-                "folder hierarchy contains a cycle",
-            ));
-        }
-        let folder = folder_repo::find_by_id(db, folder_id).await?;
-        ensure_folder_model_in_scope(&folder, scope)?;
-        cursor = folder.parent_id;
-        chain.push(folder);
-    }
-    Ok(chain)
 }
 
 async fn lock_folder_ids_in_order<C: ConnectionTrait>(db: &C, ids: &[i64]) -> Result<()> {

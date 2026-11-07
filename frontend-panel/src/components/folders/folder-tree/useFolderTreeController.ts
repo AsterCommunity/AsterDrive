@@ -9,6 +9,7 @@ import {
 } from "react";
 import { matchPath, useLocation, useNavigate } from "react-router-dom";
 import { handleApiError } from "@/hooks/useApiError";
+import { getAuthOperationGeneration } from "@/lib/authOperationOwner";
 import { FOLDER_TREE_DRAG_EXPAND_DELAY_MS } from "@/lib/constants";
 import {
 	getInvalidInternalDropReason,
@@ -97,6 +98,17 @@ export function useFolderTreeController({
 		null,
 	);
 	const hoverExpandTargetIdRef = useRef<number | null>(null);
+	// 导航/换号后的旧响应不得回填新树。identity 在 render 时更新，关闭 effect 执行前的
+	// 微任务窗口；generation 还能识别同一账号退出后重新登录的生命周期变化。
+	const loadIdentity = `${userId}:${currentWorkspaceKey}:${sortBy}:${sortOrder}:${getAuthOperationGeneration()}`;
+	const loadIdentityRef = useRef(loadIdentity);
+	loadIdentityRef.current = loadIdentity;
+	useEffect(() => {
+		loadIdentityRef.current = loadIdentity;
+		return () => {
+			loadIdentityRef.current = "unmounted";
+		};
+	}, [loadIdentity]);
 
 	const clearHoverExpandTimer = useCallback(() => {
 		if (hoverExpandTimerRef.current) {
@@ -210,6 +222,11 @@ export function useFolderTreeController({
 				return;
 			}
 
+			const startedIdentity = loadIdentityRef.current;
+			const startedGeneration = getAuthOperationGeneration();
+			const isCurrentLoad = () =>
+				startedIdentity === loadIdentityRef.current &&
+				startedGeneration === getAuthOperationGeneration();
 			const loadPromise = (async () => {
 				if (parentId !== null) {
 					dispatchTree({
@@ -228,16 +245,16 @@ export function useFolderTreeController({
 									parentId,
 									getFolderTreeListParams(sortBy, sortOrder),
 								);
-					syncFolderChildren(parentId, contents.folders);
+					if (isCurrentLoad()) syncFolderChildren(parentId, contents.folders);
 				} finally {
-					if (parentId !== null) {
+					if (isCurrentLoad() && parentId !== null) {
 						dispatchTree({
 							type: "setFolderLoading",
 							folderId: parentId,
 							loading: false,
 						});
 					}
-					inflightLoadsRef.current.delete(parentId);
+					if (isCurrentLoad()) inflightLoadsRef.current.delete(parentId);
 				}
 			})();
 
@@ -249,6 +266,8 @@ export function useFolderTreeController({
 
 	const refreshFolderChildren = useCallback(
 		async (parentId: number | null) => {
+			const startedIdentity = loadIdentityRef.current;
+			const startedGeneration = getAuthOperationGeneration();
 			childrenCacheRef.current.delete(parentId);
 			inflightLoadsRef.current.delete(parentId);
 			if (parentId === null) {
@@ -264,7 +283,12 @@ export function useFolderTreeController({
 				parentId,
 				getFolderTreeListParams(sortBy, sortOrder),
 			);
-			syncFolderChildren(parentId, contents.folders);
+			if (
+				startedIdentity === loadIdentityRef.current &&
+				startedGeneration === getAuthOperationGeneration()
+			) {
+				syncFolderChildren(parentId, contents.folders);
+			}
 		},
 		[sortBy, sortOrder, syncFolderChildren],
 	);

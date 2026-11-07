@@ -39,6 +39,7 @@ pub(crate) struct ParsedPutRelativeRequest {
 }
 
 pub(crate) struct StoreRelativeTargetParams<'a> {
+    pub access_constraints: crate::services::workspace::scope::WorkspaceAccessConstraints,
     pub scope: WorkspaceStorageScope,
     pub folder_id: Option<i64>,
     pub filename: &'a str,
@@ -58,6 +59,7 @@ impl<'a> StoreRelativeTargetParams<'a> {
         payload: &'a mut actix_web::web::Payload,
     ) -> Self {
         Self {
+            access_constraints: Default::default(),
             scope,
             folder_id,
             filename,
@@ -68,6 +70,14 @@ impl<'a> StoreRelativeTargetParams<'a> {
             declared_size: None,
             exact_name: false,
         }
+    }
+
+    pub(crate) fn with_access_constraints(
+        mut self,
+        constraints: crate::services::workspace::scope::WorkspaceAccessConstraints,
+    ) -> Self {
+        self.access_constraints = constraints;
+        self
     }
 
     pub(crate) fn declared_size(mut self, declared_size: Option<i64>) -> Self {
@@ -351,6 +361,7 @@ pub(crate) async fn store_relative_target_from_stream(
     params: StoreRelativeTargetParams<'_>,
 ) -> Result<file::Model> {
     let StoreRelativeTargetParams {
+        access_constraints,
         scope,
         folder_id,
         filename,
@@ -415,6 +426,18 @@ pub(crate) async fn store_relative_target_from_stream(
         payload,
         resolved_policy_hint,
         declared_size,
+        storage::ensure_blob_write_admission(
+            &state.policy_snapshot,
+            &storage::BlobPolicyRequest {
+                scope,
+                folder_id,
+                folder_hint: None,
+                filename,
+                file_size: declared_size.unwrap_or(0),
+                mime_type: "application/octet-stream",
+                existing_file_id,
+            },
+        )?,
         aster_drive_metrics::TransferSource::Wopi,
     )
     .await?;
@@ -429,6 +452,7 @@ pub(crate) async fn store_relative_target_from_stream(
         storage::store_from_temp_exact_name_with_hints(
             state,
             storage::StoreFromTempParams {
+                access_constraints: access_constraints.clone(),
                 scope,
                 folder_id,
                 filename,
@@ -456,6 +480,7 @@ pub(crate) async fn store_relative_target_from_stream(
         storage::store_from_temp_with_hints(
             state,
             storage::StoreFromTempParams {
+                access_constraints: access_constraints.clone(),
                 scope,
                 folder_id,
                 filename,

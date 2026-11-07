@@ -4,6 +4,7 @@
 #[path = "../common/mod.rs"]
 mod common;
 
+mod auth_once_state;
 mod branding;
 mod cache;
 mod cors;

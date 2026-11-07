@@ -186,6 +186,22 @@ pub async fn complete_if_assembling<C: ConnectionTrait>(
             Expr::value(UploadSessionStatus::Completed.to_value()),
         )
         .col_expr(upload_session::Column::FileId, Expr::value(Some(file_id)))
+        // Provider resumable completion adopts the uploaded object itself.
+        // Transfer its cleanup authority in the same transaction as the file,
+        // quota and Completed state; no later session cleanup owns that key.
+        .col_expr(
+            upload_session::Column::ObjectTempKey,
+            sea_orm::sea_query::CaseStatement::new()
+                .case(
+                    Expr::col(upload_session::Column::SessionKind).is_in([
+                        UploadSessionKind::ProviderDirectResumable,
+                        UploadSessionKind::ProviderRelayResumable,
+                    ]),
+                    Expr::value(Option::<String>::None),
+                )
+                .finally(Expr::col(upload_session::Column::ObjectTempKey))
+                .into(),
+        )
         .col_expr(
             upload_session::Column::UpdatedAt,
             Expr::value(chrono::Utc::now()),
@@ -434,6 +450,14 @@ pub async fn find_recoverable_by_owner<C: ConnectionTrait>(
     let now = chrono::Utc::now();
     let mut query = UploadSession::find()
         .filter(upload_session::Column::UserId.eq(user_id))
+        .filter(
+            sea_orm::Condition::any()
+                .add(upload_session::Column::SessionKind.is_not_in([
+                    UploadSessionKind::ProviderDirectResumable,
+                    UploadSessionKind::ProviderRelayResumable,
+                ]))
+                .add(upload_session::Column::ProviderSessionCiphertext.is_not_null()),
+        )
         .filter(upload_session::Column::ExpiresAt.gt(now))
         .filter(upload_session::Column::Status.is_in([
             UploadSessionStatus::Uploading,
@@ -530,6 +554,34 @@ pub async fn compare_exchange_provider_session<C: ConnectionTrait>(
         .filter(upload_session::Column::ProviderSessionCiphertext.eq(previous))
         .exec(db)
         .await?;
+    Ok(result.rows_affected == 1)
+}
+
+pub(crate) async fn install_reserved_provider_session<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    upload_id: &str,
+    temp_key: &str,
+    ciphertext: &str,
+    expires_at: chrono::DateTime<chrono::Utc>,
+) -> Result<bool> {
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, sea_query::Expr};
+    let result = upload_session::Entity::update_many()
+        .col_expr(
+            upload_session::Column::ProviderSessionCiphertext,
+            Expr::value(ciphertext),
+        )
+        .col_expr(upload_session::Column::ExpiresAt, Expr::value(expires_at))
+        .col_expr(
+            upload_session::Column::UpdatedAt,
+            Expr::value(chrono::Utc::now()),
+        )
+        .filter(upload_session::Column::Id.eq(upload_id))
+        .filter(upload_session::Column::Status.eq(UploadSessionStatus::Uploading))
+        .filter(upload_session::Column::ObjectTempKey.eq(temp_key))
+        .filter(upload_session::Column::ProviderSessionCiphertext.is_null())
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
     Ok(result.rows_affected == 1)
 }
 
@@ -776,6 +828,46 @@ mod tests {
         let unchanged = find_by_id(&db, &model.id).await.unwrap();
         assert_eq!(unchanged.status, UploadSessionStatus::Assembling);
         assert_eq!(unchanged.expires_at, original_expiry);
+    }
+
+    #[tokio::test]
+    async fn provider_completion_transfers_object_cleanup_authority_atomically() {
+        use sea_orm::TransactionTrait;
+        let db = build_test_db().await;
+        for kind in [
+            UploadSessionKind::ProviderDirectResumable,
+            UploadSessionKind::ProviderRelayResumable,
+        ] {
+            let id = format!("transfer-{}", kind.as_str());
+            let mut row = session(&id, UploadSessionStatus::Assembling);
+            row.session_kind = kind;
+            row.object_temp_key = Some("files/permanent-provider-object".into());
+            row.provider_session_ciphertext = Some("encrypted-protocol-state".into());
+            row.into_active_model().insert(&db).await.unwrap();
+            let txn = db.begin().await.unwrap();
+            assert!(complete_if_assembling(&txn, &id, 123).await.unwrap());
+            assert!(
+                find_by_id(&txn, &id)
+                    .await
+                    .unwrap()
+                    .object_temp_key
+                    .is_none()
+            );
+            txn.rollback().await.unwrap();
+            let rolled_back = find_by_id(&db, &id).await.unwrap();
+            assert_eq!(rolled_back.status, UploadSessionStatus::Assembling);
+            assert!(rolled_back.object_temp_key.is_some());
+            assert!(complete_if_assembling(&db, &id, 123).await.unwrap());
+            let completed = find_by_id(&db, &id).await.unwrap();
+            assert_eq!(completed.status, UploadSessionStatus::Completed);
+            assert_eq!(completed.file_id, Some(123));
+            assert!(completed.object_temp_key.is_none());
+            assert!(
+                !try_fail_with_expiration(&db, &id, UploadSessionStatus::Assembling, Utc::now())
+                    .await
+                    .unwrap()
+            );
+        }
     }
 
     #[tokio::test]

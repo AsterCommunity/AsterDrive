@@ -248,11 +248,6 @@ async fn build_s3_direct_test_state() -> (
     let storage_change_bus = crate::services::events::storage_change::StorageChangeBus::new(
         crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
     );
-    let share_download_rollback =
-        crate::services::share::spawn_detached_share_download_rollback_queue(
-            db.clone(),
-            crate::config::operations::share_download_rollback_queue_capacity(&runtime_config),
-        );
 
     let state = PrimaryAppState {
         audit_writer: crate::runtime::test_support::audit_writer(&db).await,
@@ -266,7 +261,7 @@ async fn build_s3_direct_test_state() -> (
         metrics: aster_drive_metrics::NoopMetrics::arc(),
         mail_sender: sender::runtime_sender(runtime_config),
         storage_change_bus,
-        share_download_rollback,
+        storage_event_streams: Default::default(),
         background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
         remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
     };
@@ -341,6 +336,7 @@ async fn known_size_s3_write_with_precondition_uses_transactional_temp_upload() 
     let mut write_handle = AsterDavWriteHandle::for_write_with_audit(
         state.clone(),
         DavWriteOpenContext {
+            access_constraints: Default::default(),
             scope: crate::services::workspace::storage::WorkspaceStorageScope::Personal {
                 user_id: user.id,
             },
@@ -516,6 +512,7 @@ async fn known_size_temp_write_rejects_declared_overflow_during_write() {
     let mut handle = AsterDavWriteHandle::for_write_with_audit(
         state,
         DavWriteOpenContext {
+            access_constraints: Default::default(),
             scope: crate::services::workspace::storage::WorkspaceStorageScope::Personal {
                 user_id: user.id,
             },

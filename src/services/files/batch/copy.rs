@@ -153,7 +153,13 @@ pub(crate) async fn batch_transfer_between_scopes(
         file_map,
         folder_map: _,
     } = load_normalized_selection_in_scope(state, source_scope, file_ids, folder_ids).await?;
-    storage::require_scope_access(state, dest_scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        dest_scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let target_error = load_target_folder_in_scope(state, dest_scope, target_folder_id)
         .await
         .err();

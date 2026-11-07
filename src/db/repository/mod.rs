@@ -1,6 +1,7 @@
 //! 仓储层模块导出。
 
 pub mod audit_log_repo;
+pub mod auth_once_state_repo;
 pub mod auth_policy_repo;
 pub mod auth_session_repo;
 pub mod background_task_repo;
@@ -20,6 +21,7 @@ pub mod lock_repo;
 pub mod managed_follower_repo;
 pub mod master_binding_repo;
 pub mod media_metadata_repo;
+pub mod mfa_attempt_budget_repo;
 pub mod mfa_email_code_repo;
 pub mod mfa_factor_repo;
 pub mod mfa_login_flow_repo;

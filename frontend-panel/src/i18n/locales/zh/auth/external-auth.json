@@ -22,7 +22,7 @@
 	"external_auth_email_verification_missing_token_title": "缺少验证令牌",
 	"external_auth_email_verification_missing_token_desc": "这个外部认证邮箱验证链接缺少可用令牌，没法继续",
 	"external_auth_email_verification_invalid_title": "验证链接无效",
-	"external_auth_email_verification_invalid_desc": "这个外部认证邮箱验证链接无效，或者已经被使用过。请重新发起外部登录",
+	"external_auth_email_verification_invalid_desc": "这个验证链接无效、已被使用，或当前浏览器没有发起该登录。请在发起外部登录的浏览器中打开邮件链接；无法继续时重新发起外部登录",
 	"external_auth_email_verification_expired_title": "验证链接已过期",
 	"external_auth_email_verification_expired_desc": "这个外部认证邮箱验证链接已经过期。请重新发起外部登录"
 }

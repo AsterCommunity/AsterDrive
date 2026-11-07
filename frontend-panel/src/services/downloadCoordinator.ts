@@ -76,8 +76,20 @@ interface ExpandedSelection {
 
 const activeControllers = new Map<string, AbortController>();
 const retryActions = new Map<string, () => void>();
+
+/** 登出同步撤销下载生命周期；迟到 progress 只更新已存在的 task，无法重建清空的列表。 */
+export function clearAccountDownloads() {
+	for (const controller of activeControllers.values()) controller.abort();
+	activeControllers.clear();
+	retryActions.clear();
+	useDownloadStore.setState({ pendingSelection: null, tasks: [] });
+}
+
 const DIRECTORY_CONCURRENCY = 3;
 const LIST_PAGE_SIZE = 1000;
+const MAX_DIRECTORY_DEPTH = 4096;
+const MAX_DIRECTORY_ENTRIES = 10_000;
+const MAX_DIRECTORY_PATH_CHARS = 64 * 1024 * 1024;
 
 function taskId() {
 	return crypto.randomUUID();
@@ -456,19 +468,29 @@ function suggestedArchiveName(selection: DownloadSelection) {
 async function listAllFolderContents(
 	workspace: Workspace,
 	folderId: number,
+	signal: AbortSignal,
+	budget: { remaining: number },
 ): Promise<FolderContents> {
 	const service = createFileService(workspace);
 	const folders: FolderContents["folders"] = [];
 	const files: FolderContents["files"] = [];
 
 	for (let offset = 0; ; offset += LIST_PAGE_SIZE) {
-		const page = await service.listFolder(folderId, {
-			folder_limit: LIST_PAGE_SIZE,
-			folder_offset: offset,
-			file_limit: 0,
-			sort_by: "name",
-			sort_order: "asc",
-		});
+		throwIfCanceled(signal);
+		const page = await service.listFolder(
+			folderId,
+			{
+				folder_limit: LIST_PAGE_SIZE,
+				folder_offset: offset,
+				file_limit: 0,
+				sort_by: "name",
+				sort_order: "asc",
+			},
+			{ signal },
+		);
+		throwIfCanceled(signal);
+		budget.remaining -= page.folders.length;
+		if (budget.remaining < 0) throw new Error("download_directory_limit");
 		folders.push(...page.folders);
 		if (folders.length >= page.folders_total || page.folders.length === 0)
 			break;
@@ -477,14 +499,22 @@ async function listAllFolderContents(
 	let cursor: FolderContents["next_file_cursor"] = null;
 	let pageHasFiles = true;
 	do {
-		const page = await service.listFolder(folderId, {
-			folder_limit: 0,
-			file_limit: LIST_PAGE_SIZE,
-			file_after_id: cursor?.id,
-			file_after_value: cursor?.value,
-			sort_by: "name",
-			sort_order: "asc",
-		});
+		throwIfCanceled(signal);
+		const page = await service.listFolder(
+			folderId,
+			{
+				folder_limit: 0,
+				file_limit: LIST_PAGE_SIZE,
+				file_after_id: cursor?.id,
+				file_after_value: cursor?.value,
+				sort_by: "name",
+				sort_order: "asc",
+			},
+			{ signal },
+		);
+		throwIfCanceled(signal);
+		budget.remaining -= page.files.length;
+		if (budget.remaining < 0) throw new Error("download_directory_limit");
 		files.push(...page.files);
 		cursor = page.next_file_cursor;
 		pageHasFiles = page.files.length > 0;
@@ -504,10 +534,28 @@ async function expandFolder(
 	folderId: number,
 	basePath: string,
 	output: ExpandedSelection,
+	signal: AbortSignal,
+	budget: { remaining: number; seen: Set<number>; pathCharacters: number },
+	depth: number,
 ) {
+	throwIfCanceled(signal);
+	if (depth >= MAX_DIRECTORY_DEPTH || budget.seen.has(folderId))
+		throw new Error("download_directory_limit");
+	budget.seen.add(folderId);
+	budget.pathCharacters += basePath.length;
+	if (budget.pathCharacters > MAX_DIRECTORY_PATH_CHARS)
+		throw new Error("download_directory_limit");
 	output.directories.push(basePath);
-	const contents = await listAllFolderContents(workspace, folderId);
+	const contents = await listAllFolderContents(
+		workspace,
+		folderId,
+		signal,
+		budget,
+	);
 	for (const file of contents.files) {
+		budget.pathCharacters += basePath.length + 1 + file.name.length;
+		if (budget.pathCharacters > MAX_DIRECTORY_PATH_CHARS)
+			throw new Error("download_directory_limit");
 		output.files.push({
 			id: file.id,
 			name: file.name,
@@ -521,11 +569,27 @@ async function expandFolder(
 			folder.id,
 			`${basePath}/${folder.name}`,
 			output,
+			signal,
+			budget,
+			depth + 1,
 		);
 	}
 }
 
-async function expandSelection(selection: DownloadSelection) {
+async function expandSelection(
+	selection: DownloadSelection,
+	signal: AbortSignal,
+) {
+	const budget = {
+		remaining:
+			MAX_DIRECTORY_ENTRIES - selection.files.length - selection.folders.length,
+		seen: new Set<number>(),
+		pathCharacters: selection.files.reduce(
+			(total, file) => total + file.name.length,
+			0,
+		),
+	};
+	if (budget.remaining < 0) throw new Error("download_directory_limit");
 	const output: ExpandedSelection = {
 		directories: [],
 		files: selection.files.map((file) => ({
@@ -536,7 +600,15 @@ async function expandSelection(selection: DownloadSelection) {
 		})),
 	};
 	for (const folder of selection.folders) {
-		await expandFolder(selection.workspace, folder.id, folder.name, output);
+		await expandFolder(
+			selection.workspace,
+			folder.id,
+			folder.name,
+			output,
+			signal,
+			budget,
+			0,
+		);
 	}
 	return output;
 }
@@ -574,13 +646,17 @@ async function uniqueFileName(
 	directory: DirectoryHandleLike,
 	requested: string,
 	reserved: Set<string>,
+	signal: AbortSignal,
 ) {
+	throwIfCanceled(signal);
 	if (!reserved.has(requested) && !(await entryExists(directory, requested))) {
 		reserved.add(requested);
 		return requested;
 	}
 	const [base, extension] = splitExtension(requested);
 	for (let index = 1; ; index += 1) {
+		throwIfCanceled(signal);
+		if (index > 10_000) throw new Error("download_directory_limit");
 		const candidate = `${base} (${index})${extension}`;
 		if (
 			!reserved.has(candidate) &&
@@ -596,12 +672,16 @@ async function uniqueDirectoryName(
 	directory: DirectoryHandleLike,
 	requested: string,
 	reserved: Set<string>,
+	signal: AbortSignal,
 ) {
+	throwIfCanceled(signal);
 	if (!reserved.has(requested) && !(await entryExists(directory, requested))) {
 		reserved.add(requested);
 		return requested;
 	}
 	for (let index = 1; ; index += 1) {
+		throwIfCanceled(signal);
+		if (index > 10_000) throw new Error("download_directory_limit");
 		const candidate = `${requested} (${index})`;
 		if (
 			!reserved.has(candidate) &&
@@ -616,11 +696,20 @@ async function uniqueDirectoryName(
 async function planSelectionRootNames(
 	directory: DirectoryHandleLike,
 	selection: DownloadSelection,
+	signal: AbortSignal,
 ) {
+	if (selection.files.length + selection.folders.length > MAX_DIRECTORY_ENTRIES)
+		throw new Error("download_directory_limit");
 	const reserved = new Set<string>();
 	const folders = [];
 	for (const folder of selection.folders) {
-		const name = await uniqueDirectoryName(directory, folder.name, reserved);
+		const name = await uniqueDirectoryName(
+			directory,
+			folder.name,
+			reserved,
+			signal,
+		);
+		throwIfCanceled(signal);
 		await directory.getDirectoryHandle(name, { create: true });
 		folders.push({ ...folder, name });
 	}
@@ -628,44 +717,84 @@ async function planSelectionRootNames(
 	for (const file of selection.files) {
 		files.push({
 			...file,
-			name: await uniqueFileName(directory, file.name, reserved),
+			name: await uniqueFileName(directory, file.name, reserved, signal),
 		});
 	}
 	return { ...selection, files, folders } satisfies DownloadSelection;
 }
 
-async function createDirectoryPath(
+// Cache prefixes for the entire task, including retries. Promise entries
+// coalesce concurrent workers preparing files in the same directory.
+type DirectoryHandles = Map<string, Promise<DirectoryHandleLike>>;
+async function directoryAt(
 	root: DirectoryHandleLike,
 	relativePath: string,
+	handles: DirectoryHandles,
+	signal: AbortSignal,
 ) {
-	let directory = root;
-	for (const segment of splitRelativePath(relativePath)) {
-		directory = await directory.getDirectoryHandle(segment, { create: true });
+	throwIfCanceled(signal);
+	if (!relativePath) return root;
+	const cached = handles.get(relativePath);
+	if (cached) return cached;
+	// Find the nearest retained parent once. Ordered preparation normally
+	// finds the immediate parent, without resolving every ancestor again.
+	let prefix = relativePath;
+	const missing: Array<{ path: string; name: string }> = [];
+	while (prefix && !handles.has(prefix)) {
+		if (missing.length >= MAX_DIRECTORY_DEPTH)
+			throw new Error("download_directory_limit");
+		const separator = prefix.lastIndexOf("/");
+		missing.push({ path: prefix, name: prefix.slice(separator + 1) });
+		prefix = separator < 0 ? "" : prefix.slice(0, separator);
 	}
+	const parent = handles.get(prefix);
+	let directory = parent ? await parent : root;
+	for (const item of missing.reverse()) {
+		throwIfCanceled(signal);
+		let pending = handles.get(item.path);
+		if (!pending) {
+			pending = directory.getDirectoryHandle(item.name, { create: true });
+			handles.set(item.path, pending);
+			const attempt = pending;
+			void pending.catch(() => {
+				if (handles.get(item.path) === attempt) handles.delete(item.path);
+			});
+		}
+		directory = await pending;
+	}
+	throwIfCanceled(signal);
+	return directory;
 }
 
 async function createDirectoryPaths(
 	root: DirectoryHandleLike,
 	paths: string[],
+	handles: DirectoryHandles,
+	signal: AbortSignal,
 ) {
-	const ordered = [...new Set(paths)].sort(
-		(left, right) =>
-			splitRelativePath(left).length - splitRelativePath(right).length,
-	);
-	for (const path of ordered) await createDirectoryPath(root, path);
+	for (const path of new Set(paths))
+		await directoryAt(root, path, handles, signal);
 }
 
-async function createFileSink(root: DirectoryHandleLike, relativePath: string) {
+async function createFileSink(
+	root: DirectoryHandleLike,
+	relativePath: string,
+	handles: DirectoryHandles,
+	signal: AbortSignal,
+) {
 	const segments = splitRelativePath(relativePath);
 	const requestedName = segments.pop();
 	if (!requestedName) throw new Error("Invalid empty download path");
-	let directory = root;
-	for (const segment of segments) {
-		directory = await directory.getDirectoryHandle(segment, { create: true });
-	}
-	return (
-		await directory.getFileHandle(requestedName, { create: true })
-	).createWritable();
+	const directory = await directoryAt(
+		root,
+		segments.join("/"),
+		handles,
+		signal,
+	);
+	throwIfCanceled(signal);
+	const file = await directory.getFileHandle(requestedName, { create: true });
+	throwIfCanceled(signal);
+	return file.createWritable();
 }
 
 function directoryTaskItems(files: DirectoryFile[]): DownloadTaskItem[] {
@@ -708,6 +837,7 @@ async function runDirectoryDownload(
 	selection: DownloadSelection,
 	directory: DirectoryHandleLike,
 	files: DirectoryFile[],
+	handles: DirectoryHandles,
 ) {
 	const controller = new AbortController();
 	activeControllers.set(task.id, controller);
@@ -739,7 +869,12 @@ async function runDirectoryDownload(
 			try {
 				const [source, sink] = await Promise.all([
 					resolveFileSource(selection.workspace, file.id),
-					createFileSink(directory, file.relativePath),
+					createFileSink(
+						directory,
+						file.relativePath,
+						handles,
+						controller.signal,
+					),
 				]);
 				const response = await fetchDownload(source, controller.signal);
 				updateDirectoryItem(task.id, itemId, {
@@ -806,9 +941,20 @@ export async function startDirectoryDownload(selection: DownloadSelection) {
 		});
 		throwIfCanceled(preparationController.signal);
 		updateTask(task.id, { status: DOWNLOAD_TASK_STATUS.preparing });
-		const plannedSelection = await planSelectionRootNames(directory, selection);
-		const expanded = await expandSelection(plannedSelection);
-		await createDirectoryPaths(directory, expanded.directories);
+		const signal = preparationController.signal;
+		const handles: DirectoryHandles = new Map();
+		const plannedSelection = await planSelectionRootNames(
+			directory,
+			selection,
+			signal,
+		);
+		const expanded = await expandSelection(plannedSelection, signal);
+		await createDirectoryPaths(
+			directory,
+			expanded.directories,
+			handles,
+			signal,
+		);
 		throwIfCanceled(preparationController.signal);
 		updateTask(task.id, {
 			items: directoryTaskItems(expanded.files),
@@ -821,6 +967,7 @@ export async function startDirectoryDownload(selection: DownloadSelection) {
 				plannedSelection,
 				directory,
 				expanded.files,
+				handles,
 			);
 		};
 		retryActions.set(task.id, retry);
@@ -830,6 +977,7 @@ export async function startDirectoryDownload(selection: DownloadSelection) {
 			plannedSelection,
 			directory,
 			expanded.files,
+			handles,
 		);
 	} catch (error) {
 		finishWithError(task, error);

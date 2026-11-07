@@ -8,7 +8,7 @@ mod rate_limit;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 
-use crate::db::repository::{user_repo, webdav_account_repo};
+use crate::db::repository::webdav_account_repo;
 use crate::errors::{AsterError, MapAsterErr};
 use crate::runtime::SharedRuntimeState;
 use crate::services::workspace::storage::WorkspaceStorageScope;
@@ -17,6 +17,7 @@ use crate::services::workspace::storage::WorkspaceStorageScope;
 #[derive(Debug)]
 pub(crate) struct WebdavAuthResult {
     pub(crate) account_id: i64,
+    pub(crate) access_constraints: crate::services::workspace::scope::WorkspaceAccessConstraints,
     pub(crate) scope: WorkspaceStorageScope,
     /// 限制访问范围：None = 全部，Some(folder_id) = 只能访问该文件夹及子目录
     pub(crate) root_folder_id: Option<i64>,
@@ -39,23 +40,49 @@ pub(crate) use rate_limit::WebdavAuthProtection;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CachedWebdavAuth {
     account_id: i64,
-    user_id: i64,
-    team_id: Option<i64>,
-    root_folder_id: Option<i64>,
+    verifier_fingerprint: String,
 }
 
-impl CachedWebdavAuth {
-    fn scope(&self) -> WorkspaceStorageScope {
-        match self.team_id {
-            Some(team_id) => WorkspaceStorageScope::Team {
-                team_id,
-                actor_user_id: self.user_id,
-            },
-            None => WorkspaceStorageScope::Personal {
-                user_id: self.user_id,
-            },
+/// 缓存只证明某个密码对应的 verifier 曾验证成功，不代表当前仍有资源访问权。
+/// 每次使用都从 writer 验证 credential/owner/team；失效通知只是加速清理。
+async fn authorize_account(
+    state: &impl SharedRuntimeState,
+    account: &aster_drive_model::entities::webdav_account::Model,
+) -> Result<WebdavAuthResult, WebdavAuthError> {
+    match account.is_active {
+        true => {}
+        false => {
+            return Err(AsterError::auth_invalid_credentials("invalid WebDAV credentials").into());
         }
     }
+    let scope = match account.team_id {
+        Some(team_id) => WorkspaceStorageScope::Team {
+            team_id,
+            actor_user_id: account.user_id,
+        },
+        None => WorkspaceStorageScope::Personal {
+            user_id: account.user_id,
+        },
+    };
+    let access_constraints =
+        crate::services::workspace::scope::WorkspaceAccessConstraints::for_webdav(
+            account.id,
+            aster_forge_crypto::sha256_hex(account.password_hash.as_bytes()),
+            account.root_folder_id,
+        );
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &access_constraints,
+    )
+    .await?;
+    Ok(WebdavAuthResult {
+        account_id: account.id,
+        scope,
+        root_folder_id: account.root_folder_id,
+        access_constraints,
+    })
 }
 
 pub(crate) async fn invalidate_webdav_auth_for_username(
@@ -142,12 +169,27 @@ async fn authenticate_basic(
         .await
         .map_err(AsterError::from)?
     {
-        tracing::debug!(username_hash = %cache::username_cache_component(username), "webdav auth cache hit");
-        return Ok(WebdavAuthResult {
-            account_id: cached.account_id,
-            scope: cached.scope(),
-            root_folder_id: cached.root_folder_id,
-        });
+        // 不接受缓存里的旧 user/team/root。密码轮换也改变 verifier，旧密码缓存
+        // 即使在撤销后被并发请求重新填入，也无法通过当前数据库事实复核。
+        let account = webdav_account_repo::find_for_authorization(
+            state.writer_db(),
+            cached.account_id,
+            false,
+        )
+        .await?
+        .ok_or_else(|| AsterError::auth_invalid_credentials("invalid WebDAV credentials"))?;
+        match account.username == username
+            && aster_forge_crypto::sha256_hex(account.password_hash.as_bytes())
+                == cached.verifier_fingerprint
+        {
+            true => {}
+            false => {
+                return Err(
+                    AsterError::auth_invalid_credentials("invalid WebDAV credentials").into(),
+                );
+            }
+        }
+        return authorize_account(state, &account).await;
     }
 
     let protection = request
@@ -191,62 +233,48 @@ async fn authenticate_basic(
         return Err(AsterError::auth_invalid_credentials("invalid WebDAV credentials").into());
     }
 
-    // 确认关联用户仍然活跃
-    let user = user_repo::find_by_id(state.writer_db(), account.user_id).await?;
-    if !user.status.is_active() {
-        rate_limit::record_username_failure(state, protection.enabled(), username).await;
-        tracing::info!(
-            user_id = user.id,
-            "webdav login rejected: linked user account is disabled"
-        );
-        return Err(AsterError::auth_invalid_credentials("invalid WebDAV credentials").into());
-    }
-
-    let scope = match account.team_id {
-        Some(team_id) => {
-            crate::services::workspace::storage::require_team_access(
-                state,
-                team_id,
-                account.user_id,
-            )
-            .await?;
-            WorkspaceStorageScope::Team {
-                team_id,
-                actor_user_id: account.user_id,
-            }
-        }
-        None => WorkspaceStorageScope::Personal {
-            user_id: account.user_id,
-        },
-    };
-
+    let verified_hash = account.password_hash.clone();
     if password_verification.needs_rehash {
-        crate::services::webdav::account::upgrade_password_hash_if_needed(
-            state, &account, password,
-        )
-        .await;
+        crate::services::webdav::account::upgrade_password_hash_if_needed(state, &account, password)
+            .await
     }
 
+    // Rehash 或并发改密都可能更新 verifier。只绑定重新加载后的值而不验证，会把
+    // 旧密码验证的成功结果错误升级成新密码的凭据。仅 verifier 改变时再验证一次。
+    let account = webdav_account_repo::find_by_id(state.writer_db(), account.id).await?;
+    match account.password_hash == verified_hash {
+        true => {}
+        false => match state
+            .runtime_config()
+            .password_hash_runtime()
+            .verify_password(password, &account.password_hash)
+            .await
+            .map_err(AsterError::from)?
+            .is_valid
+        {
+            true => {}
+            false => {
+                return Err(
+                    AsterError::auth_invalid_credentials("invalid WebDAV credentials").into(),
+                );
+            }
+        },
+    }
+    let result = authorize_account(state, &account).await?;
     cache::store_auth(
         state,
         username,
         password,
         &CachedWebdavAuth {
             account_id: account.id,
-            user_id: account.user_id,
-            team_id: account.team_id,
-            root_folder_id: account.root_folder_id,
+            verifier_fingerprint: aster_forge_crypto::sha256_hex(account.password_hash.as_bytes()),
         },
     )
     .await
     .map_err(AsterError::from)?;
     rate_limit::clear_username_failures(state, protection.enabled(), username).await;
     tracing::debug!(username_hash = %cache::username_cache_component(username), "webdav auth cache miss");
-    Ok(WebdavAuthResult {
-        account_id: account.id,
-        scope,
-        root_folder_id: account.root_folder_id,
-    })
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -307,11 +335,6 @@ mod tests {
         let storage_change_bus = crate::services::events::storage_change::StorageChangeBus::new(
             crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
-        let share_download_rollback =
-            crate::services::share::spawn_detached_share_download_rollback_queue(
-                db.clone(),
-                crate::config::operations::share_download_rollback_queue_capacity(&runtime_config),
-            );
 
         PrimaryAppState {
             audit_writer: crate::runtime::test_support::audit_writer(&db).await,
@@ -327,7 +350,7 @@ mod tests {
             metrics: aster_drive_metrics::NoopMetrics::arc(),
             mail_sender: sender::runtime_sender(runtime_config),
             storage_change_bus,
-            share_download_rollback,
+            storage_event_streams: Default::default(),
             background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
             remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
         }
@@ -471,6 +494,82 @@ mod tests {
         assert_eq!(result.account_id, account_id);
         assert_eq!(result.scope.actor_user_id(), user_id);
         assert_eq!(result.root_folder_id, root_folder_id);
+    }
+
+    /// 确定性模拟“撤销先提交，旧认证后回填”，而非依赖 sleep 撞竞争窗口。
+    #[actix_web::test]
+    async fn cached_basic_auth_rejects_revocation_after_stale_cache_republication() {
+        let state = build_auth_test_state().await;
+        let (username, password, _, account_id, _) = seed_webdav_account(&state).await;
+        authenticate_webdav(&basic_request(&username, &password), &state)
+            .await
+            .unwrap();
+        let stale = super::cache::load_auth(&state, &username, &password)
+            .await
+            .unwrap()
+            .unwrap();
+        let account =
+            crate::db::repository::webdav_account_repo::find_by_id(state.writer_db(), account_id)
+                .await
+                .unwrap();
+        let mut active = account.into_active_model();
+        active.is_active = Set(false);
+        active.update(state.writer_db()).await.unwrap();
+        // 故意绕过失效通知并回填撤销前的值：当前数据库资格仍必须拒绝它。
+        super::cache::store_auth(&state, &username, &password, &stale)
+            .await
+            .unwrap();
+        assert!(matches!(
+            authenticate_webdav(&basic_request(&username, &password), &state).await,
+            Err(WebdavAuthError::Rejected)
+        ));
+    }
+
+    #[actix_web::test]
+    async fn cached_basic_auth_rechecks_password_verifier_without_invalidation() {
+        let state = build_auth_test_state().await;
+        let (username, password, _, account_id, _) = seed_webdav_account(&state).await;
+        authenticate_webdav(&basic_request(&username, &password), &state)
+            .await
+            .unwrap();
+        let account =
+            crate::db::repository::webdav_account_repo::find_by_id(state.writer_db(), account_id)
+                .await
+                .unwrap();
+        let mut active = account.into_active_model();
+        active.password_hash = Set(state
+            .runtime_config()
+            .password_hash_runtime()
+            .hash_password("new-webdav-password")
+            .await
+            .unwrap());
+        active.update(state.writer_db()).await.unwrap();
+        assert!(matches!(
+            authenticate_webdav(&basic_request(&username, &password), &state).await,
+            Err(WebdavAuthError::Rejected)
+        ));
+        authenticate_webdav(&basic_request(&username, "new-webdav-password"), &state)
+            .await
+            .expect("current password remains usable after rotation");
+    }
+
+    #[actix_web::test]
+    async fn cached_basic_auth_rechecks_disabled_actor_without_invalidation() {
+        let state = build_auth_test_state().await;
+        let (username, password, user_id, _, _) = seed_webdav_account(&state).await;
+        authenticate_webdav(&basic_request(&username, &password), &state)
+            .await
+            .unwrap();
+        let actor = crate::db::repository::user_repo::find_by_id(state.writer_db(), user_id)
+            .await
+            .unwrap();
+        let mut active = actor.into_active_model();
+        active.status = Set(UserStatus::Disabled);
+        active.update(state.writer_db()).await.unwrap();
+        assert!(matches!(
+            authenticate_webdav(&basic_request(&username, &password), &state).await,
+            Err(WebdavAuthError::Rejected)
+        ));
     }
 
     #[actix_web::test]

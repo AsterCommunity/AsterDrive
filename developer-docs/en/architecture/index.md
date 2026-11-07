@@ -174,7 +174,7 @@ The practical rule of thumb in this repository remains:
 | --- | --- |
 | `src/main.rs` | Process entry, node-mode selection, HTTP server startup, graceful shutdown |
 | `src/runtime/startup/common.rs` | Connect database, run migrations, prepare default policies and runtime config, load policy snapshot / driver registry / cache |
-| `src/runtime/startup/primary.rs` | Build the primary runtime: `RuntimeConfig`, mail sender, SSE broadcaster, share-download rollback queue, and remote protocol runtime |
+| `src/runtime/startup/primary.rs` | Build the primary runtime: `RuntimeConfig`, mail sender, SSE broadcaster, and remote protocol runtime |
 | `src/runtime/startup/follower.rs` | Build the follower runtime: keep only the shared state needed by the follower |
 | `src/runtime/tasks.rs` | Register and shut down primary periodic tasks; metrics system tasks are injected through `MetricsRecorder` |
 | `crates/aster_drive_metrics/` | Drive product metrics trait, `NoopMetrics`, and the `aster_forge_metrics` adapter; the root package does not expose the old metrics path |
@@ -252,7 +252,6 @@ Runtime state keeps both writer and reader handles through `DbHandles`:
 - `RuntimeConfig`
 - runtime mail sender
 - storage-change broadcast channel
-- share-download rollback queue
 - `RemoteProtocolRuntime`, including the reverse-tunnel registry, injected into `DriverRegistry`
 
 After that, `src/api/primary.rs` registers the main routes and `src/runtime/tasks.rs` starts primary periodic tasks.
@@ -273,7 +272,6 @@ Then `src/api/follower.rs` registers only:
 Primary background work is registered by `src/runtime/tasks.rs` and is split into resident workers plus periodic tasks:
 
 - resident workers:
-  - `share-download-rollback`
   - `background-task-dispatch` (one consumer per lane; not part of the singleton scheduler lease)
 - periodic tasks:
   - `mail-outbox-dispatch`
@@ -371,7 +369,6 @@ The single source of truth is `src/config/definitions.rs`. Common keys include:
 - `background_task_thumbnail_max_concurrency`
 - `background_task_storage_migration_max_concurrency`
 - `background_task_max_attempts`
-- `share_download_rollback_queue_capacity`
 - `share_stream_session_ttl_secs`
 - `maintenance_cleanup_interval_secs`
 - `blob_reconcile_interval_secs`

@@ -82,6 +82,21 @@ pub(crate) async fn ensure_upload_parent_path_with_created<C: sea_orm::Connectio
             Vec::new(),
         ));
     }
+    // 路径物化会写多个集合；先取得当前 actor 的 mutation grant，再逐段检查。
+    let access = crate::services::workspace::scope::authorize_workspace_on(
+        db,
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::CreateFolder,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
+    crate::services::files::folder::hierarchy::ensure_insertion_depth_on(
+        db,
+        scope,
+        parsed.base_folder_id,
+        parsed.parent_segments.len(),
+    )
+    .await?;
     let mut current_parent = parsed.base_folder_id;
     let mut current_folder = parsed.base_folder;
     let mut created = Vec::new();
@@ -98,6 +113,23 @@ pub(crate) async fn ensure_upload_parent_path_with_created<C: sea_orm::Connectio
         let (folder, was_created) = if let Some(folder) = existing {
             (folder, false)
         } else {
+            access.parent(current_parent).await?;
+            let workspace = match scope {
+                WorkspaceStorageScope::Personal { user_id } => {
+                    crate::services::files::lock::LockWorkspace::Personal { user_id }
+                }
+                WorkspaceStorageScope::Team { team_id, .. } => {
+                    crate::services::files::lock::LockWorkspace::Team { team_id }
+                }
+            };
+            // 已存在目录只需穿越；只有新增 segment 才修改父集合的成员列表。
+            crate::services::files::lock::enforce_collection_membership_mutation_on(
+                db,
+                workspace,
+                current_parent,
+                &crate::services::files::lock::SubmittedLockCredentials::none(),
+            )
+            .await?;
             let created_by_username = match actor_username {
                 Some(username) => username.to_string(),
                 None => load_scope_actor_username_cached(state, scope).await?,

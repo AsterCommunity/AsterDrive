@@ -14,7 +14,14 @@ pub(crate) async fn delete_in_scope(
 ) -> Result<()> {
     tracing::debug!(scope = ?scope, file_id = id, "soft deleting file");
     let txn = transaction::begin(state.writer_db()).await?;
-    let file = delete_in_scope_on(&txn, scope, id, false, source).await?;
+    let file = delete_in_scope_on(
+        &txn,
+        scope,
+        id,
+        &crate::services::files::lock::SubmittedLockCredentials::none(),
+        source,
+    )
+    .await?;
     transaction::commit(txn).await?;
     storage_change::publish(
         state,
@@ -37,28 +44,35 @@ pub(crate) async fn delete_in_scope(
 
 /// Soft-deletes one locked file row on the caller's transaction.
 ///
-/// Protocol adapters may set `allow_locked` only after revalidating current lock rows and submitted
-/// tokens on the same transaction.
+/// 所有入口传递实际锁凭据；协议不能用裸 boolean 绕过产品层锁校验。
+/// 父集合成员移除与目标内容修改是两个独立约束，都在同一个 writer transaction 内验证。
 pub(crate) async fn delete_in_scope_on<C: ConnectionTrait>(
     db: &C,
     scope: WorkspaceStorageScope,
     id: i64,
-    allow_locked: bool,
+    credentials: &crate::services::files::lock::SubmittedLockCredentials<'_>,
     source: crate::services::workspace::activity::ActivitySource,
 ) -> Result<file::Model> {
     crate::services::files::trash::coordination::admit_mutation_on(db, scope).await?;
+    let access = crate::services::workspace::scope::authorize_workspace_on(
+        db,
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::Delete,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let snapshot = file_repo::find_by_id(db, id).await?;
-    crate::services::workspace::storage::ensure_active_file_scope(&snapshot, scope)?;
-    let file = if allow_locked {
-        file_repo::lock_by_id(db, id).await?
-    } else {
-        crate::services::files::lock::enforce_file_mutation_on(
-            db,
-            &snapshot,
-            &crate::services::files::lock::SubmittedLockCredentials::none(),
-        )
-        .await?
-    };
+    access.file(&snapshot).await?;
+    let file =
+        crate::services::files::lock::enforce_file_mutation_on(db, &snapshot, credentials).await?;
+    let workspace = crate::services::files::lock::LockWorkspace::from_file(&file)?;
+    crate::services::files::lock::enforce_collection_membership_mutation_on(
+        db,
+        workspace,
+        file.folder_id,
+        credentials,
+    )
+    .await?;
     file_repo::soft_delete(db, id).await?;
     let ctx = crate::services::workspace::activity::ActivityContext::actor(
         db,

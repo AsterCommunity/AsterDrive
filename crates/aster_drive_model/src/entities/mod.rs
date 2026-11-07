@@ -21,6 +21,7 @@ pub mod folder_tree_operation_member;
 pub mod follower_enrollment_session;
 pub mod managed_follower;
 pub mod master_binding;
+pub mod mfa_attempt_budget;
 pub mod mfa_email_code;
 pub mod mfa_factor;
 pub mod mfa_login_flow;
@@ -57,3 +58,5 @@ pub mod workspace_activity;
 pub mod admin_content_access;
 
 pub mod task_resource_publication;
+
+pub mod auth_once_state;

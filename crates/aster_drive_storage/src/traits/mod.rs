@@ -5,10 +5,13 @@ pub use browser_upload::*;
 pub mod driver;
 pub mod extensions;
 pub mod multipart;
+mod reader;
+pub use reader::SyncReader;
 
 pub use driver::{
     BlobMetadata, DirectDownloadCredentials, DirectDownloadOptions, DirectDownloadRequest,
-    PresignedUploadRequest, StorageDriver, StoragePathVisitControl, StoragePathVisitor,
+    PresignedUploadRequest, StorageCopyOptions, StorageDriver, StoragePathVisitControl,
+    StoragePathVisitor,
 };
 pub use extensions::{
     DirectDownloadStorageDriver, ExactSizeReader, ListStorageDriver, LocalPathStorageDriver,

@@ -12,10 +12,7 @@ mod policy;
 mod quota;
 
 pub(crate) use blob::{create_nondedup_blob_with_key, create_opaque_nondedup_blob};
-pub(crate) use file_record::{
-    CreateFileFromBlobParams, NewFileNameMode, create_file_from_blob_with_name_mode,
-};
-pub(crate) use file_record::{CreateFileFromBlobWithMimeParams, create_file_from_blob_with_mime};
+pub(crate) use file_record::{CreateFileFromBlobParams, NewFileNameMode, create_file_from_blob};
 pub(crate) use finalize::{
     FinalizeUploadSessionFileParams, finalize_upload_session_blob_with_actor_username,
     finalize_upload_session_file,
@@ -25,11 +22,11 @@ pub(crate) use path::{
     parse_relative_upload_path, resolve_existing_upload_parent,
 };
 pub(crate) use policy::{
-    BlobPolicyRequest, VerifiedFolderPolicyHint, ensure_policy_available_for_folder_binding,
-    load_storage_limits, local_content_dedup_enabled, record_storage_routing_decision,
-    resolve_blob_policy_for_write, resolve_blob_policy_for_write_with_exclusions,
-    resolve_blob_write_size_limit, resolve_verified_folder_policy_hint,
-    resolve_verified_folder_policy_hint_on,
+    BlobPolicyRequest, VerifiedFolderPolicyHint, ensure_blob_write_admission,
+    ensure_policy_available_for_folder_binding, load_storage_limits, local_content_dedup_enabled,
+    record_storage_routing_decision, resolve_blob_policy_for_write,
+    resolve_blob_policy_for_write_with_exclusions, resolve_blob_write_size_limit,
+    resolve_verified_folder_policy_hint, resolve_verified_folder_policy_hint_on,
 };
 pub(crate) use quota::{
     check_quota, lock_storage_usage, lock_storage_usage_for_resource_scope, update_storage_used,

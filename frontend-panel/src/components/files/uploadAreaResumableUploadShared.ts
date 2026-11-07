@@ -1,3 +1,4 @@
+import { assertCurrentAuthOperation } from "@/lib/authOperationOwner";
 import { removeSession } from "@/lib/uploadPersistence";
 import { isRetryableUploadError } from "@/services/uploadService";
 import { useAuthStore } from "@/stores/authStore";
@@ -124,18 +125,22 @@ export function createResumableUploadShared({
 	};
 
 	const runRetryableUploadOperation = async <T>({
+		task,
 		onRetryableError,
 		run,
 	}: {
+		task: UploadTask;
 		onRetryableError?: (error: Error, attempt: number) => void;
 		run: () => Promise<T>;
 	}): Promise<T> => {
 		let lastError: Error | null = null;
 
 		for (let attempt = 0; attempt < CHUNK_MAX_RETRIES; attempt++) {
+			assertCurrentAuthOperation(task.binding);
 			try {
 				return await run();
 			} catch (error) {
+				assertCurrentAuthOperation(task.binding);
 				lastError = error instanceof Error ? error : new Error(String(error));
 				onRetryableError?.(lastError, attempt);
 				if (!isRetryableUploadError(lastError)) {
@@ -144,6 +149,7 @@ export function createResumableUploadShared({
 				let shouldDelayRetry = true;
 				if (isAuthFailureUploadError(lastError)) {
 					await useAuthStore.getState().refreshToken();
+					assertCurrentAuthOperation(task.binding);
 					shouldDelayRetry = false;
 				}
 				if (shouldDelayRetry && attempt < CHUNK_MAX_RETRIES - 1) {

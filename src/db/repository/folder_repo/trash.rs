@@ -67,14 +67,25 @@ async fn find_top_level_deleted_cursor_in_scope<C: ConnectionTrait>(
     after: Option<(chrono::DateTime<Utc>, i64)>,
 ) -> Result<(Vec<folder::Model>, u64)> {
     let base_cond = top_level_deleted_condition(scope);
-    let base = Folder::find().filter(base_cond.clone());
+    let base = Folder::find().filter(base_cond);
 
     let total = base.clone().count(db).await.map_err(AsterError::from)?;
     if total == 0 || limit == 0 {
         return Ok((vec![], total));
     }
 
-    let mut q = Folder::find().filter(base_cond);
+    let items = find_top_level_deleted_batch(db, scope, limit, after).await?;
+    Ok((items, total))
+}
+
+/// Cursor-only scan for workers, without a count of all remaining trash.
+pub(crate) async fn find_top_level_deleted_batch<C: ConnectionTrait>(
+    db: &C,
+    scope: FolderScope,
+    limit: u64,
+    after: Option<(chrono::DateTime<Utc>, i64)>,
+) -> Result<Vec<folder::Model>> {
+    let mut q = Folder::find().filter(top_level_deleted_condition(scope));
     if let Some((after_deleted_at, after_id)) = after {
         q = q.filter(
             Condition::any()
@@ -95,7 +106,7 @@ async fn find_top_level_deleted_cursor_in_scope<C: ConnectionTrait>(
         .await
         .map_err(AsterError::from)?;
 
-    Ok((items, total))
+    Ok(items)
 }
 
 pub async fn find_top_level_deleted_paginated<C: ConnectionTrait>(

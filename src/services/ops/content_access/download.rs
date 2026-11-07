@@ -1,4 +1,7 @@
-use super::{denied, load, load_workspace, persist, record, require_target, types::*};
+use super::{denied, persist, record, require_target, types::*};
+use crate::services::workspace::scope::{
+    AdminContentOperation, authorize_admin_actor, authorize_admin_content_access,
+};
 use crate::{
     api::{
         api_error_code::ApiErrorCode,
@@ -70,9 +73,19 @@ pub async fn init_download(
     file_id: i64,
     request: &AdminDownloadInitRequest,
 ) -> Result<AdminDownloadInfo> {
-    super::require_actor(state, claims).await?;
+    authorize_admin_actor(state, claims, AdminContentOperation::Download).await?;
     let inspection = match &request.access_id {
-        Some(access_id) => Some(load_workspace(state, claims, access_id).await?),
+        Some(access_id) => Some(
+            authorize_admin_content_access(
+                state,
+                claims,
+                access_id,
+                AdminContentOperation::Download,
+            )
+            .await?
+            .workspace()?
+            .clone(),
+        ),
         None => None,
     };
     let scope = match &inspection {
@@ -165,7 +178,7 @@ async fn prepare(
     .await?;
     // URL resolution can contact a provider; keep it outside the database transaction.
     // No URL or durable grant is released until authority and mandatory audit both succeed.
-    super::require_actor(state, claims).await?;
+    authorize_admin_actor(state, claims, AdminContentOperation::Download).await?;
     require_target(state, scope).await?;
     let txn = state.writer_db().begin().await?;
     let grant = persist(&txn, claims, &download_payload, &grant_id).await?;
@@ -212,9 +225,11 @@ pub async fn download(
     if_none_match: Option<&str>,
     range: Option<&HeaderValue>,
 ) -> Result<file::DownloadOutcome> {
-    let payload = load(state, claims, id).await?;
+    let grant =
+        authorize_admin_content_access(state, claims, id, AdminContentOperation::Download).await?;
+    let payload = grant.payload().clone();
     let AccessPayload::Download {
-        scope,
+        scope: _,
         file_id,
         revision_id,
     } = payload
@@ -223,7 +238,7 @@ pub async fn download(
     };
     let result = async {
         let (file, blob, revision) = snapshot(state, file_id, Some(revision_id)).await?;
-        ensure_file_resource_scope(&file, require_target(state, &scope).await?)?;
+        grant.read.file_on(state.writer_db(), &file).await?;
         let range = file::resolve_range_for_download_snapshot(&file, range)?;
         // The browser has already initialized access. A same-origin fallback stays streamed.
         file::build_stream_outcome_with_disposition_and_range(

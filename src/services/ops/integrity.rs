@@ -6,16 +6,17 @@
 use std::collections::{HashMap, HashSet};
 
 use async_trait::async_trait;
+use chrono::Utc;
 use futures::{StreamExt as _, stream};
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, EntityTrait, ExprTrait, JoinType, QueryFilter, QueryOrder,
-    QuerySelect, RelationTrait, sea_query::Expr,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, ExprTrait, JoinType,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait, sea_query::Expr,
 };
 use serde::Serialize;
 
 use crate::db::repository::{file_repo, revision_repo, team_repo, user_repo};
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::services::{files::thumbnail, media::processing};
+use crate::services::media::processing;
 use crate::storage::DriverRegistry;
 use aster_drive_model::entities::{
     file::{self, Entity as File},
@@ -268,7 +269,7 @@ impl<'db, 'report, 'sink, C: ConnectionTrait + Sync> StorageAuditVisitor<'db, 'r
                 .rsplit('/')
                 .next()
                 .and_then(|name| name.strip_suffix(".webp"));
-            if thumbnail::is_thumbnail_path(&path) {
+            if aster_drive_storage::object_path::is_thumbnail_path(&path) {
                 let tracked = hash.is_some_and(|hash| {
                     derivative_blobs.iter().any(|blob| {
                         !blob.is_virtual_empty()
@@ -298,7 +299,7 @@ impl<'db, 'report, 'sink, C: ConnectionTrait + Sync> StorageAuditVisitor<'db, 'r
                 );
                 continue;
             }
-            if thumbnail::is_image_preview_path(&path) {
+            if aster_drive_storage::object_path::is_image_preview_path(&path) {
                 let tracked = hash.is_some_and(|hash| {
                     derivative_blobs.iter().any(|blob| {
                         !blob.is_virtual_empty()
@@ -864,25 +865,34 @@ pub async fn audit_revision_ledger_with_limit<C: ConnectionTrait>(
     Ok(issues)
 }
 
-pub async fn fix_storage_usage_drifts<C: ConnectionTrait>(
-    db: &C,
-    drifts: &[StorageUsageDrift],
-) -> Result<()> {
-    for drift in drifts {
-        match drift.owner_kind {
-            StorageOwnerKind::User => {
-                user_repo::set_storage_used(db, drift.owner_id, drift.actual_bytes).await?;
-            }
-            StorageOwnerKind::Team => {
-                team_repo::set_storage_used(db, drift.owner_id, drift.actual_bytes).await?;
-            }
+/// Recount one suspected drift after acquiring the same owner row lock used by charges.
+async fn reconcile_storage_owner(db: &DatabaseConnection, owner: StorageOwner) -> Result<bool> {
+    aster_forge_db::transaction::with_transaction(db, async |txn| {
+        let recorded = match owner {
+            StorageOwner::User(id) => user_repo::lock_storage_used(txn, id).await?,
+            StorageOwner::Team(id) => team_repo::lock_storage_used(txn, id).await?,
+        };
+        let Some(recorded) = recorded else {
+            return Ok(false);
+        };
+        let actual = load_actual_storage_usage_for_owners(txn, &[owner])
+            .await?
+            .get(&owner)
+            .copied()
+            .unwrap_or(0);
+        if recorded == actual {
+            return Ok(false);
         }
-    }
-
-    Ok(())
+        match owner {
+            StorageOwner::User(id) => user_repo::set_storage_used(txn, id, actual).await?,
+            StorageOwner::Team(id) => team_repo::set_storage_used(txn, id, actual).await?,
+        }
+        Ok(true)
+    })
+    .await
 }
 
-pub async fn fix_storage_usage_all<C: ConnectionTrait>(db: &C) -> Result<usize> {
+pub async fn repair_storage_usage(db: &DatabaseConnection) -> Result<usize> {
     let mut fixed = 0;
     let mut last_user_id = None;
     loop {
@@ -911,8 +921,9 @@ pub async fn fix_storage_usage_all<C: ConnectionTrait>(db: &C) -> Result<usize> 
         let actual = load_actual_storage_usage_for_owners(db, &owners).await?;
         for (id, recorded) in rows {
             let actual_bytes = actual.get(&StorageOwner::User(id)).copied().unwrap_or(0);
-            if recorded != actual_bytes {
-                user_repo::set_storage_used(db, id, actual_bytes).await?;
+            if recorded != actual_bytes
+                && reconcile_storage_owner(db, StorageOwner::User(id)).await?
+            {
                 fixed += 1;
             }
         }
@@ -945,8 +956,9 @@ pub async fn fix_storage_usage_all<C: ConnectionTrait>(db: &C) -> Result<usize> 
         let actual = load_actual_storage_usage_for_owners(db, &owners).await?;
         for (id, recorded) in rows {
             let actual_bytes = actual.get(&StorageOwner::Team(id)).copied().unwrap_or(0);
-            if recorded != actual_bytes {
-                team_repo::set_storage_used(db, id, actual_bytes).await?;
+            if recorded != actual_bytes
+                && reconcile_storage_owner(db, StorageOwner::Team(id)).await?
+            {
                 fixed += 1;
             }
         }
@@ -1039,32 +1051,88 @@ pub async fn audit_blob_ref_counts_with_limit<C: ConnectionTrait>(
     Ok(drifts)
 }
 
-pub async fn fix_blob_ref_count_drifts<C: ConnectionTrait>(
-    db: &C,
-    drifts: &[BlobRefCountDrift],
-) -> Result<()> {
-    for drift in drifts {
-        let actual_ref_count = i32::try_from(drift.actual_ref_count).map_err(|_| {
-            AsterError::internal_error(format!(
-                "actual ref count overflow for blob {}",
-                drift.blob_id
-            ))
-        })?;
-
-        let updated = file_repo::set_blob_ref_count(db, drift.blob_id, actual_ref_count).await?;
-        if !updated {
-            return Err(AsterError::record_not_found(format!(
-                "file_blob #{}",
-                drift.blob_id
-            )));
-        }
-    }
-
-    Ok(())
+/// Reconciles one blob against reference truth while excluding concurrent adoption and cleanup.
+#[derive(Clone, Copy)]
+pub(crate) enum BlobReconcileIntent {
+    Repair,
+    Cleanup,
 }
 
-pub async fn fix_blob_ref_counts_all<C: ConnectionTrait>(
-    db: &C,
+const BLOB_CLEANUP_RETRY_AFTER_SECS: i64 = 10 * 60;
+
+pub(crate) struct ReconciledBlob {
+    pub blob: file_blob::Model,
+    pub actual_refs: i32,
+    pub ref_count_fixed: bool,
+}
+
+pub(crate) async fn reconcile_blob_reference_count(
+    db: &DatabaseConnection,
+    blob_id: i64,
+    intent: BlobReconcileIntent,
+) -> Result<Option<ReconciledBlob>> {
+    aster_forge_db::transaction::with_transaction(db, async |txn| {
+        // Lock before the first consistent read, including MySQL REPEATABLE READ.
+        let mut blob = match file_repo::lock_blob_by_id(txn, blob_id).await {
+            Ok(blob) => blob,
+            Err(AsterError::RecordNotFound(_)) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let retry_claimed = match (blob.ref_count, intent) {
+            (file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT, BlobReconcileIntent::Repair) => {
+                return Ok(None);
+            }
+            (file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT, BlobReconcileIntent::Cleanup) => {
+                if Utc::now()
+                    .signed_duration_since(blob.updated_at)
+                    .num_seconds()
+                    < BLOB_CLEANUP_RETRY_AFTER_SECS
+                {
+                    return Ok(None);
+                }
+                true
+            }
+            _ => false,
+        };
+        let count = actual_blob_ref_counts_for_blobs(txn, &[blob_id])
+            .await?
+            .get(&blob_id)
+            .copied()
+            .unwrap_or(0);
+        let actual_refs = i32::try_from(count).map_err(|_| {
+            AsterError::internal_error(format!("actual ref count overflow for blob {blob_id}"))
+        })?;
+        // A stale cleanup may be retried, but never released for adoption of
+        // its old physical generation while an earlier delete can still finish.
+        if retry_claimed {
+            return match actual_refs {
+                0 if file_repo::renew_blob_cleanup_attempt(txn, &blob).await? => {
+                    blob = file_repo::find_blob_by_id(txn, blob.id).await?;
+                    Ok(Some(ReconciledBlob {
+                        blob,
+                        actual_refs,
+                        ref_count_fixed: false,
+                    }))
+                }
+                _ => Ok(None),
+            };
+        }
+        let ref_count_fixed = blob.ref_count != actual_refs;
+        if ref_count_fixed {
+            file_repo::set_blob_ref_count(txn, blob_id, actual_refs).await?;
+            blob = file_repo::find_blob_by_id(txn, blob_id).await?;
+        }
+        Ok(Some(ReconciledBlob {
+            blob,
+            actual_refs,
+            ref_count_fixed,
+        }))
+    })
+    .await
+}
+
+pub async fn repair_blob_ref_counts(
+    db: &DatabaseConnection,
     policy_id: Option<i64>,
 ) -> Result<usize> {
     let mut fixed = 0;
@@ -1088,26 +1156,24 @@ pub async fn fix_blob_ref_counts_all<C: ConnectionTrait>(
         }
         last_blob_id = blobs.last().map(|blob| blob.id);
         let ids = blobs.iter().map(|blob| blob.id).collect::<Vec<_>>();
-        let actual = actual_blob_ref_counts_for_blobs(db, &ids).await?;
+        let observed = actual_blob_ref_counts_for_blobs(db, &ids).await?;
         for blob in blobs {
-            let actual_refs = actual.get(&blob.id).copied().unwrap_or(0);
-            if i64::from(blob.ref_count) == actual_refs {
-                continue;
+            // Healthy pages remain batched. Only suspected drifts enter a short
+            // writer transaction and re-count before making an authoritative write.
+            match blob.ref_count {
+                file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT => continue,
+                count if i64::from(count) == observed.get(&blob.id).copied().unwrap_or(0) => {
+                    continue;
+                }
+                _ => {}
             }
-            let value = i32::try_from(actual_refs).map_err(|_| {
-                AsterError::internal_error(format!(
-                    "actual ref count overflow for blob {}",
-                    blob.id
-                ))
-            })?;
-            let updated = file_repo::set_blob_ref_count(db, blob.id, value).await?;
-            if !updated {
-                return Err(AsterError::record_not_found(format!(
-                    "file_blob #{}",
-                    blob.id
-                )));
+
+            if reconcile_blob_reference_count(db, blob.id, BlobReconcileIntent::Repair)
+                .await?
+                .is_some_and(|result| result.ref_count_fixed)
+            {
+                fixed += 1;
             }
-            fixed += 1;
         }
     }
     Ok(fixed)
@@ -1154,14 +1220,27 @@ const FOLDER_PARENT_CACHE_LIMIT: usize = 4096;
 struct FolderParentCache {
     nodes: HashMap<i64, Option<FolderNode>>,
     outcomes: HashMap<i64, Option<i64>>,
+    remaining_work: u64,
 }
 
 impl FolderParentCache {
-    fn new() -> Self {
+    fn new(folder_count: u64) -> Self {
         Self {
+            remaining_work: folder_count
+                .saturating_mul(8)
+                .saturating_add(FOLDER_PARENT_CACHE_LIMIT as u64),
             nodes: HashMap::with_capacity(FOLDER_PARENT_CACHE_LIMIT),
             outcomes: HashMap::with_capacity(FOLDER_PARENT_CACHE_LIMIT),
         }
+    }
+
+    fn consume_work(&mut self) -> Result<()> {
+        self.remaining_work = self.remaining_work.checked_sub(1).ok_or_else(|| {
+            AsterError::operation_resource_limit_exceeded(
+                "folder ancestry audit exceeded its linear work budget; inspect the hierarchy before retrying",
+            )
+        })?;
+        Ok(())
     }
 
     fn insert(&mut self, id: i64, node: Option<FolderNode>) {
@@ -1213,7 +1292,15 @@ async fn find_folder_cycle_representative<C: ConnectionTrait>(
     let mut index = HashMap::new();
     let mut current = Some(start);
     while let Some(id) = current {
+        // Eviction may forget an already resolved suffix. Bound total work for
+        // the partition so repeated misses cannot restore quadratic database work.
+        cache.consume_work()?;
         if let Some(outcome) = cache.outcomes.get(&id).copied() {
+            // Propagate a cached suffix result to the prefix just traversed.
+            // Otherwise every descendant walks the same prefix again.
+            for path_id in path {
+                cache.record_outcome(path_id, outcome);
+            }
             return Ok(outcome);
         }
         if let Some(&cycle_start) = index.get(&id) {
@@ -1224,6 +1311,11 @@ async fn find_folder_cycle_representative<C: ConnectionTrait>(
                 cache.record_outcome(path_id, Some(representative));
             }
             return Ok(Some(representative));
+        }
+        if path.len() >= FOLDER_PARENT_CACHE_LIMIT {
+            return Err(AsterError::operation_resource_limit_exceeded(
+                "folder ancestry audit path exceeds its bounded working set",
+            ));
         }
         index.insert(id, path.len());
         path.push(id);
@@ -1242,7 +1334,22 @@ async fn audit_folder_tree_partition_bounded<C: ConnectionTrait>(
 ) -> Result<AuditFindingSummary<FolderTreeIssue>> {
     let mut issues = AuditFindingSummary::new();
     let mut reported_cycles = HashSet::<i64>::new();
-    let mut parent_cache = FolderParentCache::new();
+    let count_query = match scope {
+        FolderAuditScope::User(user_id) => Folder::find()
+            .filter(folder::Column::OwnerUserId.eq(user_id))
+            .filter(folder::Column::TeamId.is_null()),
+        FolderAuditScope::Team(team_id) => {
+            Folder::find().filter(folder::Column::TeamId.eq(team_id))
+        }
+        FolderAuditScope::Unowned => Folder::find()
+            .filter(folder::Column::OwnerUserId.is_null())
+            .filter(folder::Column::TeamId.is_null()),
+    };
+    let folder_count = count_query
+        .count(db)
+        .await
+        .map_aster_err(AsterError::database_operation)?;
+    let mut parent_cache = FolderParentCache::new(folder_count);
     let mut last_folder_id = None;
     loop {
         let mut query = Folder::find()
@@ -1602,4 +1709,84 @@ async fn audit_storage_objects_impl<C: ConnectionTrait>(
         || report.orphan_thumbnails.len() < report.orphan_thumbnails_total;
 
     Ok(report)
+}
+
+#[cfg(test)]
+mod folder_ancestry_budget_tests {
+    use super::*;
+
+    fn cached_chain() -> FolderParentCache {
+        let mut cache = FolderParentCache::new(3);
+        for (id, parent_id) in [(1, Some(2)), (2, Some(3)), (3, None)] {
+            cache.insert(
+                id,
+                Some(FolderNode {
+                    parent_id,
+                    owner_user_id: Some(7),
+                    team_id: None,
+                }),
+            );
+        }
+        cache
+    }
+
+    #[tokio::test]
+    async fn cached_suffix_propagates_to_every_traversed_prefix_without_database_queries() {
+        // No folder table: any database fallback fails this test.
+        let db = sea_orm::Database::connect("sqlite::memory:").await.unwrap();
+        let mut cache = cached_chain();
+        cache.record_outcome(3, None);
+        assert_eq!(
+            find_folder_cycle_representative(&db, 1, FolderAuditScope::User(7), &mut cache)
+                .await
+                .unwrap(),
+            None
+        );
+        assert_eq!(cache.outcomes.get(&1), Some(&None));
+        assert_eq!(cache.outcomes.get(&2), Some(&None));
+        let before = cache.remaining_work;
+        find_folder_cycle_representative(&db, 1, FolderAuditScope::User(7), &mut cache)
+            .await
+            .unwrap();
+        assert_eq!(before - cache.remaining_work, 1);
+    }
+
+    #[tokio::test]
+    async fn overdeep_legacy_paths_stop_before_growing_the_working_set() {
+        let db = sea_orm::Database::connect("sqlite::memory:").await.unwrap();
+        let mut cache = FolderParentCache::new(FOLDER_PARENT_CACHE_LIMIT as u64 + 1);
+        for id in 1..=FOLDER_PARENT_CACHE_LIMIT as i64 {
+            cache.insert(
+                id,
+                Some(FolderNode {
+                    parent_id: Some(id + 1),
+                    owner_user_id: Some(7),
+                    team_id: None,
+                }),
+            );
+        }
+        let error = find_folder_cycle_representative(&db, 1, FolderAuditScope::User(7), &mut cache)
+            .await
+            .unwrap_err();
+        assert!(error.message().contains("working set"));
+        assert!(cache.nodes.len() <= FOLDER_PARENT_CACHE_LIMIT);
+    }
+
+    #[tokio::test]
+    async fn evicted_suffixes_cannot_restart_unbounded_ancestry_work() {
+        let db = sea_orm::Database::connect("sqlite::memory:").await.unwrap();
+        let mut cache = cached_chain();
+        cache.remaining_work = 6;
+        for _ in 0..2 {
+            cache.outcomes.clear();
+            find_folder_cycle_representative(&db, 1, FolderAuditScope::User(7), &mut cache)
+                .await
+                .unwrap();
+        }
+        cache.outcomes.clear();
+        let error = find_folder_cycle_representative(&db, 1, FolderAuditScope::User(7), &mut cache)
+            .await
+            .unwrap_err();
+        assert!(error.message().contains("work budget"));
+    }
 }

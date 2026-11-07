@@ -10,13 +10,9 @@ use actix_web::web;
 
 /// Assembles and runs the primary Forge runtime.
 pub async fn run_primary(
-    prepared: crate::runtime::startup::PreparedPrimaryRuntime,
+    state: crate::runtime::PrimaryAppState,
     role: crate::runtime::role::ServeRole,
 ) -> io::Result<()> {
-    let crate::runtime::startup::PreparedPrimaryRuntime {
-        state,
-        share_download_rollback_worker,
-    } = prepared;
     let host = state.config.server.host.clone();
     let port = state.config.server.port;
     let workers = http_worker_count(state.config.server.workers, role.serves_api());
@@ -59,11 +55,7 @@ pub async fn run_primary(
             aster_forge_tasks::background_task_component_with_definitions_from_shutdown(
                 crate::services::task::registered_system_runtime_tasks(),
                 move |stop| {
-                    crate::runtime::tasks::spawn_primary_background_tasks(
-                        maintenance_state,
-                        share_download_rollback_worker,
-                        stop,
-                    )
+                    crate::runtime::tasks::spawn_primary_background_tasks(maintenance_state, stop)
                 },
             )
             .after_service()

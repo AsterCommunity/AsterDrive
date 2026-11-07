@@ -105,6 +105,7 @@ mod tests {
             &self,
             _src_path: &str,
             _dest_path: &str,
+            _options: aster_drive_storage::StorageCopyOptions,
         ) -> aster_drive_storage::Result<String> {
             unreachable!()
         }

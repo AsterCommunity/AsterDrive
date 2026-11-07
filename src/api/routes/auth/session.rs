@@ -78,13 +78,23 @@ pub(super) fn login_completion_response(
             &result.refresh_token,
             result.password_change_required,
         ),
-        PrimaryLoginCompletion::MfaRequired(challenge) => Ok(HttpResponse::Ok().json(
-            crate::api::response::success(LoginResponse::MfaRequired {
-                flow_token: challenge.flow_token,
-                expires_in: challenge.expires_in,
-                methods: challenge.methods,
-            }),
-        )),
+        PrimaryLoginCompletion::MfaRequired(challenge) => {
+            let mut response = HttpResponse::Ok();
+            if let Some(binding) = challenge.browser_binding {
+                response.cookie(super::cookies::build_mfa_binding_cookie(
+                    &challenge.flow_token,
+                    &binding.secret,
+                    RuntimeAuthPolicy::from_runtime_config(state.runtime_config()).cookie_secure,
+                ));
+            }
+            Ok(
+                response.json(crate::api::response::success(LoginResponse::MfaRequired {
+                    flow_token: challenge.flow_token,
+                    expires_in: challenge.expires_in,
+                    methods: challenge.methods,
+                })),
+            )
+        }
     }
 }
 
@@ -134,6 +144,18 @@ pub async fn get_storage_events(
 ) -> Result<HttpResponse> {
     let user_id = claims.user_id;
     let session_version = claims.session_version;
+    let expires_at = std::time::UNIX_EPOCH
+        .checked_add(std::time::Duration::from_secs(
+            u64::try_from(claims.exp)
+                .map_err(|_| AsterError::auth_token_invalid("invalid credential expiry"))?,
+        ))
+        .ok_or_else(|| AsterError::auth_token_invalid("invalid credential expiry"))?;
+    let expires_in = expires_at
+        .duration_since(std::time::SystemTime::now())
+        .map_err(|_| AsterError::auth_token_invalid("access token expired"))?;
+    let expires_at = tokio::time::Instant::now()
+        .checked_add(expires_in)
+        .ok_or_else(|| AsterError::auth_token_invalid("invalid credential expiry"))?;
     let shutdown_token = shutdown_token.map(|token| token.get_ref().clone());
     if shutdown_token
         .as_ref()
@@ -154,9 +176,11 @@ pub async fn get_storage_events(
             .ok_or_else(|| {
                 AsterError::internal_error("visible teams missing after SSE auth check")
             })?;
+    let permit = state.storage_event_streams.admit(user_id)?;
     let mut rx = state.get_ref().storage_change_bus().subscribe();
 
     let stream = async_stream::stream! {
+        let _permit = permit;
         let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(15));
         heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut visible_team_ids = visible_team_ids;
@@ -169,6 +193,10 @@ pub async fn get_storage_events(
                         user_id,
                         "closing storage change event stream during server shutdown"
                     );
+                    break;
+                }
+                _ = tokio::time::sleep_until(expires_at) => {
+                    tracing::debug!(user_id, "closing storage change event stream after credential expiry");
                     break;
                 }
                 _ = heartbeat.tick() => {
@@ -187,11 +215,21 @@ pub async fn get_storage_events(
                             break;
                         }
                     }
+                    if tokio::time::Instant::now() >= expires_at { break; }
                     yield Ok::<Bytes, actix_web::Error>(Bytes::from_static(b": keep-alive\n\n"));
                 }
                 recv = rx.recv() => {
                     match recv {
                         Ok(event) => {
+                            // Unrelated personal events need no database read.
+                            // Team membership must still be refreshed before
+                            // delivery; a cached team set is not authority.
+                            if matches!(event.audience,
+                                crate::services::events::storage_change::StorageChangeAudience::User(target)
+                                if target != user_id)
+                            {
+                                continue;
+                            }
                             let refresh_visible_teams =
                                 matches!(event.workspace, Some(StorageChangeWorkspace::Team { .. }));
                             match revalidate_storage_event_stream(
@@ -216,6 +254,7 @@ pub async fn get_storage_events(
                                     break;
                                 }
                             }
+                            if tokio::time::Instant::now() >= expires_at { break; }
                             if !event.is_visible_to(user_id, &visible_team_ids) {
                                 continue;
                             }
@@ -236,6 +275,7 @@ pub async fn get_storage_events(
                                 );
                                 break;
                             }
+                            if tokio::time::Instant::now() >= expires_at { break; }
                             if let Some(frame) = storage_event_frame(
                                 &crate::services::events::storage_change::StorageChangeEvent::sync_required(),
                             ) {
@@ -372,6 +412,9 @@ pub async fn logout(state: web::Data<PrimaryAppState>, req: HttpRequest) -> Http
         && let Err(error) = local::revoke_refresh_token(state.get_ref(), &refresh_token).await
     {
         tracing::warn!("failed to revoke refresh token on logout: {error}");
+        // A successful logout must have a durable revocation. Clearing only the browser's
+        // cookies on a writer failure would leave a racing refresh response usable.
+        return actix_web::ResponseError::error_response(&error);
     }
     for token in [
         req.cookie(REFRESH_COOKIE)
@@ -582,7 +625,7 @@ pub async fn put_password(
     let ctx = AuditContext::from_request(&req, &claims);
     let user = local::change_password_with_audit(
         state.get_ref(),
-        claims.user_id,
+        &claims,
         &body.current_password,
         &body.new_password,
         &ctx,

@@ -108,14 +108,12 @@ Auth, upload, download, and tasks:
 | `background_task_retries_total` | `kind` | Retry count |
 | `background_tasks_pending` | none | Current `Pending` / `Retry` backlog |
 
-Storage drivers and share rollback:
+Storage drivers:
 
 | Metric | Labels | Notes |
 | --- | --- | --- |
 | `storage_driver_operations_total` | `driver`, `operation`, `status`, `kind` | Driver operations |
 | `storage_driver_operation_duration_seconds` | `driver`, `operation`, `status`, `kind` | Driver latency histogram |
-| `share_download_rollback_events_total` | `event` | Rollback queue events after interrupted public-share downloads |
-| `share_download_rollback_pending` | none | Pending rollback work |
 
 Process metrics:
 

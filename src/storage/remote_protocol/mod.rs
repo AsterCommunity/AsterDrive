@@ -62,6 +62,21 @@ pub fn declared_content_sha256(headers: &actix_web::http::header::HeaderMap) -> 
         .to_owned()
 }
 
+/// Verify a bounded control-plane body's actual bytes against the digest covered
+/// by request authentication. Call before deserialization or any completion effect.
+pub fn verify_buffered_content_sha256(
+    headers: &actix_web::http::header::HeaderMap,
+    body: &[u8],
+) -> crate::errors::Result<()> {
+    let declared = declared_content_sha256(headers);
+    if declared.is_empty() || declared != body_sha256_hex(body) {
+        return Err(crate::errors::AsterError::auth_invalid_credentials(
+            "request body does not match the signed digest",
+        ));
+    }
+    Ok(())
+}
+
 /// 对象上传响应携带的 body digest 与响应签名（v7：占位签请求靠响应对账闭环）。
 pub const INTERNAL_RESPONSE_OBJECT_SHA256_HEADER: &str = "x-aster-object-sha256";
 pub const INTERNAL_RESPONSE_SIGNATURE_HEADER: &str = "x-aster-response-signature";

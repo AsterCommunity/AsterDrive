@@ -6,6 +6,7 @@ pub fn configure_primary(
     cfg: &mut web::ServiceConfig,
     db: &sea_orm::DatabaseConnection,
     observability: &crate::config::metrics::ObservabilityConfig,
+    auth_limiters: &super::middleware::rate_limit::AuthRouteLimiters,
 ) {
     let route_config = crate::config::try_get_config()
         .map(|c| (*c).clone())
@@ -19,7 +20,7 @@ pub fn configure_primary(
 
     cfg.service(
         web::scope("/api/v1")
-            .service(routes::auth::routes(rl, network_trust))
+            .service(routes::auth::routes(rl, auth_limiters))
             .service(routes::files::routes(rl, network_trust))
             .service(routes::folders::routes(rl, network_trust))
             .service(routes::admin::routes(rl, network_trust))

@@ -4955,6 +4955,69 @@ async fn test_admin_config_action_tests_aria2_rpc_uses_redacted_secret_when_sent
 }
 
 #[actix_web::test]
+async fn test_admin_aria2_probe_does_not_reuse_saved_secret_for_a_different_endpoint() {
+    let state = common::setup().await;
+    let saved_url = spawn_aria2_secret_check_server("saved-secret").await;
+    let changed_url = spawn_aria2_secret_check_server("draft-secret").await;
+    aster_drive::services::ops::config::set(
+        &state,
+        "offline_download_aria2_rpc_url",
+        &saved_url,
+        1,
+    )
+    .await
+    .unwrap();
+    aster_drive::services::ops::config::set(
+        &state,
+        "offline_download_aria2_rpc_secret",
+        "saved-secret",
+        1,
+    )
+    .await
+    .unwrap();
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    let request = |url: &str, secret: Option<&str>| {
+        let mut draft = serde_json::json!({"offline_download_aria2_rpc_url":url});
+        #[expect(
+            clippy::single_match,
+            reason = "keep the explicit Some/None draft-secret contract"
+        )]
+        match secret {
+            Some(secret) => draft["offline_download_aria2_rpc_secret"] = secret.into(),
+            None => {}
+        }
+        test::TestRequest::post()
+            .uri("/api/v1/admin/config/offline_download_engine_registry_json/action")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({"action":"test_aria2_rpc","draft_values":draft}))
+            .to_request()
+    };
+    let rejected = test::call_service(&app, request(&changed_url, None)).await;
+    assert_eq!(rejected.status(), 400);
+    let body: Value = test::read_body_json(rejected).await;
+    assert!(
+        body["msg"]
+            .as_str()
+            .unwrap()
+            .contains("explicit draft aria2 secret")
+    );
+    assert_eq!(
+        test::call_service(&app, request(&saved_url, None))
+            .await
+            .status(),
+        200
+    );
+    assert_eq!(
+        test::call_service(&app, request(&changed_url, Some("draft-secret")))
+            .await
+            .status(),
+        200
+    );
+}
+
+#[actix_web::test]
 async fn test_admin_shares() {
     let state = common::setup().await;
     let app = create_test_app!(state);

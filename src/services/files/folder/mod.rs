@@ -10,7 +10,7 @@
 mod access;
 mod cache;
 mod copy;
-mod hierarchy;
+pub(crate) mod hierarchy;
 mod icon;
 mod listing;
 mod models;

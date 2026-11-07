@@ -168,9 +168,19 @@ async fn cleanup_remote_upload_state(
     session: &upload_session::Model,
     allow_corrupted_object_fields: bool,
 ) -> UploadRemoteCleanupOutcome {
-    let kind = match resolve_upload_session_kind(session) {
-        Ok(kind) => Some(kind),
-        Err(error) if allow_corrupted_object_fields => {
+    // The policy reservation is committed before provider session creation. A
+    // process may stop in that window, before it receives any provider URL or
+    // returns a client capability. Retire its owned object key without treating
+    // the pending reservation as a corrupted initialized upload.
+    let pending_provider_init = matches!(
+        session.session_kind,
+        UploadSessionKind::ProviderDirectResumable | UploadSessionKind::ProviderRelayResumable
+    ) && session.provider_session_ciphertext.is_none()
+        && session.object_temp_key.is_some();
+    let kind = match (pending_provider_init, resolve_upload_session_kind(session)) {
+        (true, _) => None,
+        (false, Ok(kind)) => Some(kind),
+        (false, Err(error)) if allow_corrupted_object_fields => {
             // A corrupted classifier must not block administrative deletion. Recorded object
             // fields are cleaned below; sessions without a temp key have no remote state.
             tracing::warn!(
@@ -179,7 +189,7 @@ async fn cleanup_remote_upload_state(
             );
             None
         }
-        Err(error) => {
+        (false, Err(error)) => {
             tracing::warn!(
                 session_id = %session.id,
                 "failed to classify upload session before remote cleanup: {error}"

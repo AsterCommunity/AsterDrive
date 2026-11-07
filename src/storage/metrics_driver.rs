@@ -302,9 +302,10 @@ impl StorageDriver for MetricsStorageDriver {
         &self,
         src_path: &str,
         dest_path: &str,
+        options: aster_drive_storage::StorageCopyOptions,
     ) -> aster_drive_storage::Result<String> {
         let started_at = Instant::now();
-        let result = self.inner.copy_object(src_path, dest_path).await;
+        let result = self.inner.copy_object(src_path, dest_path, options).await;
         self.record("copy_object", &result, started_at);
         result
     }
@@ -327,6 +328,10 @@ impl StorageDriver for MetricsStorageDriver {
 
 #[async_trait]
 impl MultipartStorageDriver for MetricsMultipartStorageDriver {
+    fn completed_object_remains_client_writable(&self) -> bool {
+        self.inner.completed_object_remains_client_writable()
+    }
+
     async fn browser_part_request(
         &self,
         path: &str,

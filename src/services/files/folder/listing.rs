@@ -156,13 +156,15 @@ pub(crate) async fn list_in_scope(
         sort_order = ?params.sort_order,
         "listing folder contents"
     );
-    if let WorkspaceStorageScope::Team {
-        team_id,
-        actor_user_id,
-    } = scope
-    {
-        storage::require_team_access(state, team_id, actor_user_id).await?;
-    }
+    // 个人根目录也要验证 actor 的当前生命周期；HTTP 认证不是直接 service 调用的
+    // 隐式前提。只有资格查询使用 writer，下面的列表 projection 继续走 reader。
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
 
     if let Some(parent_id) = parent_id {
         storage::verify_folder_access_for_read(state, scope, parent_id).await?;

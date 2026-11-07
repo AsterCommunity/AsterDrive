@@ -17,7 +17,7 @@ pub use mutation::{
     create_or_find_by_name_in_team_parent_with_created, delete, delete_many, move_many_to_parent,
     update_icon,
 };
-pub(crate) use path::{find_ancestor_models, find_team_ancestor_models};
+pub(crate) use path::{find_ancestor_models, find_subtree_height, find_team_ancestor_models};
 pub use path::{find_ancestors, resolve_path_chain};
 pub use query::{
     find_all_children, find_all_children_in_parents, find_all_files_in_folder, find_by_id,
@@ -37,3 +37,5 @@ pub use trash::{
 };
 
 pub(crate) use query::{FolderChildrenQuery, find_children_paginated_in_scope};
+
+pub(crate) use trash::find_top_level_deleted_batch;

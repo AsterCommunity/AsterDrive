@@ -495,7 +495,7 @@ pub async fn update(
         is_default,
         allowed_types,
     } = input;
-    let credential_updated = credential.is_some();
+    let mut credential_updated = credential.is_some();
     let existing = policy_repo::find_by_id(state.writer_db(), id).await?;
     let existing_storage_config: StoragePolicyConfigEnvelope =
         serde_json::from_str(existing.storage_config.as_ref()).map_err(|error| {
@@ -674,6 +674,16 @@ pub async fn update(
         .await
         .map_aster_err(AsterError::database_operation)?;
 
+    if credential.is_none() {
+        credential_updated = connectors
+            .require_policy(&result)?
+            .reconcile_saved_credential(
+                &txn,
+                &state.config().auth.storage_credential_secret_key,
+                &result,
+            )
+            .await?;
+    }
     if let Some(credential) = credential {
         crate::storage::connectors::persist_credential(
             connectors,
@@ -834,11 +844,6 @@ mod tests {
         let storage_change_bus = crate::services::events::storage_change::StorageChangeBus::new(
             crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
-        let share_download_rollback =
-            crate::services::share::spawn_detached_share_download_rollback_queue(
-                db.clone(),
-                crate::config::operations::share_download_rollback_queue_capacity(&runtime_config),
-            );
 
         crate::runtime::PrimaryAppState {
             audit_writer: crate::runtime::test_support::audit_writer(&db).await,
@@ -854,7 +859,7 @@ mod tests {
             metrics: aster_drive_metrics::NoopMetrics::arc(),
             mail_sender: crate::services::mail::sender::runtime_sender(runtime_config),
             storage_change_bus,
-            share_download_rollback,
+            storage_event_streams: Default::default(),
             background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
             remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
         }

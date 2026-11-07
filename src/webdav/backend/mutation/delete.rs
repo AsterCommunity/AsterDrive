@@ -35,6 +35,19 @@ impl AsterDavFs {
         let mut lock_mutation = lock::WebDavLockMutation::begin(&txn, self.scope)
             .await
             .map_err(map_ancestor_lock_error)?;
+        crate::services::workspace::scope::authorize_workspace_on(
+            &txn,
+            self.scope,
+            crate::services::workspace::scope::WorkspaceOperation::Delete,
+            &self.access_constraints,
+        )
+        .await
+        .map_err(super::super::map_product_mutation_error)?;
+        let lock_credentials =
+            lock::submitted_credentials_on(&txn, self.scope, self.root_folder_id, &conditions)
+                .await
+                .map_err(super::super::map_product_mutation_error)?;
+
         lock_mutation
             .lock_ancestor_entities(self.scope, self.root_folder_id, path)
             .await
@@ -52,7 +65,7 @@ impl AsterDavFs {
                     self.scope,
                     folder.id,
                     Some(MUTATION_FOLDER_TREE_LIMITS),
-                    true,
+                    &lock_credentials.submitted(),
                 )
                 .await
                 .map_err(super::super::map_product_mutation_error)?,
@@ -96,7 +109,7 @@ impl AsterDavFs {
                     &txn,
                     self.scope,
                     file.id,
-                    true,
+                    &lock_credentials.submitted(),
                     crate::services::workspace::activity::ActivitySource::Webdav,
                 )
                 .await

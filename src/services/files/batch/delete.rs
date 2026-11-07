@@ -131,8 +131,14 @@ pub(crate) async fn batch_delete_in_scope(
 
         let mut folder_ids_to_delete = HashSet::new();
         for folder_id in &root_folder_ids_to_delete {
-            let locked =
-                folder::lock_tree_for_deletion_on(&txn, scope, *folder_id, None, false).await?;
+            let locked = folder::lock_tree_for_deletion_on(
+                &txn,
+                scope,
+                *folder_id,
+                None,
+                &crate::services::files::lock::SubmittedLockCredentials::none(),
+            )
+            .await?;
             file_ids_to_delete.extend(locked.file_ids);
             folder_ids_to_delete.extend(locked.folder_ids);
         }
@@ -168,6 +174,28 @@ pub(crate) async fn batch_delete_in_scope(
             before_folders.push(current);
         }
 
+        let access = crate::services::workspace::scope::authorize_workspace_on(
+            &txn,
+            scope,
+            crate::services::workspace::scope::WorkspaceOperation::Delete,
+            &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+        )
+        .await?;
+        let mut parents: Vec<_> = before_files
+            .iter()
+            .map(|file| file.folder_id)
+            .chain(before_folders.iter().map(|folder| folder.parent_id))
+            .collect();
+        parents.sort_unstable();
+        parents.dedup();
+        for parent in parents {
+            access
+                .collection(
+                    parent,
+                    &crate::services::files::lock::SubmittedLockCredentials::none(),
+                )
+                .await?;
+        }
         let total_file_count = file_ids_to_delete.len();
         let total_folder_count = folder_ids_to_delete.len();
         let ctx = match activity {

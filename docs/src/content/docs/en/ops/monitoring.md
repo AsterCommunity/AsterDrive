@@ -14,7 +14,7 @@ AsterDrive's Prometheus metrics are optional and are not enabled in the default 
 GET /health/metrics
 ```
 
-under the health check path. The output is Prometheus text exposition and covers HTTP, database, uploads and downloads, background tasks, storage drivers, authentication events, share download rollback, and process resources.
+under the health check path. The output is Prometheus text exposition and covers HTTP, database, uploads and downloads, background tasks, storage drivers, authentication events, and process resources.
 
 ## Enable the Metrics Feature
 
@@ -170,7 +170,7 @@ This dashboard provides:
 - Database: SeaORM query count, error count, p95 latency, and average latency.
 - Storage drivers: operation count, not_found, hard failures, p95 latency, and average latency.
 - Transfer: uploads, downloads, upload session lifecycle, and transfer failures.
-- Background tasks: backlog, status transitions, retry, and share download rollback queue.
+- Background tasks: backlog, status transitions, retry.
 - Authentication: login and refresh token events, authentication failure ratio.
 - Process: RSS, CPU core usage, uptime.
 
@@ -331,7 +331,6 @@ On the first day after launch, focus on:
 - whether `aster_drive_storage_driver_operations_total{status="failure",kind!="not_found"}` is non-zero
 - whether `aster_task_pending` keeps accumulating
 - whether `aster_task_retries_total` keeps increasing
-- whether `aster_drive_share_download_rollback_pending` keeps accumulating
 - whether `process_memory_usage_bytes` grows in only one direction and does not drop after idle periods
 
 Observe `aster_drive_storage_driver_operations_total{status="failure",kind="not_found"}` separately. In thumbnail, cache, or object probing scenarios, `not_found` is often an expected miss. Alert rules should prioritize hard failures such as `aster_drive_storage_driver_operations_total{status="failure",kind!="not_found"}`.

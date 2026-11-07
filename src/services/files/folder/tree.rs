@@ -10,7 +10,7 @@ use sea_orm::ConnectionTrait;
 use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::{AsterError, Result};
 use crate::services::workspace::storage::{WorkspaceResourceScope, WorkspaceStorageScope};
-use aster_drive_model::entities::{file, folder};
+use aster_drive_model::entities::file;
 use aster_forge_utils::numbers::usize_to_u64;
 
 const FOLDER_TREE_FILE_PAGE_SIZE: usize = 512;
@@ -59,15 +59,6 @@ pub(crate) const REST_FOLDER_TREE_LIMITS: FolderTreeTraversalLimits =
         REST_FOLDER_TREE_SYNCHRONOUS_MAXIMUM_DEPTH,
     );
 
-fn folder_matches_scope(folder: &folder::Model, scope: WorkspaceResourceScope) -> bool {
-    match scope {
-        WorkspaceResourceScope::Personal { user_id } => {
-            folder.team_id.is_none() && folder.owner_user_id == Some(user_id)
-        }
-        WorkspaceResourceScope::Team { team_id } => folder.team_id == Some(team_id),
-    }
-}
-
 pub(crate) async fn collect_folder_forest_in_resource_scope<C: ConnectionTrait>(
     db: &C,
     scope: WorkspaceResourceScope,
@@ -112,35 +103,30 @@ pub(crate) async fn collect_folder_forest_in_resource_scope<C: ConnectionTrait>(
         .await?;
         extend_level_files(limits, &mut files, folder_ids.len(), level_files)?;
 
-        if include_deleted {
-            frontier = folder_repo::find_all_children_in_parents(db, &frontier)
-                .await?
-                .into_iter()
-                .filter(|folder| folder_matches_scope(folder, scope))
-                .map(|folder| folder.id)
-                .collect();
-            depth = depth
-                .checked_add(1)
-                .ok_or_else(folder_tree_shape_limit_error)?;
-            continue;
-        }
-
-        frontier = match scope {
+        let folder_scope = match scope {
             WorkspaceResourceScope::Personal { user_id } => {
-                folder_repo::find_children_in_parents(db, user_id, &frontier)
-                    .await?
-                    .into_iter()
-                    .map(|folder| folder.id)
-                    .collect()
+                folder_repo::FolderScope::Personal { user_id }
             }
-            WorkspaceResourceScope::Team { team_id } => {
-                folder_repo::find_team_children_in_parents(db, team_id, &frontier)
-                    .await?
-                    .into_iter()
-                    .map(|folder| folder.id)
-                    .collect()
-            }
+            WorkspaceResourceScope::Team { team_id } => folder_repo::FolderScope::Team { team_id },
         };
+        let child_limit = limits
+            .map(|limits| {
+                limits.maximum_frontier.min(
+                    limits
+                        .maximum_resources
+                        .saturating_sub(folder_ids.len() + files.len()),
+                )
+            })
+            .map(|remaining| usize_to_u64(remaining.saturating_add(1), "folder tree child limit"))
+            .transpose()?;
+        frontier = folder_repo::find_child_ids_in_parents(
+            db,
+            folder_scope,
+            &frontier,
+            include_deleted,
+            child_limit,
+        )
+        .await?;
         depth = depth
             .checked_add(1)
             .ok_or_else(folder_tree_shape_limit_error)?;

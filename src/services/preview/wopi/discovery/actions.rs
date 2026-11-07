@@ -1,5 +1,6 @@
 use crate::services::preview::wopi::proof::WopiProofKeySet;
 use crate::services::preview::wopi::types::DiscoveredWopiApp;
+use std::collections::{HashMap, HashSet};
 
 use super::types::{WopiDiscovery, WopiDiscoveryAction};
 
@@ -107,13 +108,16 @@ fn is_known_discovery_action(action: &str) -> bool {
 
 pub(crate) fn build_discovered_apps(discovery: &WopiDiscovery) -> Vec<DiscoveredWopiApp> {
     #[derive(Debug, Clone)]
-    struct DiscoveryGroup {
+    struct DiscoveryGroup<'a> {
         icon_url: Option<String>,
         label: String,
-        actions: Vec<WopiDiscoveryAction>,
+        actions: Vec<&'a WopiDiscoveryAction>,
     }
 
     let mut groups = Vec::<DiscoveryGroup>::new();
+    // Keep discovery order, but locate groups in constant expected time and
+    // borrow action metadata instead of cloning the whole discovery model.
+    let mut group_indices = HashMap::<&str, usize>::new();
     for action in &discovery.actions {
         let label = action
             .app_name
@@ -122,23 +126,26 @@ pub(crate) fn build_discovered_apps(discovery: &WopiDiscovery) -> Vec<Discovered
             .filter(|value| !value.is_empty())
             .unwrap_or("WOPI");
 
-        if let Some(group) = groups.iter_mut().find(|group| group.label == label) {
-            group.actions.push(action.clone());
+        if let Some(&index) = group_indices.get(label) {
+            let group = &mut groups[index];
+            group.actions.push(action);
             if group.icon_url.is_none() {
                 group.icon_url = action.app_icon_url.clone();
             }
             continue;
         }
 
+        group_indices.insert(label, groups.len());
         groups.push(DiscoveryGroup {
             icon_url: action.app_icon_url.clone(),
             label: label.to_string(),
-            actions: vec![action.clone()],
+            actions: vec![action],
         });
     }
 
     let mut results = Vec::new();
-    let mut used_suffixes = std::collections::HashSet::new();
+    let mut used_suffixes = HashSet::new();
+    let mut next_suffixes = HashMap::<String, usize>::new();
 
     for group in groups {
         let action_name = DISCOVERY_ACTION_PRIORITY
@@ -168,6 +175,7 @@ pub(crate) fn build_discovered_apps(discovery: &WopiDiscovery) -> Vec<Discovered
         };
 
         let mut extensions = Vec::new();
+        let mut seen_extensions = HashSet::new();
         for action in &group.actions {
             let should_collect_extension = if is_known_discovery_action(&action_name) {
                 is_known_discovery_action(&action.action)
@@ -181,8 +189,9 @@ pub(crate) fn build_discovered_apps(discovery: &WopiDiscovery) -> Vec<Discovered
             if let Some(ext) = action.ext.as_deref()
                 && !ext.is_empty()
                 && ext != "*"
+                && seen_extensions.insert(ext)
             {
-                push_unique(&mut extensions, ext.to_string());
+                extensions.push(ext.to_string());
             }
         }
 
@@ -197,14 +206,14 @@ pub(crate) fn build_discovered_apps(discovery: &WopiDiscovery) -> Vec<Discovered
 
         if !used_suffixes.insert(key_suffix.clone()) {
             let base = key_suffix.clone();
-            let mut index = 2;
+            let index = next_suffixes.entry(base.clone()).or_insert(2);
             loop {
                 let candidate = format!("{base}_{index}");
+                *index += 1;
                 if used_suffixes.insert(candidate.clone()) {
                     key_suffix = candidate;
                     break;
                 }
-                index += 1;
             }
         }
 
@@ -238,10 +247,4 @@ fn slugify_discovery_app_name(value: &str) -> String {
     }
 
     slug.trim_matches('_').to_string()
-}
-
-fn push_unique(values: &mut Vec<String>, value: String) {
-    if !values.iter().any(|existing| existing == &value) {
-        values.push(value);
-    }
 }

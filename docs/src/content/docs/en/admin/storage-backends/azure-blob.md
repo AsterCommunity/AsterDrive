@@ -9,6 +9,8 @@ See the [provider evidence index](https://drive.docs.astercosm.com/developer/en/
 This page walks through the complete flow for writing AsterDrive files to Azure Blob Storage: prepare a storage account and container, create an `azure_blob` storage policy, configure policy group rules, bind users or teams, verify uploads and downloads, and choose between server relay and browser-direct transfer.
 :::
 
+Browser multipart SAS grants write authority over the temporary blob. Completion copies it to a fresh key that has never received client write authority, verifies its final size, then publishes file metadata. Old upload URLs cannot mutate published content. Server-relay uploads avoid this extra copy.
+
 ## When to Use It
 
 Azure Blob Storage is suitable when:

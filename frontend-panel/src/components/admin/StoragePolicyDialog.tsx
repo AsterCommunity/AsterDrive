@@ -217,12 +217,7 @@ function StoragePolicyContent({
 }: StoragePolicyDialogProps) {
 	const { t } = useTranslation("admin");
 	const connectorT = (key: string, values?: Record<string, number | string>) =>
-		translateStorageConnectorMessage(
-			t,
-			storageDriverDescriptor?.connector_id,
-			key,
-			values,
-		);
+		translateStorageConnectorMessage(t, storageDriverDescriptor, key, values);
 	const isCreateMode = mode === "create";
 	const isSetupPresentation = presentation === "setup";
 	const isPagePresentation = presentation === "page";
@@ -567,7 +562,7 @@ function StoragePolicyContent({
 													<PolicyRules
 														form={form}
 														forceDefault={forceDefaultPolicy}
-														connectorId={form.connector_id}
+														descriptor={storageDriverDescriptor}
 														nativeThumbnailSupported={nativeThumbnailSupported}
 														nativeMediaMetadataSupported={
 															nativeMediaMetadataSupported
@@ -578,7 +573,7 @@ function StoragePolicyContent({
 														actions={customActions}
 														remoteNodes={remoteNodes}
 														remoteStorageTargets={remoteStorageTargets}
-														connectorId={storageDriverDescriptor?.connector_id}
+														descriptor={storageDriverDescriptor}
 														confirmActionId={connectorActionConfirmId}
 														submittingActionId={connectorActionSubmittingId}
 														t={t}
@@ -758,7 +753,7 @@ function StoragePolicyContent({
 										<PolicyRules
 											form={form}
 											forceDefault={forceDefaultPolicy}
-											connectorId={form.connector_id}
+											descriptor={storageDriverDescriptor}
 											nativeThumbnailSupported={nativeThumbnailSupported}
 											nativeMediaMetadataSupported={
 												nativeMediaMetadataSupported
@@ -773,7 +768,7 @@ function StoragePolicyContent({
 											actions={customActions}
 											remoteNodes={remoteNodes}
 											remoteStorageTargets={remoteStorageTargets}
-											connectorId={storageDriverDescriptor?.connector_id}
+											descriptor={storageDriverDescriptor}
 											confirmActionId={connectorActionConfirmId}
 											submittingActionId={connectorActionSubmittingId}
 											t={t}
@@ -1050,15 +1045,11 @@ function ConnectorSelection({
 	const [query, setQuery] = useState("");
 	const normalizedQuery = query.trim().toLocaleLowerCase();
 	const descriptorLabel = (descriptor: StorageConnectorDescriptor) =>
-		translateStorageConnectorMessage(
-			t,
-			descriptor.connector_id,
-			descriptor.ui.label_key,
-		);
+		translateStorageConnectorMessage(t, descriptor, descriptor.ui.label_key);
 	const descriptorDescription = (descriptor: StorageConnectorDescriptor) =>
 		translateStorageConnectorMessage(
 			t,
-			descriptor.connector_id,
+			descriptor,
 			descriptor.ui.description_key,
 		);
 	const filteredDescriptors = normalizedQuery
@@ -1177,7 +1168,7 @@ function ConnectorSelection({
 						<p className="mt-7 max-w-2xl text-sm leading-6 text-muted-foreground">
 							{translateStorageConnectorMessage(
 								t,
-								selectedDescriptor.connector_id,
+								selectedDescriptor,
 								selectedDescriptor.ui.helper_key,
 							)}
 						</p>
@@ -1239,14 +1230,14 @@ function ConnectorSelection({
 								<p className="text-base font-semibold">
 									{translateStorageConnectorMessage(
 										t,
-										descriptor.connector_id,
+										descriptor,
 										descriptor.ui.label_key,
 									)}
 								</p>
 								<p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
 									{translateStorageConnectorMessage(
 										t,
-										descriptor.connector_id,
+										descriptor,
 										descriptor.ui.description_key,
 									)}
 								</p>
@@ -1353,7 +1344,7 @@ function ConnectorHelper({
 }) {
 	const { t } = useTranslation("admin");
 	const connectorT = (key: string) =>
-		translateStorageConnectorMessage(t, descriptor?.connector_id, key);
+		translateStorageConnectorMessage(t, descriptor, key);
 	return (
 		<div className={cn(plain ? "px-1 py-2" : "rounded-2xl bg-muted/30 p-5")}>
 			<div className="flex items-center gap-3">
@@ -1422,21 +1413,21 @@ function RemoteTargets({
 function PolicyRules({
 	form,
 	forceDefault,
-	connectorId,
+	descriptor,
 	nativeThumbnailSupported,
 	nativeMediaMetadataSupported,
 	onFieldChange,
 }: {
 	form: PolicyFormData;
 	forceDefault: boolean;
-	connectorId: string;
+	descriptor: StorageConnectorDescriptor | null | undefined;
 	nativeThumbnailSupported: boolean;
 	nativeMediaMetadataSupported: boolean;
 	onFieldChange: StoragePolicyDialogProps["onFieldChange"];
 }) {
 	const { t } = useTranslation("admin");
 	const behaviorT = (key: string) =>
-		translateStorageConnectorMessage(t, connectorId, key);
+		translateStorageConnectorMessage(t, descriptor, key);
 	return (
 		<div className="space-y-4">
 			<div className="grid gap-4 md:grid-cols-2">
@@ -1598,7 +1589,7 @@ function PolicyEditContextBar({
 }) {
 	const { t } = useTranslation("admin");
 	const connectorT = (key: string) =>
-		translateStorageConnectorMessage(t, descriptor?.connector_id, key);
+		translateStorageConnectorMessage(t, descriptor, key);
 	const basePath = connectorStringValue(form, "base_path");
 	const displayBasePath =
 		basePath || t(descriptor?.ui.base_path_empty_display ?? "core:root");
@@ -1878,7 +1869,7 @@ function buildPolicySummaryItems(
 			value: descriptor
 				? translateStorageConnectorMessage(
 						t,
-						descriptor.connector_id,
+						descriptor,
 						descriptor.ui.label_key,
 					)
 				: form.connector_id || "—",
@@ -1914,11 +1905,7 @@ function buildPolicySummaryItems(
 				? connectorFormValue(form, field.name)
 				: form.credential_values[field.name];
 		items.push({
-			label: translateStorageConnectorMessage(
-				t,
-				descriptor.connector_id,
-				field.label_key,
-			),
+			label: translateStorageConnectorMessage(t, descriptor, field.label_key),
 			value: connectorFieldDisplayValue(
 				field,
 				value,
@@ -1957,11 +1944,7 @@ function connectorFieldDisplayValue(
 		(candidate) => String(candidate.value) === String(resolved),
 	);
 	if (option) {
-		return translateStorageConnectorMessage(
-			t,
-			descriptor.connector_id,
-			option.label_key,
-		);
+		return translateStorageConnectorMessage(t, descriptor, option.label_key);
 	}
 	if (typeof resolved === "boolean") {
 		return resolved ? t("policy_wizard_enabled") : t("policy_wizard_disabled");

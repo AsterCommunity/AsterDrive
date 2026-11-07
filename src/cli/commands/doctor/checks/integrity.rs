@@ -13,7 +13,7 @@ pub(in crate::cli::commands::doctor) async fn doctor_storage_usage_check(
     let mut fixed = 0usize;
 
     if fix && detected > 0 {
-        fixed = integrity::fix_storage_usage_all(db).await?;
+        fixed = integrity::repair_storage_usage(db).await?;
         drifts = integrity::audit_storage_usage_with_limit(db, SAMPLE_LIMIT).await?;
     }
 
@@ -80,7 +80,7 @@ pub(in crate::cli::commands::doctor) async fn doctor_blob_ref_count_check(
     let mut fixed = 0usize;
 
     if fix && detected > 0 {
-        fixed = integrity::fix_blob_ref_counts_all(db, policy_id).await?;
+        fixed = integrity::repair_blob_ref_counts(db, policy_id).await?;
         drifts = integrity::audit_blob_ref_counts_with_limit(db, policy_id, SAMPLE_LIMIT).await?;
     }
 

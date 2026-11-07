@@ -1,9 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { UploadTask } from "@/components/files/uploadAreaManagerShared";
 import {
 	buildUploadTaskViews,
 	summarizeUploadTasks,
 } from "@/components/files/uploadAreaManagerView";
+import {
+	captureUploadOperation,
+	setAuthOperationOwner,
+} from "@/lib/authOperationOwner";
 
 const t = (key: string, opts?: Record<string, unknown>) => {
 	if (key === "files:upload_chunk_status") {
@@ -15,6 +19,7 @@ const t = (key: string, opts?: Record<string, unknown>) => {
 function createTask(overrides: Partial<UploadTask>): UploadTask {
 	return {
 		id: "task-1",
+		binding: captureUploadOperation({ kind: "personal" }),
 		file: null,
 		filename: "example.bin",
 		relativePath: null,
@@ -253,3 +258,5 @@ describe("summarizeUploadTasks", () => {
 		expect(summary.failedCount).toBe(1);
 	});
 });
+
+beforeEach(() => setAuthOperationOwner(1, true));

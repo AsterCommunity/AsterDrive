@@ -134,7 +134,13 @@ pub(super) async fn verify_file_in_trash_in_scope(
     scope: WorkspaceStorageScope,
     file_id: i64,
 ) -> Result<file::Model> {
-    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let file = file_repo::find_by_id(state.writer_db(), file_id).await?;
     storage::ensure_file_scope(&file, scope)?;
     if file.deleted_at.is_none() {
@@ -148,7 +154,13 @@ pub(super) async fn verify_folder_in_trash_in_scope(
     scope: WorkspaceStorageScope,
     folder_id: i64,
 ) -> Result<folder::Model> {
-    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let folder = folder_repo::find_by_id(state.writer_db(), folder_id).await?;
     storage::ensure_folder_scope(&folder, scope)?;
     if folder.deleted_at.is_none() {

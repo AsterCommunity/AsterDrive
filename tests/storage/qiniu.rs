@@ -167,7 +167,7 @@ async fn native_kodo_cloud_acceptance_and_read_only_existing_object_takeover() {
     );
     let copy = format!("{prefix}/copy");
     driver
-        .copy_object(&object, &copy)
+        .copy_object(&object, &copy, Default::default())
         .await
         .expect("native management copy");
     assert!(

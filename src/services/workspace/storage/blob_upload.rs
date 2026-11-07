@@ -10,6 +10,47 @@ use crate::storage::connectors::{StorageConnectorUploadTransport, resolve_policy
 use aster_drive_model::entities::file_blob;
 use aster_drive_storage::StorageConnectorObjectNamingMode;
 
+/// Lock and adopt committed content without materializing another physical copy.
+/// A cleanup claim or a moved/deleted identity makes the caller stage its own bytes instead.
+pub(crate) async fn try_adopt_existing_dedup_blob_on<C: ConnectionTrait>(
+    db: &C,
+    blob_id: i64,
+    hash: &str,
+    size: i64,
+    policy_id: i64,
+) -> Result<Option<file_blob::Model>> {
+    let mut current = match crate::db::repository::file_repo::lock_blob_by_id(db, blob_id).await {
+        Ok(current) => current,
+        Err(AsterError::RecordNotFound(_)) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    if current.ref_count < 0
+        || current.hash != hash
+        || current.policy_id != policy_id
+        || current.is_virtual_empty()
+    {
+        return Ok(None);
+    }
+    if current.size != size {
+        return Err(AsterError::validation_error(
+            "existing dedup blob size differs from the verified source",
+        ));
+    }
+    let next_count = current
+        .ref_count
+        .checked_add(1)
+        .ok_or_else(|| AsterError::internal_error("blob reference count overflow"))?;
+    match crate::db::repository::file_repo::increment_blob_ref_count(db, current.id).await {
+        Ok(()) => {
+            current.ref_count = next_count;
+            current.cleanup_pending_since = None;
+            Ok(Some(current))
+        }
+        Err(AsterError::RecordNotFound(_)) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) enum PreparedNonDedupBlobUpload {
     Local {
@@ -86,12 +127,10 @@ pub(crate) fn prepare_non_dedup_blob_upload(
                     policy.connector_id
                 ))
             })?;
-            let blob_key = aster_forge_utils::id::new_short_token();
+            let (blob_key, storage_path) = aster_drive_storage::object_path::new_local_blob();
             Ok(PreparedNonDedupBlobUpload::Local {
                 base_path: crate::storage::drivers::local::effective_base_path(&local.base_path),
-                storage_path: aster_forge_validation::filename::storage_path_from_blob_key(
-                    &blob_key,
-                )?,
+                storage_path,
                 blob_key,
                 size,
                 policy_id: policy.id,
@@ -124,26 +163,15 @@ pub(crate) fn nondedup_storage_path_for_policy(
     upload_id: &str,
     filename: Option<&str>,
 ) -> Result<String> {
-    match resolve_policy_object_naming(registry, policy)? {
+    let path = match resolve_policy_object_naming(registry, policy)? {
         StorageConnectorObjectNamingMode::OpaqueUuid => {
-            let upload_id = uuid::Uuid::parse_str(upload_id)
-                .map_err(|_| AsterError::validation_error("upload id must be a UUID"))?;
-            Ok(format!("files/{upload_id}"))
+            aster_drive_storage::object_path::upload_path(upload_id)
         }
         StorageConnectorObjectNamingMode::OriginalFilename => {
-            original_filename_storage_path(upload_id, filename)
+            aster_drive_storage::object_path::named_upload_path(upload_id, filename)
         }
-    }
-}
-
-fn original_filename_storage_path(upload_id: &str, filename: Option<&str>) -> Result<String> {
-    let upload_id = uuid::Uuid::parse_str(upload_id)
-        .map_err(|_| AsterError::validation_error("upload id must be a UUID"))?;
-    let Some(filename) = filename else {
-        return Ok(format!("files/{upload_id}"));
     };
-    let filename = aster_forge_validation::filename::normalize_validate_name(filename)?;
-    Ok(format!("files/{upload_id}/{filename}"))
+    path.map_err(|error| AsterError::validation_error(error.to_string()))
 }
 
 fn normalize_absolute_cleanup_path(path: &Path) -> Option<PathBuf> {
@@ -535,7 +563,7 @@ pub(crate) async fn persist_preuploaded_blob<C: ConnectionTrait>(
 
 #[cfg(test)]
 mod storage_path_tests {
-    use super::{nondedup_storage_path_for_policy, original_filename_storage_path};
+    use super::nondedup_storage_path_for_policy;
     use aster_drive_model::types::{ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy};
     use aster_drive_storage::StoragePolicyBehaviorConfig;
 
@@ -562,45 +590,33 @@ mod storage_path_tests {
     }
 
     #[test]
-    fn original_filename_path_keeps_uuid_namespace_and_filename() {
+    fn named_policy_paths_normalize_names_and_reject_unsafe_inputs() {
+        let registry = crate::storage::connectors::builtin_storage_connector_registry().unwrap();
+        let policy = onedrive_policy();
         assert_eq!(
-            original_filename_storage_path(UPLOAD_ID, Some("video name.mp4")).unwrap(),
-            "files/550e8400-e29b-41d4-a716-446655440000/video name.mp4"
-        );
-    }
-
-    #[test]
-    fn original_filename_path_keeps_same_name_uploads_isolated_by_uuid() {
-        let first = original_filename_storage_path(UPLOAD_ID, Some("same-name.mp4")).unwrap();
-        let second = original_filename_storage_path(
-            "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
-            Some("same-name.mp4"),
-        )
-        .unwrap();
-
-        assert_ne!(first, second);
-        assert!(first.ends_with("/same-name.mp4"));
-        assert!(second.ends_with("/same-name.mp4"));
-    }
-
-    #[test]
-    fn original_filename_path_supports_legacy_layout_and_rejects_bad_inputs() {
-        assert_eq!(
-            original_filename_storage_path(UPLOAD_ID, None).unwrap(),
-            "files/550e8400-e29b-41d4-a716-446655440000"
-        );
-        assert!(original_filename_storage_path("../escape", Some("video.mp4")).is_err());
-        assert!(original_filename_storage_path(UPLOAD_ID, Some("bad/name.mp4")).is_err());
-        assert!(original_filename_storage_path(UPLOAD_ID, Some("bad\\name.mp4")).is_err());
-        assert!(original_filename_storage_path(UPLOAD_ID, Some("")).is_err());
-    }
-
-    #[test]
-    fn original_filename_path_normalizes_unicode_filename() {
-        assert_eq!(
-            original_filename_storage_path(UPLOAD_ID, Some("cafe\u{301}.txt")).unwrap(),
+            nondedup_storage_path_for_policy(
+                &registry,
+                &policy,
+                UPLOAD_ID,
+                Some("cafe\u{301}.txt")
+            )
+            .unwrap(),
             "files/550e8400-e29b-41d4-a716-446655440000/caf\u{e9}.txt"
         );
+        assert_eq!(
+            nondedup_storage_path_for_policy(&registry, &policy, UPLOAD_ID, None).unwrap(),
+            "files/550e8400-e29b-41d4-a716-446655440000"
+        );
+        assert!(
+            nondedup_storage_path_for_policy(&registry, &policy, "../escape", Some("video.mp4"))
+                .is_err()
+        );
+        for filename in ["bad/name.mp4", "bad\\name.mp4", ""] {
+            assert!(
+                nondedup_storage_path_for_policy(&registry, &policy, UPLOAD_ID, Some(filename))
+                    .is_err()
+            );
+        }
     }
 
     #[test]

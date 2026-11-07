@@ -16,6 +16,7 @@ pub(super) struct MicrosoftGraphErrorBody {
 }
 
 pub(super) fn map_reqwest_error(ctx: &str, error: reqwest::Error) -> StorageError {
+    let error = error.without_url();
     let message = error.to_string();
     if message.contains("reader exceeded declared size")
         || message.contains("reader ended before declared size")

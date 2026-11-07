@@ -3,7 +3,24 @@
 use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::wopi_session::{self, Entity as WopiSession};
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait,
+    QueryFilter, QuerySelect,
+};
+
+/// Publication reads are current reads, synchronized with session deletion/expiry updates.
+pub(crate) async fn find_for_authorization<C: ConnectionTrait>(
+    db: &C,
+    id: i64,
+    for_update: bool,
+) -> Result<Option<wopi_session::Model>> {
+    let query = WopiSession::find_by_id(id);
+    let query = match (for_update, db.get_database_backend()) {
+        (true, DbBackend::MySql | DbBackend::Postgres) => query.lock_exclusive(),
+        _ => query,
+    };
+    query.one(db).await.map_err(AsterError::from)
+}
 
 pub async fn create(
     db: &DatabaseConnection,

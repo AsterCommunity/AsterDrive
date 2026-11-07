@@ -101,7 +101,7 @@
 	"external_auth_email_verification_missing_token_title": "Missing verification token",
 	"external_auth_email_verification_missing_token_desc": "This external auth email verification link does not contain a usable token.",
 	"external_auth_email_verification_invalid_title": "Invalid verification link",
-	"external_auth_email_verification_invalid_desc": "This external auth email verification link is invalid or has already been used. Start external sign-in again.",
+	"external_auth_email_verification_invalid_desc": "This link is invalid, already used, or opened outside the browser that started sign-in. Open the email link in the initiating browser, or start external sign-in again.",
 	"external_auth_email_verification_expired_title": "Verification link expired",
 	"external_auth_email_verification_expired_desc": "This external auth email verification link has expired. Start external sign-in again.",
 	"verify_contact_expired_title": "Verification link expired",

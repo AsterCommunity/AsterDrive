@@ -3751,6 +3751,15 @@ async fn test_s3_presigned_download_redirects_and_share_counts() {
         shared_location.contains("response-content-disposition="),
         "shared presigned URL should preserve attachment filename"
     );
+    // Issuing the capability counts, even if the redirect is abandoned before
+    // the browser contacts the storage provider.
+    drop(resp);
+    let initialized = test::TestRequest::get()
+        .uri(&format!("/api/v1/s/{share_token}"))
+        .to_request();
+    let initialized = test::call_service(&app, initialized).await;
+    let initialized: Value = test::read_body_json(initialized).await;
+    assert_eq!(initialized["data"]["download_count"], 1);
     let shared_response = aster_forge_http::HttpClient::builder()
         .no_proxy()
         .build()
@@ -4325,6 +4334,22 @@ async fn test_direct_and_chunked_upload_share_blob_when_local_dedup_enabled() {
     assert_eq!(direct_blob.hash, chunked_blob.hash);
     assert_eq!(direct_blob.size, chunked_blob.size);
     assert_eq!(direct_blob.ref_count, 2);
+    let policy = policy_repo::find_by_id(state.writer_db(), direct_blob.policy_id)
+        .await
+        .unwrap();
+    let driver = state.driver_registry.get_driver(&policy).unwrap();
+    let objects = driver
+        .extensions()
+        .list
+        .unwrap()
+        .list_paths(None)
+        .await
+        .unwrap();
+    assert_eq!(
+        objects,
+        vec![direct_blob.storage_path.unwrap()],
+        "dedup losers must not leave their private physical candidates behind"
+    );
 }
 
 #[actix_web::test]
@@ -4399,6 +4424,18 @@ async fn test_concurrent_chunked_dedup_complete_reuses_blob_without_overwrite() 
 
     assert_eq!(first_blob.id, second_blob.id);
     assert_eq!(first_blob.ref_count, 2);
+    let objects = driver
+        .extensions()
+        .list
+        .unwrap()
+        .list_paths(None)
+        .await
+        .unwrap();
+    assert_eq!(
+        objects,
+        vec![first_blob.storage_path.clone().unwrap()],
+        "concurrent dedup must retain only the winning physical candidate"
+    );
     assert_eq!(
         driver
             .get(
@@ -4409,6 +4446,67 @@ async fn test_concurrent_chunked_dedup_complete_reuses_blob_without_overwrite() 
             .await
             .unwrap(),
         content
+    );
+}
+
+#[actix_web::test]
+async fn test_concurrent_chunked_dedup_complete_across_accounts_reuses_one_live_object() {
+    use aster_drive::db::repository::file_repo;
+    use aster_drive::services::files::upload;
+
+    let state = common::setup_with_pool_size(4).await;
+    set_default_local_content_dedup(&state, true).await;
+    let first =
+        common::create_test_account(&state, "dedupfirst", "dedupfirst@test.com", "password123")
+            .await
+            .unwrap();
+    let second =
+        common::create_test_account(&state, "dedupsecond", "dedupsecond@test.com", "password123")
+            .await
+            .unwrap();
+    let mut attempts = Vec::new();
+    for user_id in [first.id, second.id] {
+        let upload_id =
+            prepare_chunked_upload_for_personal_scope(&state, user_id, "same-content.bin", b'L')
+                .await;
+        attempts.push((user_id, upload_id));
+    }
+    let start = Arc::new(tokio::sync::Barrier::new(2));
+    let mut tasks = JoinSet::new();
+    for (user_id, upload_id) in attempts {
+        let state = state.clone();
+        let start = start.clone();
+        tasks.spawn(async move {
+            start.wait().await;
+            upload::complete_upload(&state, &upload_id, user_id, None)
+                .await
+                .unwrap()
+        });
+    }
+    let first_file = tasks.join_next().await.unwrap().unwrap();
+    let second_file = tasks.join_next().await.unwrap().unwrap();
+    assert_eq!(first_file.blob_id, second_file.blob_id);
+    let blob = file_repo::find_blob_by_id(state.writer_db(), first_file.blob_id)
+        .await
+        .unwrap();
+    assert_eq!(blob.ref_count, 2);
+    let policy = policy_repo::find_by_id(state.writer_db(), blob.policy_id)
+        .await
+        .unwrap();
+    let driver = state.driver_registry.get_driver(&policy).unwrap();
+    let path = blob.storage_path_for_connector().unwrap();
+    let content = driver.get(path).await.unwrap();
+    assert_eq!(content.len(), TEST_CHUNK_SIZE * 2);
+    assert!(content.iter().all(|byte| *byte == b'L'));
+    assert_eq!(
+        driver
+            .extensions()
+            .list
+            .unwrap()
+            .list_paths(None)
+            .await
+            .unwrap(),
+        [path]
     );
 }
 
@@ -7045,6 +7143,7 @@ async fn test_file_upload_get_progress_uses_db_parts_for_terminal_relay_multipar
 
 #[actix_web::test]
 async fn test_sqlite_reader_queries_stay_independent_but_auth_waits_for_writer_revocation() {
+    use aster_drive::runtime::SharedRuntimeState;
     use aster_forge_utils::raii::TempDirGuard;
     use sea_orm::{ConnectionTrait, TransactionTrait};
 
@@ -7093,36 +7192,43 @@ async fn test_sqlite_reader_queries_stay_independent_but_auth_waits_for_writer_r
     tokio::pin!(authentication);
     assert!(futures::poll!(&mut authentication).is_pending());
 
-    // Read-only product work remains on the reader after a caller has authenticated. This
-    // checks the data routing boundary separately from the stronger authorization requirement.
+    // Projection 查询仍走 reader；service 自己还必须从 writer 验证当前产品资格。
     let query: aster_drive::api::pagination::FolderListQuery =
         serde_json::from_value(serde_json::json!({})).unwrap();
     let params = aster_drive::services::files::folder::FolderListParams::from(&query);
     timeout(
         Duration::from_secs(5),
-        aster_drive::services::files::folder::list(&state, user.id, None, &params),
+        aster_drive::db::repository::folder_repo::find_children(state.reader_db(), user.id, None),
     )
     .await
     .expect("folder data query should not wait for the writer pool")
     .expect("folder data query should succeed");
-    let progress = timeout(
-        Duration::from_secs(5),
-        aster_drive::services::files::upload::get_progress(&state, &upload_id, user.id),
-    )
-    .await
-    .expect("upload progress data query should not wait for the writer pool")
-    .expect("upload progress data query should succeed");
-    assert_eq!(progress.upload_id, upload_id);
-    assert_eq!(progress.received_count, 2);
+    let listing = aster_drive::services::files::folder::list(&state, user.id, None, &params);
+    tokio::pin!(listing);
+    assert!(futures::poll!(&mut listing).is_pending());
+    // Progress 入口还要校验当前 actor/workspace，授权不能从 reader 的旧快照放行。
+    // session/receipt projection 可读 reader，但整个 service 不再是免授权的纯查询。
+    let progress = aster_drive::services::files::upload::get_progress(&state, &upload_id, user.id);
+    tokio::pin!(progress);
+    assert!(futures::poll!(&mut progress).is_pending());
 
     aster_drive::db::repository::user_repo::bump_session_version(&txn, user.id)
         .await
         .unwrap();
     txn.commit().await.unwrap();
-    let error = timeout(Duration::from_secs(5), authentication)
-        .await
-        .expect("authentication must finish after writer release")
-        .expect_err("committed revocation must reject the queued old access token");
+    // 三个 future 已进入同一单连接 writer 的等待队列，必须共同推进，不能让
+    // 先获连接的认证 future 停在未 poll 状态、反过来饿死后面的业务授权查询。
+    let (authentication, listing, progress) = timeout(Duration::from_secs(5), async {
+        tokio::join!(authentication, listing, progress)
+    })
+    .await
+    .expect("queued authority checks must finish after writer release");
+    listing.expect("active owner can list after the authority check");
+    let progress = progress.expect("the active owner can read progress after the authority check");
+    assert_eq!(progress.upload_id, upload_id);
+    assert_eq!(progress.received_count, 2);
+    let error =
+        authentication.expect_err("committed revocation must reject the queued old access token");
     assert!(matches!(
         error,
         aster_drive::errors::AsterError::AuthTokenInvalid(_)

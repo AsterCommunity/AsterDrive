@@ -48,8 +48,7 @@ const ACTIVE_VERIFICATION_REQUEST_MESSAGE: &str = "a verification request is alr
 /// Drive's request projection of Forge-verified claims, never the JWT wire format.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Claims {
-    /// Stable Forge session identity. Access revocation still follows Drive's account-version
-    /// policy; carrying sid alone does not promise immediate single-session access revocation.
+    /// Stable Forge session identity, checked against the writer on every access authorization.
     pub sid: String,
     /// Canonical subject supplied by the verified JWT.
     pub sub: String,
@@ -229,17 +228,6 @@ pub struct LoginResult {
     pub refresh_token: String,
     pub user_id: i64,
     pub password_change_required: bool,
-}
-
-impl AuthSnapshot {
-    fn from_user(user: &user::Model) -> Self {
-        Self {
-            status: user.status,
-            role: user.role,
-            session_version: user.session_version,
-            must_change_password: user.must_change_password,
-        }
-    }
 }
 
 fn user_audit_info(user: &user::Model) -> UserAuditInfo {
@@ -476,12 +464,12 @@ pub async fn log_logout_for_token(
 
 pub async fn change_password_with_audit(
     state: &impl SharedRuntimeState,
-    user_id: i64,
+    claims: &Claims,
     current_password: &str,
     new_password: &str,
     audit_ctx: &AuditContext,
 ) -> Result<AuthUserInfo> {
-    let user = change_password(state, user_id, current_password, new_password).await?;
+    let user = change_password(state, claims, current_password, new_password).await?;
     audit::log(
         state,
         audit_ctx,

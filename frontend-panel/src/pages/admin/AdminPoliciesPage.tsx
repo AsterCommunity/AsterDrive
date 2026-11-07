@@ -207,11 +207,7 @@ function useAdminPoliciesPageContent(
 	const endpointValidationMessage = getEndpointValidationMessage(
 		form,
 		(key) =>
-			translateStorageConnectorMessage(
-				t,
-				currentStorageDriverDescriptor?.connector_id,
-				key,
-			),
+			translateStorageConnectorMessage(t, currentStorageDriverDescriptor, key),
 		currentStorageDriverDescriptor,
 	);
 	const storageAuthorizationRedirectUri = getStorageAuthorizationCallbackUrl();

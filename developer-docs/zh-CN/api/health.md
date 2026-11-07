@@ -108,14 +108,12 @@ HTTP 和数据库：
 | `background_task_retries_total` | `kind` | 后台任务 retry 次数 |
 | `background_tasks_pending` | 无 | 当前 `Pending` / `Retry` 后台任务积压量 |
 
-存储驱动和公开分享回滚：
+存储驱动：
 
 | 指标 | 标签 | 说明 |
 | --- | --- | --- |
 | `storage_driver_operations_total` | `driver`, `operation`, `status`, `kind` | 存储驱动操作次数，失败时 `kind` 来自存储错误分类 |
 | `storage_driver_operation_duration_seconds` | `driver`, `operation`, `status`, `kind` | 存储驱动操作耗时直方图 |
-| `share_download_rollback_events_total` | `event` | 公开分享流式下载中断后的下载计数回滚队列事件 |
-| `share_download_rollback_pending` | 无 | 待处理分享下载计数回滚量 |
 
 进程指标：
 

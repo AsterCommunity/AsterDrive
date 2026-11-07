@@ -25,14 +25,14 @@ use crate::services::task::types::{
     FolderTreeMutationOperation, FolderTreeMutationTaskPayload, FolderTreeMutationTaskResult,
     TaskInfo,
 };
-use crate::services::workspace::storage::{self, WorkspaceStorageScope};
+use crate::services::workspace::storage::WorkspaceStorageScope;
 use aster_drive_model::entities::{background_task, folder as folder_entity, resource_lock};
 use aster_drive_model::types::{EntityType, LockDepth, LockMode, LockOrigin};
 
 use super::{TypedTaskCreate, insert_typed_task_record, mark_task_progress, task_scope};
 
 const PAGE_SIZE: u64 = 512;
-const MAX_BACKGROUND_DEPTH: usize = 4096;
+const MAX_BACKGROUND_DEPTH: usize = aster_drive_model::types::folder::MAX_FOLDER_DEPTH - 1;
 const LOCK_MARKER_PREFIX: &str = "folder-tree-task:";
 
 #[derive(Debug, Clone)]
@@ -128,7 +128,13 @@ async fn create_folder_tree_mutation_task_in_scope_with_failed_barrier<
     operation: FolderTreeMutationOperation,
     #[cfg(test)] failed_task_barrier: Option<&tokio::sync::Barrier>,
 ) -> Result<TaskInfo> {
-    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let txn = transaction::begin(state.writer_db()).await?;
     crate::services::files::trash::coordination::admit_mutation_on(&txn, scope).await?;
     let root = folder_repo::find_by_id(&txn, folder_id).await?;
@@ -324,7 +330,10 @@ async fn process_staging(
         files_done: false,
         depth: 0,
     }];
-    let mut staged: u64;
+    // One authoritative recount supports retries/lease takeover; subsequent
+    // bounded batches return only their newly staged membership count.
+    let mut staged = folder_tree_operation_repo::count(state.writer_db(), task.id).await?;
+    let mut legacy_cleanup = false;
 
     while !stack.is_empty() {
         #[cfg(test)]
@@ -336,7 +345,25 @@ async fn process_staging(
         let frame_index = stack.len() - 1;
         let frame = &mut stack[frame_index];
         context.ensure_active()?;
-        ensure_background_depth(frame.depth)?;
+        if !legacy_cleanup && frame.depth > MAX_BACKGROUND_DEPTH {
+            if payload.operation != FolderTreeMutationOperation::Delete {
+                ensure_background_depth(frame.depth)?;
+            }
+            // Existing over-depth trees must remain deletable. Switch to a
+            // parent-link cursor instead of retaining an unbounded DFS stack.
+            // Every ancestor has already finished its files before descent;
+            // on return, the completed child's ID resumes its ordered page.
+            let current = stack
+                .pop()
+                .ok_or_else(|| AsterError::internal_error("folder traversal frame disappeared"))?;
+            stack.clear();
+            stack.push(current);
+            legacy_cleanup = true;
+            continue;
+        }
+        let frame = stack
+            .last_mut()
+            .ok_or_else(|| AsterError::internal_error("folder traversal frame disappeared"))?;
         if !frame.entered {
             let folder_id = frame.folder_id;
             let staged_total = transaction::with_transaction(state.writer_db(), async |txn| {
@@ -351,7 +378,9 @@ async fn process_staging(
             })
             .await?;
             frame.entered = true;
-            staged = staged_total;
+            staged = staged
+                .checked_add(staged_total)
+                .ok_or_else(|| AsterError::internal_error("folder staging count overflow"))?;
             update_task_progress(state, lease_guard, staged, "Scanning folder tree", steps).await?;
             continue;
         }
@@ -386,7 +415,9 @@ async fn process_staging(
                 })
                 .await?;
                 frame.next_file_after = Some(last);
-                staged = staged_total;
+                staged = staged
+                    .checked_add(staged_total)
+                    .ok_or_else(|| AsterError::internal_error("folder staging count overflow"))?;
                 update_task_progress(state, lease_guard, staged, "Scanning folder tree", steps)
                     .await?;
             }
@@ -404,12 +435,32 @@ async fn process_staging(
                     parent_id,
                     after,
                     include_deleted,
-                    PAGE_SIZE,
+                    if legacy_cleanup { 1 } else { PAGE_SIZE },
                 )
                 .await
             })
             .await?;
             if child_page.is_empty() {
+                if legacy_cleanup && frame.folder_id != root.id {
+                    let completed_id = frame.folder_id;
+                    let completed =
+                        folder_repo::find_by_id(state.writer_db(), completed_id).await?;
+                    ensure_root_scope(&completed, scope)?;
+                    let parent_id = completed.parent_id.ok_or_else(|| {
+                        AsterError::internal_error("folder cleanup traversal lost its parent")
+                    })?;
+                    *frame = Frame {
+                        folder_id: parent_id,
+                        next_child_after: Some(completed_id),
+                        child_page: Vec::new(),
+                        next_child_index: 0,
+                        next_file_after: None,
+                        entered: true,
+                        files_done: true,
+                        depth: 0,
+                    };
+                    continue;
+                }
                 stack.pop();
                 continue;
             }
@@ -423,8 +474,18 @@ async fn process_staging(
             frame.next_child_index = 0;
         }
 
-        let child_frame = take_next_child_frame(frame)?;
-        stack.push(child_frame);
+        let mut child_frame = take_next_child_frame(frame)?;
+        if child_frame.folder_id == root.id {
+            return Err(AsterError::validation_error(
+                "folder cleanup traversal contains a cycle",
+            ));
+        }
+        if legacy_cleanup {
+            child_frame.depth = 0;
+            stack[0] = child_frame;
+        } else {
+            stack.push(child_frame);
+        }
     }
     Ok(())
 }
@@ -478,11 +539,58 @@ async fn finalize_operation(
     let marker = operation_lock_marker(task.id);
     let result = transaction::with_transaction(state.writer_db(), async |txn| {
         crate::services::files::trash::coordination::admit_mutation_on(txn, scope).await?;
+        let operation = match payload.operation {
+            FolderTreeMutationOperation::Delete => {
+                crate::services::workspace::scope::WorkspaceOperation::Delete
+            }
+            FolderTreeMutationOperation::Restore => {
+                crate::services::workspace::scope::WorkspaceOperation::Restore
+            }
+        };
+        let access = crate::services::workspace::scope::authorize_workspace_on(
+            txn,
+            scope,
+            operation,
+            &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+        )
+        .await?;
         let root = folder_repo::find_by_id(txn, payload.folder_id).await?;
         ensure_root_scope(&root, scope)?;
         enforce_task_root_lock(txn, &root, &lock_tokens).await?;
         let original_parent_id = root.parent_id;
-        let mut restored_parent_id = root.parent_id;
+        let mut restored_parent_id = match payload.operation {
+            FolderTreeMutationOperation::Delete => root.parent_id,
+            FolderTreeMutationOperation::Restore => match root.parent_id {
+                Some(id) => restore_parent_id(folder_repo::find_by_id(txn, id).await, scope)?,
+                None => None,
+            },
+        };
+        // task 的深度锁保护整棵树，但不涵盖其外部父集合。删除/恢复的成员变化
+        // 必须额外检查该集合；用当前任务 token 满足自己的锁，不绕过别人的锁。
+        access
+            .collection(
+                restored_parent_id,
+                &SubmittedLockCredentials {
+                    holder_user_id: None,
+                    tokens: &lock_tokens,
+                },
+            )
+            .await?;
+        if payload.operation == FolderTreeMutationOperation::Restore {
+            let parent_chain = crate::services::files::folder::hierarchy::load_active_chain_on(
+                txn,
+                scope,
+                restored_parent_id,
+            )
+            .await?;
+            crate::services::files::folder::hierarchy::ensure_subtree_placement_on(
+                txn,
+                scope,
+                root.id,
+                parent_chain.len(),
+            )
+            .await?;
+        }
         let mut activity = crate::services::workspace::activity::ActivityContext::actor(
             txn,
             scope.actor_user_id(),
@@ -914,12 +1022,7 @@ mod tests {
         let storage_change_bus = crate::services::events::storage_change::StorageChangeBus::new(
             crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
-        let (share_download_rollback, _worker) =
-            crate::services::share::build_share_download_rollback_queue(
-                db.clone(),
-                1,
-                aster_drive_metrics::NoopMetrics::arc(),
-            );
+
         crate::runtime::PrimaryAppState {
             audit_writer: crate::runtime::test_support::audit_writer(&db).await,
             db_handles: aster_forge_db::DbHandles::single(db),
@@ -935,7 +1038,7 @@ mod tests {
             metrics: aster_drive_metrics::NoopMetrics::arc(),
             mail_sender: aster_forge_mail::memory_sender(),
             storage_change_bus,
-            share_download_rollback,
+            storage_event_streams: Default::default(),
             background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
             remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
         }

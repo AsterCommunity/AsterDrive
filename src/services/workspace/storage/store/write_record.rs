@@ -3,8 +3,7 @@ use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
 
 use crate::errors::{AsterError, Result};
 use crate::services::workspace::storage::{
-    CreateFileFromBlobWithMimeParams, WorkspaceStorageScope, create_file_from_blob_with_mime,
-    update_storage_used,
+    CreateFileFromBlobParams, NewFileNameMode, create_file_from_blob, update_storage_used,
 };
 use aster_drive_model::entities::{file, file_blob};
 
@@ -12,7 +11,6 @@ use super::NewFileMode;
 use super::prepare::OverwriteContext;
 
 pub(super) struct WriteFileRecordFromTempParams<'a> {
-    pub scope: WorkspaceStorageScope,
     pub activity_action: aster_drive_model::types::AuditAction,
     pub activity_source: crate::services::workspace::activity::ActivitySource,
     pub folder_id: Option<i64>,
@@ -32,11 +30,10 @@ pub(super) struct WriteFileRecordFromTempParams<'a> {
 }
 
 pub(super) async fn write_file_record_from_temp<C: ConnectionTrait>(
-    txn: &C,
+    access: crate::services::workspace::scope::AuthorizedWorkspaceAccess<'_, C>,
     params: WriteFileRecordFromTempParams<'_>,
 ) -> Result<file::Model> {
     let WriteFileRecordFromTempParams {
-        scope,
         activity_source,
         activity_action,
         folder_id,
@@ -54,21 +51,8 @@ pub(super) async fn write_file_record_from_temp<C: ConnectionTrait>(
         expected_current_revision_etag,
         revision_etag,
     } = params;
-    if overwrite_ctx.is_none() {
-        let workspace = match scope {
-            WorkspaceStorageScope::Personal { user_id } => {
-                crate::services::files::lock::LockWorkspace::Personal { user_id }
-            }
-            WorkspaceStorageScope::Team { team_id, .. } => {
-                crate::services::files::lock::LockWorkspace::Team { team_id }
-            }
-        };
-        let submitted = lock_credentials.submitted();
-        crate::services::files::lock::enforce_collection_membership_mutation_on(
-            txn, workspace, folder_id, &submitted,
-        )
-        .await?;
-    }
+    let txn = access.connection();
+    let scope = access.scope();
     let result = if let Some(OverwriteContext { old_file }) = overwrite_ctx {
         let current_file = super::revalidate_overwrite_target(
             txn,
@@ -78,6 +62,8 @@ pub(super) async fn write_file_record_from_temp<C: ConnectionTrait>(
             file_precondition,
         )
         .await?;
+        // 接收 body 期间文件可能被移走；发布必须验证当前实体的挂载范围。
+        access.file(&current_file).await?;
         let existing_id = current_file.id;
         let locked_revision_id =
             crate::db::repository::revision_repo::lock_history_by_file_id(txn, existing_id)
@@ -149,20 +135,23 @@ pub(super) async fn write_file_record_from_temp<C: ConnectionTrait>(
         }
         updated
     } else {
-        create_file_from_blob_with_mime(
-            txn,
-            CreateFileFromBlobWithMimeParams {
-                scope,
-                activity_source,
-                folder_id,
-                filename,
-                mime_type: mime,
-                blob,
-                now,
-                actor_username,
-                exact_name: matches!(new_file_mode, NewFileMode::Exact),
+        let creation = access
+            .for_file_creation(folder_id, &lock_credentials.submitted())
+            .await?;
+        create_file_from_blob(CreateFileFromBlobParams {
+            creation: &creation,
+            activity_source,
+            creation_action: aster_drive_model::types::AuditAction::FileUpload,
+            filename,
+            mime_type: Some(mime),
+            blob,
+            now,
+            actor_username,
+            name_mode: match new_file_mode {
+                NewFileMode::Exact => NewFileNameMode::Exact,
+                NewFileMode::ResolveUnique => NewFileNameMode::ResolveUnique,
             },
-        )
+        })
         .await?
     };
 

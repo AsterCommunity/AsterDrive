@@ -18,13 +18,41 @@ const MAX_CLI_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
 
 pub(crate) use aster_forge_utils::raii::TempDirGuard;
 
+pub(crate) enum CliInput {
+    File(std::fs::File),
+    ObjectProxy(String),
+}
+
 pub(crate) fn run_cli_command_with_timeout(
     command: &str,
     args: &[&str],
+    input: Option<CliInput>,
     error: impl Fn(String) -> AsterError,
 ) -> Result<Output> {
-    let mut child = Command::new(command)
-        .args(args)
+    let mut process = Command::new(command);
+    process.args(args).stdin(Stdio::null());
+    match input {
+        Some(CliInput::File(file)) => {
+            process.stdin(Stdio::from(file));
+        }
+        Some(CliInput::ObjectProxy(proxy)) => {
+            // FFmpeg's HTTP implementation checks lowercase no_proxy even when
+            // http_proxy was supplied explicitly. Never inherit a bypass.
+            for key in [
+                "http_proxy",
+                "HTTP_PROXY",
+                "https_proxy",
+                "HTTPS_PROXY",
+                "all_proxy",
+                "ALL_PROXY",
+            ] {
+                process.env(key, &proxy);
+            }
+            process.env("no_proxy", "").env("NO_PROXY", "");
+        }
+        None => {}
+    }
+    let mut child = process
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -209,7 +237,7 @@ impl ResolvedMediaProcessor {
 
     pub(crate) fn cache_path(&self, blob_hash: &str, runtime_config: &RuntimeConfig) -> String {
         let thumbnail_version = self.thumbnail_version(runtime_config);
-        crate::services::files::thumbnail::thumb_path_for(
+        aster_drive_storage::object_path::thumbnail_path(
             blob_hash,
             self.thumbnail_processor(),
             &thumbnail_version,
@@ -222,7 +250,7 @@ impl ResolvedMediaProcessor {
         runtime_config: &RuntimeConfig,
     ) -> String {
         let image_preview_version = self.image_preview_version(runtime_config);
-        crate::services::files::thumbnail::image_preview_path_for(
+        aster_drive_storage::object_path::image_preview_path(
             blob_hash,
             self.image_preview_processor(),
             &image_preview_version,
@@ -305,7 +333,7 @@ pub(crate) fn known_thumbnail_cache_paths(blob_hash: &str, current_max_dim: u32)
     let mut paths = processors
         .iter()
         .map(|thumbnail_processor| {
-            crate::services::files::thumbnail::thumb_path_for(
+            aster_drive_storage::object_path::thumbnail_path(
                 blob_hash,
                 thumbnail_processor,
                 default_version,
@@ -314,7 +342,7 @@ pub(crate) fn known_thumbnail_cache_paths(blob_hash: &str, current_max_dim: u32)
         .collect::<Vec<_>>();
     if current_version != default_version {
         paths.extend(processors.iter().map(|thumbnail_processor| {
-            crate::services::files::thumbnail::thumb_path_for(
+            aster_drive_storage::object_path::thumbnail_path(
                 blob_hash,
                 thumbnail_processor,
                 &current_version,
@@ -340,7 +368,7 @@ pub(crate) fn known_image_preview_cache_paths(
     let mut paths = processors
         .iter()
         .map(|image_preview_processor| {
-            crate::services::files::thumbnail::image_preview_path_for(
+            aster_drive_storage::object_path::image_preview_path(
                 blob_hash,
                 image_preview_processor,
                 default_version,
@@ -349,7 +377,7 @@ pub(crate) fn known_image_preview_cache_paths(
         .collect::<Vec<_>>();
     if current_version != default_version {
         paths.extend(processors.iter().map(|image_preview_processor| {
-            crate::services::files::thumbnail::image_preview_path_for(
+            aster_drive_storage::object_path::image_preview_path(
                 blob_hash,
                 image_preview_processor,
                 &current_version,
@@ -429,27 +457,27 @@ mod tests {
         assert_eq!(
             paths,
             vec![
-                crate::services::files::thumbnail::thumb_path_for(
+                aster_drive_storage::object_path::thumbnail_path(
                     HASH,
                     crate::services::files::thumbnail::IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE,
                     crate::services::files::thumbnail::CURRENT_THUMBNAIL_VERSION,
                 ),
-                crate::services::files::thumbnail::thumb_path_for(
+                aster_drive_storage::object_path::thumbnail_path(
                     HASH,
                     VIPS_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
                     crate::services::files::thumbnail::CURRENT_THUMBNAIL_VERSION,
                 ),
-                crate::services::files::thumbnail::thumb_path_for(
+                aster_drive_storage::object_path::thumbnail_path(
                     HASH,
                     FFMPEG_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
                     crate::services::files::thumbnail::CURRENT_THUMBNAIL_VERSION,
                 ),
-                crate::services::files::thumbnail::thumb_path_for(
+                aster_drive_storage::object_path::thumbnail_path(
                     HASH,
                     LOFTY_THUMBNAIL_PROCESSOR_NAMESPACE,
                     crate::services::files::thumbnail::CURRENT_THUMBNAIL_VERSION,
                 ),
-                crate::services::files::thumbnail::thumb_path_for(
+                aster_drive_storage::object_path::thumbnail_path(
                     HASH,
                     STORAGE_NATIVE_THUMBNAIL_PROCESSOR_NAMESPACE,
                     crate::services::files::thumbnail::CURRENT_THUMBNAIL_VERSION,
@@ -465,48 +493,48 @@ mod tests {
         assert_eq!(
             paths,
             vec![
-                crate::services::files::thumbnail::thumb_path_for(
+                aster_drive_storage::object_path::thumbnail_path(
                     HASH,
                     crate::services::files::thumbnail::IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE,
                     crate::services::files::thumbnail::CURRENT_THUMBNAIL_VERSION,
                 ),
-                crate::services::files::thumbnail::thumb_path_for(
+                aster_drive_storage::object_path::thumbnail_path(
                     HASH,
                     VIPS_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
                     crate::services::files::thumbnail::CURRENT_THUMBNAIL_VERSION,
                 ),
-                crate::services::files::thumbnail::thumb_path_for(
+                aster_drive_storage::object_path::thumbnail_path(
                     HASH,
                     FFMPEG_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
                     crate::services::files::thumbnail::CURRENT_THUMBNAIL_VERSION,
                 ),
-                crate::services::files::thumbnail::thumb_path_for(
+                aster_drive_storage::object_path::thumbnail_path(
                     HASH,
                     LOFTY_THUMBNAIL_PROCESSOR_NAMESPACE,
                     crate::services::files::thumbnail::CURRENT_THUMBNAIL_VERSION,
                 ),
-                crate::services::files::thumbnail::thumb_path_for(
+                aster_drive_storage::object_path::thumbnail_path(
                     HASH,
                     STORAGE_NATIVE_THUMBNAIL_PROCESSOR_NAMESPACE,
                     crate::services::files::thumbnail::CURRENT_THUMBNAIL_VERSION,
                 ),
-                crate::services::files::thumbnail::thumb_path_for(HASH, "images", "1-d320",),
-                crate::services::files::thumbnail::thumb_path_for(
+                aster_drive_storage::object_path::thumbnail_path(HASH, "images", "1-d320",),
+                aster_drive_storage::object_path::thumbnail_path(
                     HASH,
                     VIPS_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
                     "1-d320",
                 ),
-                crate::services::files::thumbnail::thumb_path_for(
+                aster_drive_storage::object_path::thumbnail_path(
                     HASH,
                     FFMPEG_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
                     "1-d320",
                 ),
-                crate::services::files::thumbnail::thumb_path_for(
+                aster_drive_storage::object_path::thumbnail_path(
                     HASH,
                     LOFTY_THUMBNAIL_PROCESSOR_NAMESPACE,
                     "1-d320",
                 ),
-                crate::services::files::thumbnail::thumb_path_for(
+                aster_drive_storage::object_path::thumbnail_path(
                     HASH,
                     STORAGE_NATIVE_THUMBNAIL_PROCESSOR_NAMESPACE,
                     "1-d320",
@@ -525,22 +553,22 @@ mod tests {
         assert_eq!(
             paths,
             vec![
-                crate::services::files::thumbnail::image_preview_path_for(
+                aster_drive_storage::object_path::image_preview_path(
                     HASH,
                     crate::services::files::thumbnail::IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE,
                     crate::services::files::thumbnail::CURRENT_IMAGE_PREVIEW_VERSION,
                 ),
-                crate::services::files::thumbnail::image_preview_path_for(
+                aster_drive_storage::object_path::image_preview_path(
                     HASH,
                     VIPS_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
                     crate::services::files::thumbnail::CURRENT_IMAGE_PREVIEW_VERSION,
                 ),
-                crate::services::files::thumbnail::image_preview_path_for(
+                aster_drive_storage::object_path::image_preview_path(
                     HASH,
                     FFMPEG_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
                     crate::services::files::thumbnail::CURRENT_IMAGE_PREVIEW_VERSION,
                 ),
-                crate::services::files::thumbnail::image_preview_path_for(
+                aster_drive_storage::object_path::image_preview_path(
                     HASH,
                     STORAGE_NATIVE_THUMBNAIL_PROCESSOR_NAMESPACE,
                     crate::services::files::thumbnail::CURRENT_IMAGE_PREVIEW_VERSION,
@@ -556,42 +584,42 @@ mod tests {
         assert_eq!(
             paths,
             vec![
-                crate::services::files::thumbnail::image_preview_path_for(
+                aster_drive_storage::object_path::image_preview_path(
                     HASH,
                     crate::services::files::thumbnail::IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE,
                     crate::services::files::thumbnail::CURRENT_IMAGE_PREVIEW_VERSION,
                 ),
-                crate::services::files::thumbnail::image_preview_path_for(
+                aster_drive_storage::object_path::image_preview_path(
                     HASH,
                     VIPS_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
                     crate::services::files::thumbnail::CURRENT_IMAGE_PREVIEW_VERSION,
                 ),
-                crate::services::files::thumbnail::image_preview_path_for(
+                aster_drive_storage::object_path::image_preview_path(
                     HASH,
                     FFMPEG_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
                     crate::services::files::thumbnail::CURRENT_IMAGE_PREVIEW_VERSION,
                 ),
-                crate::services::files::thumbnail::image_preview_path_for(
+                aster_drive_storage::object_path::image_preview_path(
                     HASH,
                     STORAGE_NATIVE_THUMBNAIL_PROCESSOR_NAMESPACE,
                     crate::services::files::thumbnail::CURRENT_IMAGE_PREVIEW_VERSION,
                 ),
-                crate::services::files::thumbnail::image_preview_path_for(
+                aster_drive_storage::object_path::image_preview_path(
                     HASH,
                     crate::services::files::thumbnail::IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE,
                     "1-d2048",
                 ),
-                crate::services::files::thumbnail::image_preview_path_for(
+                aster_drive_storage::object_path::image_preview_path(
                     HASH,
                     VIPS_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
                     "1-d2048",
                 ),
-                crate::services::files::thumbnail::image_preview_path_for(
+                aster_drive_storage::object_path::image_preview_path(
                     HASH,
                     FFMPEG_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
                     "1-d2048",
                 ),
-                crate::services::files::thumbnail::image_preview_path_for(
+                aster_drive_storage::object_path::image_preview_path(
                     HASH,
                     STORAGE_NATIVE_THUMBNAIL_PROCESSOR_NAMESPACE,
                     "1-d2048",
@@ -608,12 +636,12 @@ mod tests {
         assert_eq!(processor.thumbnail_version(&runtime_config), "1");
         assert_eq!(
             processor.cache_path(HASH, &runtime_config),
-            crate::services::files::thumbnail::thumb_path_for(HASH, "images", "1")
+            aster_drive_storage::object_path::thumbnail_path(HASH, "images", "1")
         );
         assert_eq!(processor.image_preview_version(&runtime_config), "1");
         assert_eq!(
             processor.image_preview_cache_path(HASH, &runtime_config),
-            crate::services::files::thumbnail::image_preview_path_for(HASH, "images", "1")
+            aster_drive_storage::object_path::image_preview_path(HASH, "images", "1")
         );
 
         runtime_config.apply(config_model(THUMBNAIL_MAX_DIMENSION_KEY, "320"));
@@ -622,12 +650,12 @@ mod tests {
         assert_eq!(processor.thumbnail_version(&runtime_config), "1-d320");
         assert_eq!(
             processor.cache_path(HASH, &runtime_config),
-            crate::services::files::thumbnail::thumb_path_for(HASH, "images", "1-d320")
+            aster_drive_storage::object_path::thumbnail_path(HASH, "images", "1-d320")
         );
         assert_eq!(processor.image_preview_version(&runtime_config), "1-d2048");
         assert_eq!(
             processor.image_preview_cache_path(HASH, &runtime_config),
-            crate::services::files::thumbnail::image_preview_path_for(HASH, "images", "1-d2048")
+            aster_drive_storage::object_path::image_preview_path(HASH, "images", "1-d2048")
         );
     }
 

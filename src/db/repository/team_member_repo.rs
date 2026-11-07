@@ -191,6 +191,24 @@ pub async fn find_active_team_access<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Locking authorization reads see current membership under MySQL REPEATABLE READ.
+/// The caller also serializes membership changes through the team's owner row.
+pub(crate) async fn find_by_team_and_user_for_authorization<C: ConnectionTrait>(
+    db: &C,
+    team_id: i64,
+    user_id: i64,
+    for_update: bool,
+) -> Result<Option<team_member::Model>> {
+    let query = TeamMember::find()
+        .filter(team_member::Column::TeamId.eq(team_id))
+        .filter(team_member::Column::UserId.eq(user_id));
+    let query = match (for_update, db.get_database_backend()) {
+        (true, DbBackend::Postgres | DbBackend::MySql) => query.lock_exclusive(),
+        _ => query,
+    };
+    query.one(db).await.map_err(AsterError::from)
+}
+
 pub async fn list_by_user_with_team(
     db: &DatabaseConnection,
     user_id: i64,

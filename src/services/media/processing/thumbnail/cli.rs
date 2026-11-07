@@ -45,7 +45,7 @@ pub(super) async fn render_thumbnail_with_vips_cli(
         source_file_name,
         source_mime_type,
         temp_dir.path(),
-        false,
+        blob.size,
     )
     .await?;
 
@@ -75,6 +75,7 @@ pub(super) async fn render_thumbnail_with_vips_cli(
                 "--size",
                 "down",
             ],
+            None,
             thumbnail_render_failed,
         )?;
         if !output.status.success() {
@@ -135,7 +136,7 @@ pub(super) async fn render_image_preview_with_vips_cli(
         source_file_name,
         source_mime_type,
         temp_dir.path(),
-        false,
+        blob.size,
     )
     .await?;
 
@@ -165,6 +166,7 @@ pub(super) async fn render_image_preview_with_vips_cli(
                 "--size",
                 "down",
             ],
+            None,
             thumbnail_render_failed,
         )?;
         if !output.status.success() {
@@ -206,13 +208,10 @@ pub(super) async fn render_thumbnail_with_ffmpeg_cli(
     blob: &file_blob::Model,
     source_file_name: &str,
     source_mime_type: &str,
-    driver: &dyn StorageDriver,
+    driver: std::sync::Arc<dyn StorageDriver>,
     command: &str,
     max_dim: u32,
 ) -> Result<Vec<u8>> {
-    let storage_path = blob.storage_path_for_connector().ok_or_else(|| {
-        AsterError::validation_error("virtual-empty blobs have no audio artwork source")
-    })?;
     let temp_root = aster_forge_utils::paths::runtime_temp_dir(&state.config().server.temp_dir);
     let temp_dir = PathBuf::from(temp_root).join(format!("media-ffmpeg-{}", uuid::Uuid::new_v4()));
     tokio::fs::create_dir_all(&temp_dir)
@@ -221,18 +220,15 @@ pub(super) async fn render_thumbnail_with_ffmpeg_cli(
     let temp_dir = TempDirGuard::new(temp_dir, "ffmpeg thumbnail temp dir");
 
     let output_path = temp_dir.path().join("thumbnail.png");
-    let prepared_input = prepare_cli_source(
+    let input = crate::services::media::processing::ffmpeg_input::FfmpegInput::prepare(
         driver,
-        storage_path,
+        blob,
         source_file_name,
         source_mime_type,
-        temp_dir.path(),
-        true,
+        &state.config().server.temp_dir,
     )
     .await?;
-
     let command = command.to_string();
-    let input_arg = prepared_input.input_arg().to_string();
     let output_arg = output_path.to_string_lossy().to_string();
     let filter_arg = format!(
         "thumbnail={FFMPEG_THUMBNAIL_BATCH_SIZE}:log=quiet,scale=min(iw\\,{max_dim}):min(ih\\,{max_dim}):force_original_aspect_ratio=decrease"
@@ -241,21 +237,15 @@ pub(super) async fn render_thumbnail_with_ffmpeg_cli(
         blob_id = blob.id,
         processor = "ffmpeg_cli",
         command,
-        input_source = prepared_input.kind().as_str(),
         output_path = "<redacted>",
         max_dim,
         "starting ffmpeg CLI thumbnail render"
     );
     tokio::task::spawn_blocking(move || {
-        let output = run_cli_command_with_timeout(
+        let output = input.run(
             &command,
+            &["-hide_banner", "-loglevel", "error", "-nostdin"],
             &[
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-nostdin",
-                "-i",
-                &input_arg,
                 "-map",
                 "0:v:0",
                 "-vf",

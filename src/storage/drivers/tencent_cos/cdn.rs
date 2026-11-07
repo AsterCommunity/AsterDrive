@@ -417,21 +417,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cdn_mode_keeps_presigned_upload_on_the_cos_origin() {
+    async fn cdn_mode_cannot_reenable_browser_upload_credentials() {
+        use aster_drive_storage::StorageDriver;
         use aster_drive_storage::traits::extensions::PresignedUploadStorageDriver;
         let driver = driver();
-        let request = driver
-            .presigned_put_request("upload.jpg", Duration::from_secs(60))
-            .await
-            .unwrap()
-            .unwrap();
-        let url = Url::parse(&request.url).unwrap();
-        assert_eq!(
-            url.host_str(),
-            Some("bucket-1250000000.cos.ap-guangzhou.myqcloud.com")
+        assert!(
+            driver
+                .presigned_put_request("upload.jpg", Duration::from_secs(60))
+                .await
+                .unwrap()
+                .is_none()
         );
-        assert!(url.query_pairs().any(|(key, _)| key == "q-signature"));
-        assert!(!url.query_pairs().any(|(key, _)| key == "sign"));
+        assert!(driver.extensions().stream_upload.is_some());
+        assert!(driver.extensions().multipart.is_some());
     }
 
     #[test]

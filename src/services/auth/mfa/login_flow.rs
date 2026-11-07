@@ -12,8 +12,8 @@ use crate::config::{
     branding, mail,
 };
 use crate::db::repository::{
-    mfa_email_code_repo, mfa_factor_repo, mfa_login_flow_repo, mfa_recovery_code_repo,
-    mfa_totp_setup_flow_repo, mfa_totp_used_step_repo, user_repo,
+    mfa_attempt_budget_repo, mfa_email_code_repo, mfa_factor_repo, mfa_login_flow_repo,
+    mfa_recovery_code_repo, mfa_totp_setup_flow_repo, mfa_totp_used_step_repo, user_repo,
 };
 use crate::errors::{AsterError, Result, auth_mfa_failed_with_code};
 use crate::runtime::{MailRuntimeState, SharedRuntimeState};
@@ -34,14 +34,30 @@ use aster_drive_model::types::{MfaFirstFactor, MfaMethod, MfaPersistentFactorMet
 use aster_forge_utils::numbers::{i64_to_u64, u64_to_i64};
 
 use super::{
-    EMAIL_CODE_DIGITS, MFA_LOGIN_FLOW_TTL_SECS, MFA_MAX_ATTEMPTS, MfaEmailCodeSendResponse, crypto,
-    recovery_codes, totp,
+    EMAIL_CODE_DIGITS, MFA_LOGIN_FLOW_TTL_SECS, MFA_MAX_ATTEMPTS, MfaEmailCodeSendResponse, budget,
+    crypto, recovery_codes, totp,
 };
 
 #[derive(Debug)]
 pub enum PrimaryLoginCompletion {
     Authenticated(local::LoginResult),
     MfaRequired(MfaChallengeStart),
+}
+
+pub struct MfaBrowserBinding {
+    pub secret: String,
+}
+impl std::fmt::Debug for MfaBrowserBinding {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("MfaBrowserBinding { .. }")
+    }
+}
+impl Clone for MfaBrowserBinding {
+    fn clone(&self) -> Self {
+        Self {
+            secret: self.secret.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -52,6 +68,8 @@ pub struct MfaChallengeStart {
     pub flow_token: String,
     pub expires_in: u64,
     pub methods: Vec<MfaMethod>,
+    #[serde(skip)]
+    pub browser_binding: Option<MfaBrowserBinding>,
 }
 
 #[derive(Debug)]
@@ -94,13 +112,45 @@ pub async fn complete_primary_login_or_start_mfa(
     return_path: Option<&str>,
     ip_address: Option<&str>,
     user_agent: Option<&str>,
+    pending_link: Option<&crate::services::auth::external::PendingExternalLink>,
 ) -> Result<PrimaryLoginCompletion> {
     let methods = available_challenge_methods(state.writer_db(), state, user).await?;
     if methods.is_empty() {
-        let password_change_required = local::password_change_required_for_login(state, user);
+        let txn = transaction::begin(state.writer_db()).await?;
+        let current = user_repo::lock_by_id(&txn, user.id).await?;
+        // First-factor verification can precede the transaction. Bind completion to exactly
+        // that account generation (password rehash alone does not revoke it), and never authorize from its stale snapshot.
+        if current.session_version != user.session_version || !current.status.is_active() {
+            return Err(AsterError::auth_token_invalid(
+                "account changed during login completion",
+            ));
+        }
+        // A method list collected before this transaction is only a UI/dispatch snapshot.
+        // Never complete a pending association if a second factor is now required.
+        if !available_challenge_methods(&txn, state, &current)
+            .await?
+            .is_empty()
+        {
+            return Err(AsterError::auth_token_invalid(
+                "authentication requirements changed; restart login",
+            ));
+        }
+        let password_change_required = local::password_change_required_for_login(state, &current);
+        if let Some(pending) = pending_link {
+            crate::services::auth::external::complete_pending_link(
+                &txn,
+                pending,
+                &current,
+                &AuditRequestInfo {
+                    ip_address: ip_address.map(str::to_string),
+                    user_agent: user_agent.map(str::to_string),
+                },
+            )
+            .await?;
+        }
         let (access_token, refresh_token) =
-            local::issue_tokens_for_user(state.writer_db(), state, user, ip_address, user_agent)
-                .await?;
+            local::issue_tokens_for_user(&txn, state, &current, ip_address, user_agent).await?;
+        transaction::commit(txn).await?;
         return Ok(PrimaryLoginCompletion::Authenticated(local::LoginResult {
             access_token,
             refresh_token,
@@ -115,9 +165,12 @@ pub async fn complete_primary_login_or_start_mfa(
             user,
             first_factor,
             return_path,
-            ip_address,
-            user_agent,
+            &AuditRequestInfo {
+                ip_address: ip_address.map(str::to_string),
+                user_agent: user_agent.map(str::to_string),
+            },
             methods,
+            pending_link,
         )
         .await?,
     ))
@@ -142,9 +195,9 @@ pub async fn create_login_flow(
     user: &user::Model,
     first_factor: MfaFirstFactor,
     return_path: Option<&str>,
-    ip_address: Option<&str>,
-    user_agent: Option<&str>,
+    audit_info: &AuditRequestInfo,
     methods: Vec<MfaMethod>,
+    pending_link: Option<&crate::services::auth::external::PendingExternalLink>,
 ) -> Result<MfaChallengeStart> {
     let flow_token = format!("mfa_{}", aster_forge_utils::id::new_short_token());
     let now = Utc::now();
@@ -156,9 +209,11 @@ pub async fn create_login_flow(
             user_id: Set(user.id),
             user_session_version: Set(user.session_version),
             first_factor: Set(first_factor),
+            external_recovery_flow_id: Set(pending_link.map(|p| p.flow_id)),
+            browser_binding_hash: Set(pending_link.map(|p| crypto::token_hash(&p.browser_pfoxum))),
             return_path: Set(return_path.map(str::to_string)),
-            ip_address: Set(ip_address.map(str::to_string)),
-            user_agent: Set(user_agent.map(str::to_string)),
+            ip_address: Set(audit_info.ip_address.clone()),
+            user_agent: Set(audit_info.user_agent.clone()),
             attempt_count: Set(0),
             expires_at: Set(now + Duration::seconds(ttl)),
             consumed_at: Set(None),
@@ -173,6 +228,9 @@ pub async fn create_login_flow(
         flow_token,
         expires_in: MFA_LOGIN_FLOW_TTL_SECS,
         methods,
+        browser_binding: pending_link.map(|p| MfaBrowserBinding {
+            secret: p.browser_pfoxum.clone(),
+        }),
     })
 }
 
@@ -188,6 +246,7 @@ pub async fn send_email_code(
     state: &impl MailRuntimeState,
     flow_token: &str,
     audit_info: &AuditRequestInfo,
+    browser_proof: Option<&str>,
 ) -> Result<MfaEmailCodeSendResponse> {
     let normalized_flow_token = flow_token.trim();
     if normalized_flow_token.is_empty() {
@@ -202,11 +261,12 @@ pub async fn send_email_code(
     }
 
     let flow_token_hash = crypto::token_hash(normalized_flow_token);
-    validate_email_code_send(
+    let (_, preflight_user, _) = validate_email_code_send(
         state.writer_db(),
         state,
         &flow_token_hash,
         &policy,
+        browser_proof,
         Utc::now(),
     )
     .await?;
@@ -218,12 +278,22 @@ pub async fn send_email_code(
         .hash_password(&code)
         .await?;
 
-    let now = Utc::now();
     let txn = transaction::begin(state.writer_db()).await?;
     let result = async {
-        let (flow, user, effective_expires_in) =
-            validate_email_code_send(&txn, state, &flow_token_hash, &policy, now).await?;
+        mfa_attempt_budget_repo::lock_account(&txn, preflight_user.id).await?;
+        let now = Utc::now();
 
+        let (flow, user, effective_expires_in) =
+            validate_email_code_send(&txn, state, &flow_token_hash, &policy, browser_proof, now)
+                .await?;
+
+        budget::reserve_email_send(
+            &txn,
+            user.id,
+            now,
+            u64_to_i64(policy.resend_cooldown_secs, "email code resend cooldown")?,
+        )
+        .await?;
         mfa_email_code_repo::consume_active_for_user(&txn, user.id, now).await?;
         let ttl = u64_to_i64(effective_expires_in, "email code ttl")?;
         let record = mfa_email_code_repo::create(
@@ -365,12 +435,14 @@ async fn validate_email_code_send<C: ConnectionTrait>(
     state: &impl SharedRuntimeState,
     flow_token_hash: &str,
     policy: &RuntimeEmailCodeLoginPolicy,
+    browser_proof: Option<&str>,
     now: chrono::DateTime<Utc>,
 ) -> Result<(mfa_login_flow::Model, user::Model, u64)> {
     let flow = mfa_login_flow_repo::find_by_flow_token_hash(db, flow_token_hash)
         .await?
         .ok_or_else(|| flow_invalid("MFA flow is invalid"))?;
     ensure_flow_active(&flow, now)?;
+    ensure_mfa_browser(&flow, browser_proof)?;
 
     let user = user_repo::find_by_id(db, flow.user_id).await?;
     ensure_flow_user_valid(&user, &flow)?;
@@ -382,6 +454,7 @@ async fn validate_email_code_send<C: ConnectionTrait>(
         ));
     }
 
+    budget::ensure_email_send_available(db, user.id, now).await?;
     if let Some(latest) = mfa_email_code_repo::find_latest_unconsumed_for_user(db, user.id).await? {
         let cooldown = u64_to_i64(policy.resend_cooldown_secs, "email code resend cooldown")?;
         let allowed_at = latest.created_at + Duration::seconds(cooldown);
@@ -413,6 +486,7 @@ pub async fn verify_challenge(
     method: MfaMethod,
     code: &str,
     audit_info: &AuditRequestInfo,
+    browser_proof: Option<&str>,
 ) -> Result<MfaChallengeLoginResult> {
     let normalized_flow_token = flow_token.trim();
     if normalized_flow_token.is_empty() {
@@ -423,12 +497,20 @@ pub async fn verify_challenge(
     let preflight_now = Utc::now();
     let preflight_flow =
         load_active_flow(state.writer_db(), &flow_token_hash, preflight_now).await?;
+    ensure_mfa_browser(&preflight_flow, browser_proof)?;
     ensure_first_factor_allowed(
         preflight_flow.first_factor,
         RuntimeAuthPolicy::from_runtime_config(state.runtime_config()).password_login_enabled,
     )?;
     let preflight_user = user_repo::find_by_id(state.writer_db(), preflight_flow.user_id).await?;
     ensure_flow_user_valid(&preflight_user, &preflight_flow)?;
+    budget::ensure_available(
+        state.writer_db(),
+        preflight_user.id,
+        budget::Purpose::Login,
+        preflight_now,
+    )
+    .await?;
     let prepared_recovery =
         if method == MfaMethod::RecoveryCode && recovery_codes::looks_like_code(code) {
             recovery_codes::verify(state, state.writer_db(), preflight_user.id, code).await?
@@ -449,16 +531,23 @@ pub async fn verify_challenge(
         PreparedEmailCodeVerification::Missing
     };
 
-    let now = Utc::now();
     let txn = transaction::begin(state.writer_db()).await?;
     let attempt = async {
-        let flow = load_active_flow(&txn, &flow_token_hash, now).await?;
+        let user = mfa_attempt_budget_repo::lock_account(&txn, preflight_user.id).await?;
+        // Preflight can do expensive password-hash preparation without holding a transaction,
+        // but it never admits an attempt. Only the locked current row authorizes verification.
+        let flow = mfa_login_flow_repo::lock_for_verification(&txn, &flow_token_hash)
+            .await?
+            .ok_or_else(|| flow_invalid("MFA flow is invalid"))?;
+        let now = Utc::now(); // Lock wait must not extend the flow or email-code lifetime.
+        ensure_flow_active(&flow, now)?;
+        ensure_mfa_browser(&flow, browser_proof)?;
         ensure_first_factor_allowed(
             flow.first_factor,
             RuntimeAuthPolicy::from_runtime_config(state.runtime_config()).password_login_enabled,
         )?;
-        let user = user_repo::find_by_id(&txn, flow.user_id).await?;
         ensure_flow_user_valid(&user, &flow)?;
+        budget::ensure_available(&txn, user.id, budget::Purpose::Login, now).await?;
         let user_id = user.id;
 
         let verified = match method {
@@ -497,8 +586,11 @@ pub async fn verify_challenge(
         };
 
         if !verified {
-            // The MFA table has no persisted revision field. Atomic attempt increments provide
-            // the concurrency guard while the derived snapshot revision remains 0 by contract.
+            let account_exhausted =
+                budget::record_failure(&txn, user.id, budget::Purpose::Login, now).await?;
+
+            // Flow guard serializes admission. Conditional updates additionally fence the exact
+            // admitted snapshot so a future caller cannot silently exceed the persisted budget.
             let transition = plan_transition(
                 &mfa_flow_snapshot(&flow),
                 AuthFlowCommand::RecordFailure {
@@ -511,8 +603,20 @@ pub async fn verify_challenge(
                 .map_err(|_| AsterError::internal_error("MFA attempt count overflow"))?;
             let budget_exhausted = transition.state == AuthFlowState::Failed;
             let consume_at = budget_exhausted.then_some(now);
-            mfa_login_flow_repo::increment_attempts(&txn, flow.id, consume_at).await?;
-            let error = if budget_exhausted {
+            match mfa_login_flow_repo::increment_attempts(
+                &txn,
+                flow.id,
+                flow.attempt_count,
+                MFA_MAX_ATTEMPTS as i32,
+                now,
+                consume_at,
+            )
+            .await?
+            {
+                true => {}
+                false => return Err(flow_invalid("MFA attempt lost its lifecycle fence")),
+            }
+            let error = if budget_exhausted || account_exhausted {
                 auth_mfa_failed_with_code(
                     ApiErrorCode::AuthMfaAttemptsExceeded,
                     "MFA attempts exceeded",
@@ -528,10 +632,31 @@ pub async fn verify_challenge(
             });
         }
 
-        if !mfa_login_flow_repo::consume(&txn, flow.id, now).await? {
+        budget::reset(&txn, user.id, budget::Purpose::Login, now).await?;
+        if !mfa_login_flow_repo::consume(
+            &txn,
+            flow.id,
+            flow.attempt_count,
+            MFA_MAX_ATTEMPTS as i32,
+            now,
+        )
+        .await?
+        {
             return Err(flow_invalid("MFA flow has already been consumed"));
         }
 
+        if let Some(flow_id) = flow.external_recovery_flow_id {
+            crate::services::auth::external::complete_pending_link(
+                &txn,
+                &crate::services::auth::external::PendingExternalLink {
+                    flow_id,
+                    browser_pfoxum: browser_proof.unwrap_or_default().to_string(),
+                },
+                &user,
+                audit_info,
+            )
+            .await?;
+        }
         let password_change_required = local::password_change_required_for_login(state, &user);
         let (access_token, refresh_token) = local::issue_tokens_for_user(
             &txn,
@@ -857,9 +982,25 @@ fn format_email_code_expires_in(ttl_secs: u64) -> String {
     }
 }
 
+/// Normal MFA retains its existing bearer-flow behavior. An association challenge additionally
+/// requires the initiating browser proof; moving its flow URL cannot change authentication methods.
+fn ensure_mfa_browser(flow: &mfa_login_flow::Model, proof: Option<&str>) -> Result<()> {
+    match (
+        flow.external_recovery_flow_id,
+        flow.browser_binding_hash.as_deref(),
+        proof,
+    ) {
+        (None, None, _) => Ok(()),
+        (Some(_), Some(expected), Some(proof)) if expected == crypto::token_hash(proof) => Ok(()),
+        _ => Err(flow_invalid(
+            "MFA association requires its initiating browser",
+        )),
+    }
+}
+
 fn ensure_flow_active(flow: &mfa_login_flow::Model, now: chrono::DateTime<Utc>) -> Result<()> {
-    // mfa_login_flows has no persisted revision column; atomic attempt and consume checks provide
-    // the concurrency boundary for this derived snapshot.
+    // A snapshot alone is not concurrency control. Verification holds the database flow guard
+    // before using this derived state, then conditionally consumes the same attempt count.
     plan_transition(
         &mfa_flow_snapshot(flow),
         AuthFlowCommand::Transition {

@@ -101,7 +101,7 @@ async fn init_presigned_object_storage_single_upload(
     driver: &dyn aster_drive_storage::StorageDriver,
 ) -> Result<InitUploadResponse> {
     with_unique_upload_id(|upload_id| async {
-        let temp_key = format!("files/{upload_id}");
+        let temp_key = aster_drive_storage::object_path::upload_path(&upload_id)?;
         let inserted = try_persist_upload_session(
             state.writer_db(),
             UploadSessionRecordParams {

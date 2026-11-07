@@ -127,7 +127,7 @@ async fn streaming_copy_and_local_file_upload_use_the_same_exact_size_protocol()
     .await;
     assert_eq!(
         driver(&peer)
-            .copy_object("files/source", "files/destination")
+            .copy_object("files/source", "files/destination", Default::default())
             .await
             .unwrap(),
         "files/destination"

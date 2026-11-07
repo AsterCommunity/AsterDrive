@@ -15,7 +15,7 @@ use crate::db::repository::{file_repo, folder_repo, share_repo, team_repo};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
-    files::{file, folder},
+    files::folder,
     workspace::storage::{self, WorkspaceStorageScope},
 };
 use aster_drive_model::entities::share;
@@ -85,7 +85,13 @@ pub(super) async fn load_share_in_scope(
     scope: WorkspaceStorageScope,
     share_id: i64,
 ) -> Result<share::Model> {
-    storage::require_scope_access(state, scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let share = share_repo::find_by_id(state.writer_db(), share_id).await?;
     ensure_share_scope(&share, scope)?;
     Ok(share)
@@ -117,7 +123,7 @@ pub(super) async fn load_share_record(
     // 团队分享如果指向的团队已被归档 / 删除，对外表现应当像 share 不存在，
     // 不再向匿名访问者暴露“token 有效但团队没了”这种内部状态。
     if let Some(team_id) = share.team_id {
-        match team_repo::find_active_by_id(state.reader_db(), team_id).await {
+        match team_repo::find_active_by_id(state.writer_db(), team_id).await {
             Ok(_) => {}
             Err(AsterError::RecordNotFound(_)) => {
                 return Err(AsterError::share_not_found(format!("token={token}")));
@@ -126,42 +132,6 @@ pub(super) async fn load_share_record(
         }
     }
     Ok(share)
-}
-
-pub(super) fn ensure_share_matches_file(
-    share: &share::Model,
-    file: &aster_drive_model::entities::file::Model,
-) -> Result<()> {
-    if let Some(team_id) = share.team_id {
-        if file.team_id != Some(team_id) {
-            return Err(auth_forbidden_with_code(
-                ApiErrorCode::ShareScopeDenied,
-                "file is outside shared scope",
-            ));
-        }
-    } else {
-        file::ensure_personal_file_scope(file)?;
-        crate::ownership::verify_optional_owner(file.owner_user_id, share.user_id, "file")?;
-    }
-    Ok(())
-}
-
-pub(super) fn ensure_share_matches_folder(
-    share: &share::Model,
-    folder: &aster_drive_model::entities::folder::Model,
-) -> Result<()> {
-    if let Some(team_id) = share.team_id {
-        if folder.team_id != Some(team_id) {
-            return Err(auth_forbidden_with_code(
-                ApiErrorCode::ShareScopeDenied,
-                "folder is outside shared scope",
-            ));
-        }
-    } else {
-        folder::ensure_personal_folder_scope(folder)?;
-        crate::ownership::verify_optional_owner(folder.owner_user_id, share.user_id, "folder")?;
-    }
-    Ok(())
 }
 
 pub(super) async fn load_share_file_resource(
@@ -183,7 +153,10 @@ pub(super) async fn load_share_file_resource(
         }
     };
     let file = file_repo::find_by_id(state.reader_db(), file_id).await?;
-    ensure_share_matches_file(share, &file)?;
+    let access =
+        crate::services::workspace::scope::authorize_share_resources_on(state.writer_db(), share)
+            .await?;
+    access.file_on(state.writer_db(), &file).await?;
     if file.deleted_at.is_some() {
         return Err(AsterError::file_not_found(format!(
             "file #{file_id} is in trash"
@@ -211,7 +184,10 @@ pub(super) async fn load_share_folder_resource(
         }
     };
     let folder = folder_repo::find_by_id(state.reader_db(), folder_id).await?;
-    ensure_share_matches_folder(share, &folder)?;
+    let access =
+        crate::services::workspace::scope::authorize_share_resources_on(state.writer_db(), share)
+            .await?;
+    access.folder_on(state.writer_db(), &folder).await?;
     if folder.deleted_at.is_some() {
         return Err(AsterError::folder_not_found(format!(
             "folder #{folder_id} is in trash"
@@ -245,7 +221,10 @@ pub(super) async fn load_shared_folder_file_target(
 ) -> Result<(share::Model, aster_drive_model::entities::file::Model)> {
     let (share, root_folder_id) = load_valid_folder_share_root(state, token).await?;
     let file = file_repo::find_by_id(state.reader_db(), file_id).await?;
-    ensure_share_matches_file(&share, &file)?;
+    let access =
+        crate::services::workspace::scope::authorize_share_resources_on(state.writer_db(), &share)
+            .await?;
+    access.file_on(state.writer_db(), &file).await?;
     if file.deleted_at.is_some() {
         return Err(AsterError::file_not_found(format!(
             "file #{file_id} is in trash"
@@ -259,7 +238,7 @@ pub(super) async fn load_shared_folder_file_target(
             "file is outside shared folder scope",
         )
     })?;
-    folder::verify_folder_in_scope(state.reader_db(), file_folder_id, root_folder_id).await?;
+    folder::verify_folder_in_scope(state.writer_db(), file_folder_id, root_folder_id).await?;
     Ok((share, file))
 }
 
@@ -271,7 +250,10 @@ pub(crate) async fn load_shared_folder_file_target_ignoring_download_limit(
     let (share, root_folder_id) =
         load_usable_folder_share_root_ignoring_download_limit(state, token).await?;
     let file = file_repo::find_by_id(state.reader_db(), file_id).await?;
-    ensure_share_matches_file(&share, &file)?;
+    let access =
+        crate::services::workspace::scope::authorize_share_resources_on(state.writer_db(), &share)
+            .await?;
+    access.file_on(state.writer_db(), &file).await?;
     if file.deleted_at.is_some() {
         return Err(AsterError::file_not_found(format!(
             "file #{file_id} is in trash"
@@ -283,7 +265,7 @@ pub(crate) async fn load_shared_folder_file_target_ignoring_download_limit(
             "file is outside shared folder scope",
         )
     })?;
-    folder::verify_folder_in_scope(state.reader_db(), file_folder_id, root_folder_id).await?;
+    folder::verify_folder_in_scope(state.writer_db(), file_folder_id, root_folder_id).await?;
     Ok((share, file))
 }
 
@@ -294,7 +276,10 @@ pub(super) async fn load_shared_subfolder_target(
 ) -> Result<(share::Model, aster_drive_model::entities::folder::Model)> {
     let (share, root_folder_id) = load_valid_folder_share_root(state, token).await?;
     let target = folder_repo::find_by_id(state.reader_db(), folder_id).await?;
-    ensure_share_matches_folder(&share, &target)?;
+    let access =
+        crate::services::workspace::scope::authorize_share_resources_on(state.writer_db(), &share)
+            .await?;
+    access.folder_on(state.writer_db(), &target).await?;
     if target.deleted_at.is_some() {
         return Err(AsterError::folder_not_found(format!(
             "folder #{folder_id} is in trash"
@@ -403,7 +388,9 @@ pub(super) async fn resolve_share_name(
             id: file_id,
         } => {
             let file = file_repo::find_by_id(db, file_id).await?;
-            ensure_share_matches_file(share, &file)?;
+            let access =
+                crate::services::workspace::scope::authorize_share_resources_on(db, share).await?;
+            access.file_on(db, &file).await?;
             if file.deleted_at.is_some() {
                 return Err(AsterError::file_not_found(format!(
                     "file #{file_id} is in trash"
@@ -421,7 +408,9 @@ pub(super) async fn resolve_share_name(
             id: folder_id,
         } => {
             let folder = folder_repo::find_by_id(db, folder_id).await?;
-            ensure_share_matches_folder(share, &folder)?;
+            let access =
+                crate::services::workspace::scope::authorize_share_resources_on(db, share).await?;
+            access.folder_on(db, &folder).await?;
             if folder.deleted_at.is_some() {
                 return Err(AsterError::folder_not_found(format!(
                     "folder #{folder_id} is in trash"

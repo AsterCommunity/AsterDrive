@@ -1255,14 +1255,30 @@ fn transfer_strategy_descriptors_keep_upload_and_download_copy_distinct() {
         AzureBlobConnector::ID,
         TencentCosConnector::ID,
     ] {
-        assert_transfer_strategy_copy(
-            &descriptor(connector_id),
-            "object_storage_upload_strategy",
-            "upload_strategy_relay_stream",
-            "upload_strategy_relay_stream_desc",
-            "upload_strategy_presigned",
-            "upload_strategy_presigned_desc",
-        );
+        match connector_id {
+            TencentCosConnector::ID => {
+                let fields = descriptor(connector_id).fields;
+                let field = fields
+                    .iter()
+                    .find(|field| field.name == "object_storage_upload_strategy")
+                    .unwrap();
+                let options = &field.select.as_ref().unwrap().options;
+                assert_eq!(options.len(), 1);
+                assert_eq!(options[0].label_key, "upload_strategy_relay_stream");
+                assert_eq!(
+                    options[0].description_key.as_deref(),
+                    Some("upload_strategy_relay_stream_desc")
+                );
+            }
+            _ => assert_transfer_strategy_copy(
+                &descriptor(connector_id),
+                "object_storage_upload_strategy",
+                "upload_strategy_relay_stream",
+                "upload_strategy_relay_stream_desc",
+                "upload_strategy_presigned",
+                "upload_strategy_presigned_desc",
+            ),
+        }
         assert_transfer_strategy_copy(
             &descriptor(connector_id),
             "object_storage_download_strategy",
@@ -2229,7 +2245,9 @@ fn upload_transport_is_resolved_by_connector_owned_typed_config() {
                 TencentCosConnector::ID,
                 cos_config(ObjectStorageUploadStrategy::Presigned),
             ),
-            StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned),
+            StorageConnectorUploadTransport::ObjectStorage(
+                ObjectStorageUploadStrategy::RelayStream,
+            ),
         ),
         (
             RemoteConnector::ID,

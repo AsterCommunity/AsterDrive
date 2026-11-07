@@ -1,9 +1,5 @@
 import { logger } from "@/lib/logger";
-import {
-	PERSONAL_WORKSPACE,
-	type Workspace,
-	workspaceEquals,
-} from "@/lib/workspace";
+import { type Workspace, workspaceEquals } from "@/lib/workspace";
 
 /**
  * 断点续传持久化层
@@ -20,7 +16,9 @@ export interface ResumableSession {
 	baseFolderName: string;
 	relativePath: string | null;
 	savedAt: number;
-	workspace?: Workspace;
+	/** Records without an account binding are legacy/untrusted and never auto-execute. */
+	accountId: number;
+	workspace: Workspace;
 	/** 可恢复上传模式。 */
 	mode?:
 		| "stream"
@@ -40,7 +38,9 @@ export interface PendingEmptyFileCreate {
 	baseFolderName: string;
 	relativePath: string | null;
 	savedAt: number;
-	workspace?: Workspace;
+	/** Records without an account binding are legacy/untrusted and never auto-execute. */
+	accountId: number;
+	workspace: Workspace;
 }
 
 const STORAGE_KEY = "aster_resumable_uploads";
@@ -94,7 +94,10 @@ function isPendingEmptyFileCreate(
 		(entry.relativePath === null || typeof entry.relativePath === "string") &&
 		typeof entry.savedAt === "number" &&
 		Number.isFinite(entry.savedAt) &&
-		(entry.workspace === undefined || isWorkspace(entry.workspace))
+		typeof entry.accountId === "number" &&
+		Number.isSafeInteger(entry.accountId) &&
+		entry.accountId > 0 &&
+		isWorkspace(entry.workspace)
 	);
 }
 
@@ -189,16 +192,12 @@ function writeAll(sessions: ResumableSession[]): void {
 	}
 }
 
-function normalizeWorkspace(workspace?: Workspace): Workspace {
-	return workspace ?? PERSONAL_WORKSPACE;
-}
-
 /** 保存一个 chunked upload session（init 成功后调用） */
 export function saveSession(session: ResumableSession): void {
 	const all = readAll().filter((s) => s.uploadId !== session.uploadId);
 	all.push({
 		...session,
-		workspace: normalizeWorkspace(session.workspace),
+		workspace: session.workspace,
 	});
 	writeAll(all);
 }
@@ -225,16 +224,27 @@ export function appendCompletedPart(
 }
 
 /** 加载所有未过期的 session，自动清理过期的 */
-export function loadSessions(workspace?: Workspace): ResumableSession[] {
+export function loadSessions(
+	accountId: number,
+	workspace: Workspace,
+): ResumableSession[] {
 	const now = Date.now();
 	const all = readAll();
-	const valid = all.filter((s) => now - s.savedAt < MAX_AGE_MS);
+	const valid = all.filter(
+		(s) =>
+			typeof s.accountId === "number" &&
+			Number.isSafeInteger(s.accountId) &&
+			s.accountId > 0 &&
+			isWorkspace(s.workspace) &&
+			now - s.savedAt < MAX_AGE_MS,
+	);
 	if (valid.length !== all.length) {
 		writeAll(valid);
 	}
-	if (!workspace) return valid;
-	return valid.filter((session) =>
-		workspaceEquals(normalizeWorkspace(session.workspace), workspace),
+	return valid.filter(
+		(session) =>
+			session.accountId === accountId &&
+			workspaceEquals(session.workspace, workspace),
 	);
 }
 
@@ -248,7 +258,7 @@ export function savePendingEmptyFiles(
 			entry.taskId,
 			{
 				...entry,
-				workspace: normalizeWorkspace(entry.workspace),
+				workspace: entry.workspace,
 			},
 		]),
 	);
@@ -268,7 +278,8 @@ export function removePendingEmptyFile(taskId: string): void {
 }
 
 export function loadPendingEmptyFiles(
-	workspace?: Workspace,
+	accountId: number,
+	workspace: Workspace,
 ): PendingEmptyFileCreate[] {
 	const now = Date.now();
 	const { entries: all, needsCleanup } = readPendingEmptyFiles();
@@ -276,9 +287,10 @@ export function loadPendingEmptyFiles(
 	if (needsCleanup || valid.length !== all.length) {
 		writePendingEmptyFiles(valid);
 	}
-	if (!workspace) return valid;
-	return valid.filter((entry) =>
-		workspaceEquals(normalizeWorkspace(entry.workspace), workspace),
+	return valid.filter(
+		(entry) =>
+			entry.accountId === accountId &&
+			workspaceEquals(entry.workspace, workspace),
 	);
 }
 

@@ -266,6 +266,8 @@ cleanup 按 namespace 分组处理：
 
 返回和审计的 removed count 必须来自实际删除行数，不能来自事务外预查询数量。
 
+WOPI 过期处理也走此条件清理：namespace 串行化前已完成续期的锁不能被旧读取强制解锁。管理员强制解锁保持独立、显式的操作语义。
+
 ### Resource mutation
 
 文件内容、元数据、删除、MOVE、COPY overwrite、版本恢复、WOPI write-back 和 WebDAV mutation 都必须使用同一个 transaction-aware evaluator：

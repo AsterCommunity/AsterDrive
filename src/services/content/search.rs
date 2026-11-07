@@ -20,7 +20,7 @@ use crate::services::{
     },
     share,
     workspace::storage::WorkspaceResourceScope,
-    workspace::storage::{self, WorkspaceStorageScope},
+    workspace::storage::WorkspaceStorageScope,
 };
 use aster_forge_api::SortOrder;
 use aster_forge_file_classification::FileCategory;
@@ -326,7 +326,13 @@ pub(crate) async fn search_in_scope(
 ) -> Result<SearchResults> {
     validate_search_params(params)?;
     let file_filters = normalize_file_filters(params)?;
-    storage::require_scope_access(state, scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
 
     let limit = params.limit.unwrap_or(50).clamp(1, 100);
     let offset = params.offset.unwrap_or(0);

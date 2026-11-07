@@ -95,7 +95,10 @@ async fn load_folder_hierarchy_map(
         .filter(|folder_id| !hierarchy.contains_key(folder_id))
         .collect();
 
+    let mut depth = 0;
     while !frontier.is_empty() {
+        crate::services::files::folder::hierarchy::ensure_result_depth(depth, 1)?;
+        depth += 1;
         let ids: Vec<i64> = frontier.drain().collect();
         let rows = find_folders_by_ids_in_scope(state, scope, &ids).await?;
         for row in rows {
@@ -119,7 +122,11 @@ fn has_selected_ancestor(
     hierarchy: &HashMap<i64, Option<i64>>,
 ) -> bool {
     let mut current = start_folder_id;
+    let mut seen = HashSet::new();
     while let Some(folder_id) = current {
+        if !seen.insert(folder_id) {
+            break;
+        }
         if selected_folder_ids.contains(&folder_id) {
             return true;
         }
@@ -168,7 +175,13 @@ pub(crate) async fn load_normalized_selection_in_scope(
     file_ids: &[i64],
     folder_ids: &[i64],
 ) -> Result<NormalizedSelection> {
-    storage::require_scope_access(state, scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     validate_batch_ids(file_ids, folder_ids)?;
 
     let file_map = build_file_map(find_files_by_ids_in_scope(state, scope, file_ids).await?);
@@ -217,17 +230,15 @@ pub(super) async fn load_folder_ancestor_ids_in_scope(
     scope: WorkspaceStorageScope,
     target_folder: Option<&folder::Model>,
 ) -> Result<HashSet<i64>> {
-    let mut ancestors = HashSet::new();
-    let mut current = target_folder.cloned();
-
-    while let Some(folder) = current {
-        storage::ensure_active_folder_scope(&folder, scope)?;
-        ancestors.insert(folder.id);
-        current = match folder.parent_id {
-            Some(parent_id) => Some(folder_repo::find_by_id(state.writer_db(), parent_id).await?),
-            None => None,
-        };
-    }
-
-    Ok(ancestors)
+    Ok(
+        crate::services::files::folder::hierarchy::load_active_chain_on(
+            state.writer_db(),
+            scope,
+            target_folder.map(|folder| folder.id),
+        )
+        .await?
+        .into_iter()
+        .map(|folder| folder.id)
+        .collect(),
+    )
 }

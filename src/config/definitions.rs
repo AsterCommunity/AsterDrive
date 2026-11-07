@@ -117,8 +117,6 @@ pub const BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY_KEY: &str =
 pub const BACKGROUND_TASK_STORAGE_MIGRATION_MAX_CONCURRENCY_KEY: &str =
     "background_task_storage_migration_max_concurrency";
 pub const BACKGROUND_TASK_MAX_ATTEMPTS_KEY: &str = "background_task_max_attempts";
-pub const SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY: &str =
-    "share_download_rollback_queue_capacity";
 pub const SHARE_STREAM_SESSION_TTL_SECS_KEY: &str = "share_stream_session_ttl_secs";
 pub const MAINTENANCE_CLEANUP_INTERVAL_SECS_KEY: &str = "maintenance_cleanup_interval_secs";
 pub const BLOB_RECONCILE_INTERVAL_SECS_KEY: &str = "blob_reconcile_interval_secs";
@@ -384,10 +382,6 @@ keyed_normalizer!(
 keyed_normalizer!(
     normalize_concurrency,
     operations::normalize_concurrency_config_value
-);
-keyed_normalizer!(
-    normalize_queue_capacity,
-    operations::normalize_queue_capacity_config_value
 );
 keyed_normalizer!(
     normalize_attempts,
@@ -1074,21 +1068,6 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         category: CONFIG_CATEGORY_RUNTIME_BACKGROUND_TASK,
         description: "Maximum number of attempts for workspace background tasks before they permanently fail",
         normalize_fn: Some(normalize_attempts),
-        ..aster_forge_config::ConfigDefinition::private_system()
-    },
-    ConfigDef {
-        key: SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY,
-        label_i18n_key: "settings_item_share_download_rollback_queue_capacity_label",
-        description_i18n_key: "settings_item_share_download_rollback_queue_capacity_desc",
-        value_type: ConfigValueType::Number,
-        default_fn: || {
-            crate::config::operations::DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY.to_string()
-        },
-        requires_restart: true,
-        is_sensitive: false,
-        category: CONFIG_CATEGORY_RUNTIME_LIMITS,
-        description: "Maximum buffered shared download rollback jobs before overflow aggregation is used",
-        normalize_fn: Some(normalize_queue_capacity),
         ..aster_forge_config::ConfigDefinition::private_system()
     },
     ConfigDef {

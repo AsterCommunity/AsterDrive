@@ -94,9 +94,7 @@ mod tests {
     fn cached(account_id: i64) -> CachedWebdavAuth {
         CachedWebdavAuth {
             account_id,
-            user_id: 10,
-            team_id: None,
-            root_folder_id: Some(20),
+            verifier_fingerprint: "test-verifier".to_owned(),
         }
     }
 

@@ -86,3 +86,22 @@ where
         .to_request();
     actix_web::test::call_service(app, req).await
 }
+
+// The HTTP test service has no browser cookie jar. Preserve recovery cookies explicitly so
+// positive-path helpers model the same browser; rejection tests build raw requests without it.
+static RECOVERY_COOKIES: LazyLock<Mutex<HashMap<String, String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+pub fn remember_recovery_cookie(key: &str, cookie: String) {
+    RECOVERY_COOKIES
+        .lock()
+        .unwrap()
+        .insert(key.to_string(), cookie);
+}
+pub fn recovery_cookie(key: &str) -> String {
+    RECOVERY_COOKIES
+        .lock()
+        .unwrap()
+        .get(key)
+        .cloned()
+        .unwrap_or_default()
+}

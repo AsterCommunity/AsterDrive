@@ -17,6 +17,17 @@ pub(crate) fn validate_persisted_kind(
     session: &upload_session::Model,
 ) -> Result<UploadSessionKind> {
     let kind = session.session_kind;
+    // Completed sessions replay their committed result; resumable objects have
+    // transferred ownership to the permanent blob and no longer have a temp key.
+    if session.status == aster_drive_model::types::UploadSessionStatus::Completed
+        && matches!(
+            kind,
+            UploadSessionKind::ProviderDirectResumable | UploadSessionKind::ProviderRelayResumable
+        )
+        && session.object_temp_key.is_none()
+    {
+        return Ok(kind);
+    }
     let has_multipart_id = session.object_multipart_id.is_some();
     let expects_multipart_id = matches!(
         kind,
@@ -271,5 +282,19 @@ mod tests {
             ))
             .is_err()
         );
+    }
+    #[test]
+    fn completed_provider_session_accepts_transferred_object_ownership() {
+        for kind in [
+            UploadSessionKind::ProviderDirectResumable,
+            UploadSessionKind::ProviderRelayResumable,
+        ] {
+            let mut row = session(kind, None, None);
+            row.status = UploadSessionStatus::Completed;
+            row.file_id = Some(17);
+            assert_eq!(validate_persisted_kind(&row).unwrap(), kind);
+            row.status = UploadSessionStatus::Assembling;
+            assert!(validate_persisted_kind(&row).is_err());
+        }
     }
 }

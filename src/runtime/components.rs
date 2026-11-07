@@ -75,9 +75,14 @@ pub fn primary_http_component(
             .forge_recorder()
             .provider()
             .map(web::Data::new);
+        let auth_limiters = crate::api::middleware::rate_limit::AuthRouteLimiters::new(
+            &state.config.rate_limit,
+            &state.config.network_trust,
+        );
         let server = HttpServer::new(move || {
             let db = configure_db.clone();
             let route_config = app_state.config.clone();
+            let auth_limiters = auth_limiters.clone();
             let app = App::new();
             #[cfg(feature = "metrics")]
             let app = {
@@ -104,7 +109,12 @@ pub fn primary_http_component(
                 .app_data(role_health.clone())
                 .configure(move |cfg| {
                     if role.serves_api() {
-                        crate::api::configure_primary(cfg, &db, &route_config.observability);
+                        crate::api::configure_primary(
+                            cfg,
+                            &db,
+                            &route_config.observability,
+                            &auth_limiters,
+                        );
                     } else {
                         cfg.service(crate::api::routes::health::primary_routes(
                             &route_config.observability,

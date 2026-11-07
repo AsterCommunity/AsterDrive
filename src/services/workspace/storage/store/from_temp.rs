@@ -31,9 +31,17 @@ pub(crate) async fn store_from_temp_internal(
     emit_storage_event: bool,
 ) -> Result<file::Model> {
     hints.operation_context.checkpoint()?;
+    let access = crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        params.scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &params.access_constraints,
+    )
+    .await?;
     if let Some(publication) = &hints.task_publication
         && let Some(file) = publication.find_file(state.writer_db()).await?
     {
+        access.file(&file).await?;
         if emit_storage_event {
             storage_change::publish(
                 state,

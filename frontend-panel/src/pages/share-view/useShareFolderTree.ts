@@ -5,6 +5,9 @@ import type { FolderContents, FolderListItem } from "@/types/api";
 import type { ShareBreadcrumbItem } from "./types";
 
 const ROOT_KEY = "root";
+// Breadcrumbs already describe the current path. Load siblings automatically
+// only near the root; deeper branches remain available through manual expand.
+const MAX_AUTO_EXPAND_DEPTH = 8;
 
 type ParentFolderId = number | null;
 
@@ -247,7 +250,7 @@ export function useShareFolderTree({
 		}
 		setExpandedKeys((current) => {
 			const next = new Set(current).add(ROOT_KEY);
-			for (const item of stableBreadcrumb.slice(1)) {
+			for (const item of stableBreadcrumb.slice(1, MAX_AUTO_EXPAND_DEPTH)) {
 				if (item.id != null) next.add(String(item.id));
 			}
 			expandedKeysRef.current = next;
@@ -270,7 +273,7 @@ export function useShareFolderTree({
 		const pathParents: ParentFolderId[] = [
 			null,
 			...stableBreadcrumb
-				.slice(1, -1)
+				.slice(1, Math.min(stableBreadcrumb.length - 1, MAX_AUTO_EXPAND_DEPTH))
 				.map((item) => item.id)
 				.filter((id): id is number => id !== null),
 		];

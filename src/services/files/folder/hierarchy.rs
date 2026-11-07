@@ -9,6 +9,7 @@ use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::workspace::storage::{self, WorkspaceStorageScope};
 use aster_drive_model::entities::folder;
+use aster_drive_model::types::folder::MAX_FOLDER_DEPTH;
 
 use super::{FolderAncestorItem, cache, ensure_folder_model_in_scope};
 
@@ -17,12 +18,103 @@ struct FolderPathEntry {
     chain_ids: Vec<i64>,
 }
 
+/// Load the complete active chain, including the requested folder, root first.
+pub(crate) async fn load_active_chain_on<C: ConnectionTrait>(
+    db: &C,
+    scope: WorkspaceStorageScope,
+    folder_id: Option<i64>,
+) -> Result<Vec<folder::Model>> {
+    let Some(folder_id) = folder_id else {
+        return Ok(Vec::new());
+    };
+    let chain = match scope {
+        WorkspaceStorageScope::Personal { user_id } => {
+            folder_repo::find_ancestor_models(db, user_id, folder_id).await?
+        }
+        WorkspaceStorageScope::Team { team_id, .. } => {
+            folder_repo::find_team_ancestor_models(db, team_id, folder_id).await?
+        }
+    };
+    if chain.last().map(|folder| folder.id) != Some(folder_id) {
+        return Err(AsterError::folder_not_found(
+            "folder ancestor chain is unavailable",
+        ));
+    }
+    for folder in &chain {
+        ensure_folder_model_in_scope(folder, scope)?;
+    }
+    Ok(chain)
+}
+
+pub(crate) fn ensure_result_depth(parent_depth: usize, folder_levels: usize) -> Result<()> {
+    if parent_depth
+        .checked_add(folder_levels)
+        .is_none_or(|depth| depth > MAX_FOLDER_DEPTH)
+    {
+        return Err(AsterError::validation_error(
+            "folder hierarchy exceeds the 4096-level limit",
+        ));
+    }
+    Ok(())
+}
+
+/// Call inside the mutation's writer transaction after acquiring its workspace guard.
+pub(crate) async fn ensure_insertion_depth_on<C: ConnectionTrait>(
+    db: &C,
+    scope: WorkspaceStorageScope,
+    parent_id: Option<i64>,
+    folder_levels: usize,
+) -> Result<()> {
+    let chain = load_active_chain_on(db, scope, parent_id).await?;
+    ensure_result_depth(chain.len(), folder_levels)
+}
+
+pub(crate) async fn ensure_subtree_placement_on<C: ConnectionTrait>(
+    db: &C,
+    scope: WorkspaceStorageScope,
+    root_id: i64,
+    parent_depth: usize,
+) -> Result<()> {
+    let folder_scope = match scope {
+        WorkspaceStorageScope::Personal { user_id } => {
+            folder_repo::FolderScope::Personal { user_id }
+        }
+        WorkspaceStorageScope::Team { team_id, .. } => folder_repo::FolderScope::Team { team_id },
+    };
+    let height = folder_repo::find_subtree_height(db, folder_scope, root_id, true).await?;
+    ensure_result_depth(parent_depth, height)
+}
+
 pub(super) async fn load_folder_chain_map<C: ConnectionTrait>(
     db: &C,
     folder_ids: &[i64],
 ) -> Result<HashMap<i64, folder::Model>> {
     let mut loaded = HashMap::new();
+    // Most path reads contain one or two parents. A bounded recursive projection
+    // avoids thousands of database round trips for a supported deep hierarchy;
+    // wide activity batches retain the shared frontier loading below.
+    if !folder_ids.is_empty() && folder_ids.len() <= 4 {
+        let seeds = folder_repo::find_by_ids(db, folder_ids).await?;
+        for &id in folder_ids {
+            let seed = seeds
+                .iter()
+                .find(|folder| folder.id == id)
+                .ok_or_else(|| AsterError::folder_not_found(format!("folder #{id}")))?;
+            let chain = match (seed.team_id, seed.owner_user_id) {
+                (Some(team_id), _) => {
+                    folder_repo::find_team_ancestor_models(db, team_id, id).await?
+                }
+                (None, Some(user_id)) => folder_repo::find_ancestor_models(db, user_id, id).await?,
+                (None, None) => {
+                    return Err(AsterError::validation_error("folder has no workspace"));
+                }
+            };
+            loaded.extend(chain.into_iter().map(|folder| (folder.id, folder)));
+        }
+        return Ok(loaded);
+    }
     let mut frontier: Vec<i64> = folder_ids.to_vec();
+    let mut depth = 0;
 
     while !frontier.is_empty() {
         frontier.retain(|id| !loaded.contains_key(id));
@@ -31,6 +123,8 @@ pub(super) async fn load_folder_chain_map<C: ConnectionTrait>(
         if frontier.is_empty() {
             break;
         }
+        ensure_result_depth(depth, 1)?;
+        depth += 1;
 
         let rows = folder_repo::find_by_ids(db, &frontier).await?;
         let mut found = HashSet::with_capacity(rows.len());
@@ -85,7 +179,13 @@ fn build_folder_path_entries_from_chain_map(
         let mut parts = Vec::new();
         let mut chain_ids = Vec::new();
         let mut current_id = Some(folder_id);
+        let mut seen = HashSet::new();
         while let Some(id) = current_id {
+            if chain_ids.len() >= MAX_FOLDER_DEPTH || !seen.insert(id) {
+                return Err(AsterError::validation_error(
+                    "folder hierarchy exceeds the 4096-level limit or contains a cycle",
+                ));
+            }
             let folder = chain_map
                 .get(&id)
                 .ok_or_else(|| AsterError::record_not_found(format!("folder #{id}")))?;
@@ -200,6 +300,9 @@ pub(crate) async fn get_ancestors_in_scope(
         }
     };
 
+    for ancestor in &ancestors {
+        ensure_folder_model_in_scope(ancestor, scope)?;
+    }
     Ok(ancestors
         .into_iter()
         .map(|folder| FolderAncestorItem {

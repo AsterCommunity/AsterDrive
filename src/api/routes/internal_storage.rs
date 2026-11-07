@@ -90,13 +90,7 @@ fn json_request_body<T: serde::de::DeserializeOwned>(req: &HttpRequest, body: &[
             crate::storage::remote_protocol::REMOTE_CONTROL_PLANE_BODY_LIMIT
         )));
     }
-    let declared = crate::storage::remote_protocol::declared_content_sha256(req.headers());
-    let computed = crate::storage::remote_protocol::body_sha256_hex(body);
-    if declared.is_empty() || declared != computed {
-        return Err(AsterError::auth_invalid_credentials(
-            "request body does not match the signed digest",
-        ));
-    }
+    crate::storage::remote_protocol::verify_buffered_content_sha256(req.headers(), body)?;
     serde_json::from_slice(body).map_err(|error| {
         AsterError::validation_error(format!("invalid JSON request body: {error}"))
     })
@@ -578,6 +572,7 @@ async fn put_object(
             object_key: &object_key,
             storage_path: &storage_path,
             content_length,
+            temp_root: Some(&state.config().server.temp_dir),
             expected_sha256: signed
                 .then_some(declared_sha256.as_str())
                 .filter(|value| !value.is_empty()),
@@ -692,6 +687,7 @@ async fn compose_objects(
         &target_storage_path,
         part_storage_paths,
         expected_size,
+        Some(&state.config().server.temp_dir),
     )
     .await?;
     tracing::info!(

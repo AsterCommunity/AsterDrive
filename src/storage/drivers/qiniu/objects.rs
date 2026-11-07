@@ -206,7 +206,12 @@ impl StorageDriver for QiniuDriver {
         })
     }
 
-    async fn copy_object(&self, src_path: &str, dest_path: &str) -> Result<String> {
+    async fn copy_object(
+        &self,
+        src_path: &str,
+        dest_path: &str,
+        _options: aster_drive_storage::StorageCopyOptions,
+    ) -> Result<String> {
         let mut url = self.endpoint(ServiceKind::Management).await?;
         url.set_path(&format!(
             "/copy/{}/{}/force/true",

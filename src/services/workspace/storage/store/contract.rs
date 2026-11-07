@@ -4,14 +4,13 @@ use crate::services::workspace::storage::PreparedNonDedupBlobUpload;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum TempStoreBlobCleanupPlan {
-    RollbackStagedDedupIfUnreferenced,
-    RetainExistingDedupObject,
+    DeleteOwnedDedupCandidate,
     CleanupPreuploadedBlobOnDbFailure,
 }
 
 #[derive(Debug, Clone)]
 pub(super) enum VerifiedTempStoreBlobSource {
-    ContentAddressed {
+    DeduplicatedContent {
         file_hash: String,
     },
     PreuploadedNonDedup {
@@ -42,19 +41,22 @@ impl VerifiedTempStoreBlob {
         }
 
         match blob_plan {
-            TempBlobPlan::Dedup(target) => Ok(Self {
-                size,
-                policy_id,
-                storage_path: target.storage_path.clone(),
-                source: VerifiedTempStoreBlobSource::ContentAddressed {
-                    file_hash: target.file_hash.clone(),
-                },
-                cleanup: if staged_dedup_object_created {
-                    TempStoreBlobCleanupPlan::RollbackStagedDedupIfUnreferenced
-                } else {
-                    TempStoreBlobCleanupPlan::RetainExistingDedupObject
-                },
-            }),
+            TempBlobPlan::Dedup(target) => {
+                if !staged_dedup_object_created {
+                    return Err(AsterError::conflict(
+                        "dedup publication must own its physical candidate",
+                    ));
+                }
+                Ok(Self {
+                    size,
+                    policy_id,
+                    storage_path: target.storage_path.clone(),
+                    source: VerifiedTempStoreBlobSource::DeduplicatedContent {
+                        file_hash: target.file_hash.clone(),
+                    },
+                    cleanup: TempStoreBlobCleanupPlan::DeleteOwnedDedupCandidate,
+                })
+            }
             TempBlobPlan::Preuploaded(prepared) => {
                 prepared.ensure_matches(size, policy_id, "verified temp store")?;
                 Ok(Self {
@@ -112,29 +114,22 @@ mod tests {
         assert_eq!(verified.storage_path(), "blobs/hash");
         assert!(matches!(
             verified.source(),
-            VerifiedTempStoreBlobSource::ContentAddressed { file_hash }
+            VerifiedTempStoreBlobSource::DeduplicatedContent { file_hash }
                 if file_hash == "hash"
         ));
         assert_eq!(
             verified.cleanup(),
-            &TempStoreBlobCleanupPlan::RollbackStagedDedupIfUnreferenced,
+            &TempStoreBlobCleanupPlan::DeleteOwnedDedupCandidate,
         );
     }
 
     #[test]
-    fn existing_dedup_blob_carries_retain_cleanup_plan() {
+    fn dedup_publication_rejects_a_candidate_it_did_not_create() {
         let plan = TempBlobPlan::Dedup(DedupTarget {
             file_hash: "hash".to_string(),
-            storage_path: "blobs/hash".to_string(),
+            storage_path: "files/unowned".to_string(),
         });
-
-        let verified = VerifiedTempStoreBlob::from_staged_plan(&plan, 12, 7, false)
-            .expect("verified dedup blob should be accepted");
-
-        assert_eq!(
-            verified.cleanup(),
-            &TempStoreBlobCleanupPlan::RetainExistingDedupObject,
-        );
+        assert!(VerifiedTempStoreBlob::from_staged_plan(&plan, 12, 7, false).is_err());
     }
 
     #[test]

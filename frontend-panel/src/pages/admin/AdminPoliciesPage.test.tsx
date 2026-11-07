@@ -81,6 +81,7 @@ const translate = vi.hoisted(
 
 const testI18n = vi.hoisted(() => ({
 	addResourceBundle: vi.fn(),
+	removeResourceBundle: vi.fn(),
 	language: "en",
 	resolvedLanguage: "en",
 }));
@@ -977,10 +978,10 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		await waitFor(() =>
 			expect(testI18n.addResourceBundle).toHaveBeenCalledWith(
 				"zh",
-				expect.stringMatching(/^plugin\./),
+				expect.stringMatching(/^aster_storage_.*plugin\./),
 				{ title: "插件" },
-				true,
-				true,
+				false,
+				false,
 			),
 		);
 
@@ -1690,24 +1691,24 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		);
 		await waitFor(() =>
 			expect(currentDialog().remoteStorageTargetConnectorDescriptors).toEqual([
-				secondDescriptor,
+				expect.objectContaining(secondDescriptor),
 			]),
 		);
 		expect(testI18n.addResourceBundle).toHaveBeenCalledWith(
 			"en",
-			secondDescriptor.connector_id,
+			`aster_storage_remote_2_${secondDescriptor.connector_id}`,
 			{
 				[secondDescriptor.ui.label_key]: `${secondDescriptor.connector_id}:en`,
 			},
-			true,
-			true,
+			false,
+			false,
 		);
 		testI18n.addResourceBundle.mockClear();
 		await act(async () =>
 			first.resolve(remoteConnectorCatalog([firstDescriptor])),
 		);
 		expect(currentDialog().remoteStorageTargetConnectorDescriptors).toEqual([
-			secondDescriptor,
+			expect.objectContaining(secondDescriptor),
 		]);
 		expect(testI18n.addResourceBundle).not.toHaveBeenCalled();
 	});
@@ -1766,14 +1767,14 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		);
 		await waitFor(() =>
 			expect(currentDialog().remoteStorageTargetConnectorDescriptors).toEqual([
-				secondDescriptor,
+				expect.objectContaining(secondDescriptor),
 			]),
 		);
 		testI18n.addResourceBundle.mockClear();
 		await act(async () => first.reject(new Error("stale failure")));
 		expect(testI18n.addResourceBundle).not.toHaveBeenCalled();
 		expect(currentDialog().remoteStorageTargetConnectorDescriptors).toEqual([
-			secondDescriptor,
+			expect.objectContaining(secondDescriptor),
 		]);
 		expect(
 			currentDialog().remoteStorageTargetConnectorDescriptorsError,

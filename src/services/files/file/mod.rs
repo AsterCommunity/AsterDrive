@@ -82,7 +82,13 @@ pub(crate) async fn create_empty_in_scope_with_audit(
     idempotency_key: Option<&str>,
     audit_ctx: &AuditContext,
 ) -> Result<FileInfo> {
-    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let (parsed_path, name, name_mode, actor_username, canonical_relative_path) =
         match relative_path {
             Some(path) => {
@@ -234,6 +240,7 @@ pub(crate) async fn update_in_scope_with_audit(
     let file = update_in_scope(
         state,
         scope,
+        Default::default(),
         file_id,
         name,
         folder_id,
@@ -281,6 +288,7 @@ pub(crate) async fn update_content_stream_in_scope_with_audit(
     let (file, new_hash) = update_content_stream_in_scope(
         state,
         scope,
+        Default::default(),
         file_id,
         payload,
         declared_size,

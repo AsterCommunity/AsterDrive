@@ -1094,7 +1094,8 @@ pub async fn setup_with_memory_cache() -> PrimaryAppState {
         metrics: aster_drive_metrics::NoopMetrics::arc(),
         mail_sender: base.mail_sender,
         storage_change_bus: base.storage_change_bus,
-        share_download_rollback: base.share_download_rollback,
+        storage_event_streams: base.storage_event_streams,
+
         background_task_dispatch_wakeup: base.background_task_dispatch_wakeup,
         remote_protocol: base.remote_protocol,
     }
@@ -1671,13 +1672,6 @@ async fn setup_with_database_url_and_pool_size(
     let storage_change_bus = aster_drive::services::events::storage_change::StorageChangeBus::new(
         aster_drive::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
     );
-    let share_download_rollback =
-        aster_drive::services::share::spawn_detached_share_download_rollback_queue(
-            db.clone(),
-            aster_drive::config::operations::share_download_rollback_queue_capacity(
-                &runtime_config,
-            ),
-        );
 
     let remote_protocol = aster_drive::runtime::PrimaryAppState::new_remote_protocol();
     remote_protocol.set_persistence_db(db.clone());
@@ -1701,7 +1695,7 @@ async fn setup_with_database_url_and_pool_size(
         metrics: aster_drive_metrics::NoopMetrics::arc(),
         mail_sender,
         storage_change_bus,
-        share_download_rollback,
+        storage_event_streams: Default::default(),
         background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
         remote_protocol,
     }
@@ -1890,7 +1884,7 @@ macro_rules! create_test_app {
                 ))
                 .app_data(web::Data::new(state))
                 .configure(move |cfg| {
-                    aster_drive::api::configure_primary(cfg, &db, &Default::default())
+                    aster_drive::api::configure_primary(cfg, &db, &Default::default(), &Default::default())
                 }),
         )
         .await
@@ -2219,7 +2213,12 @@ macro_rules! setup_with_webdav {
                 .app_data(web::Data::new(state.clone()))
                 .configure(move |cfg| {
                     aster_drive::webdav::configure(cfg, &webdav_config, &db2);
-                    aster_drive::api::configure_primary(cfg, &db1, &Default::default());
+                    aster_drive::api::configure_primary(
+                        cfg,
+                        &db1,
+                        &Default::default(),
+                        &Default::default(),
+                    );
                 }),
         )
         .await;
@@ -2248,7 +2247,12 @@ macro_rules! setup_with_webdav_and_mail {
                 .app_data(web::Data::new(state))
                 .configure(move |cfg| {
                     aster_drive::webdav::configure(cfg, &webdav_config, &db2);
-                    aster_drive::api::configure_primary(cfg, &db1, &Default::default());
+                    aster_drive::api::configure_primary(
+                        cfg,
+                        &db1,
+                        &Default::default(),
+                        &Default::default(),
+                    );
                 }),
         )
         .await;

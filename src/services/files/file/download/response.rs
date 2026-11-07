@@ -1,7 +1,6 @@
 use actix_web::HttpResponse;
 use actix_web::http::{StatusCode, header};
 
-use super::streaming::AbortAwareStream;
 use super::types::DownloadOutcome;
 
 // DownloadOutcome 到 HttpResponse 的路由层组装函数，仅在路由/中间件层使用。
@@ -63,13 +62,7 @@ pub(crate) fn outcome_to_response(outcome: DownloadOutcome) -> HttpResponse {
                 },
                 u64::try_from(streamed.content_length).ok(),
             );
-            match streamed.on_abort {
-                Some(hook) => response.streaming(AbortAwareStream {
-                    inner: body,
-                    hook: Some(hook),
-                }),
-                None => response.streaming(body),
-            }
+            response.streaming(body)
         }
     }
 }

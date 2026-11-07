@@ -12,14 +12,12 @@ pub use workspace::{
 
 use crate::{
     api::api_error_code::ApiErrorCode,
-    db::repository::{
-        admin_content_access_repo, auth_session_repo, config_repo, team_repo, user_repo,
-    },
+    db::repository::{admin_content_access_repo, config_repo, team_repo, user_repo},
     errors::{Result, auth_forbidden_with_code},
     runtime::SharedRuntimeState,
     services::{auth::local::Claims, ops::audit, workspace::scope::WorkspaceResourceScope},
 };
-use aster_drive_model::{entities::admin_content_access, types::UserStatus};
+use aster_drive_model::entities::admin_content_access;
 use chrono::{Duration, Utc};
 use sea_orm::{Set, TransactionTrait};
 
@@ -41,62 +39,29 @@ pub async fn is_enabled(state: &impl SharedRuntimeState) -> Result<bool> {
     .unwrap_or(false))
 }
 
-async fn require_actor(state: &impl SharedRuntimeState, claims: &Claims) -> Result<()> {
-    if !is_enabled(state).await? {
-        return Err(denied(ApiErrorCode::AdminContentDisabled));
-    }
-    let actor = user_repo::find_by_id(state.writer_db(), claims.user_id).await?;
-    if !actor.role.is_admin()
-        || !actor.status.is_active()
-        || actor.session_version != claims.session_version
-        || claims.password_change
-    {
-        return Err(denied(ApiErrorCode::AdminContentContextInvalid));
-    }
-    let session =
-        auth_session_repo::find_by_id_for_user(state.writer_db(), claims.user_id, &claims.sid)
-            .await?
-            .ok_or_else(|| denied(ApiErrorCode::AdminContentContextInvalid))?;
-    if session.revoked_at.is_some() || session.refresh_expires_at <= Utc::now() {
-        return Err(denied(ApiErrorCode::AdminContentContextInvalid));
-    }
-    Ok(())
-}
-
 async fn require_target(
     state: &impl SharedRuntimeState,
     scope: &AccessScope,
 ) -> Result<WorkspaceResourceScope> {
-    match scope.scope_kind {
-        AdminScopeKind::Personal => {
-            let user = user_repo::find_by_id(state.writer_db(), scope.target_id)
-                .await
-                .map_err(|e| match e {
-                    crate::errors::AsterError::RecordNotFound(_) => {
-                        denied(ApiErrorCode::AdminContentTargetUnavailable)
-                    }
-                    e => e,
-                })?;
-            if user.status != UserStatus::Active {
-                return Err(denied(ApiErrorCode::AdminContentTargetUnavailable));
+    let resource = match scope.scope_kind {
+        AdminScopeKind::Personal => WorkspaceResourceScope::Personal {
+            user_id: scope.target_id,
+        },
+        AdminScopeKind::Team => WorkspaceResourceScope::Team {
+            team_id: scope.target_id,
+        },
+    };
+    // 管理端的错误契约隐藏目标不存在/失效细节；生命周期决策由统一授权模块拥有。
+    crate::services::workspace::scope::authorize_resource_lifecycle_on(state.writer_db(), resource)
+        .await
+        .map_err(|error| match error {
+            crate::errors::AsterError::RecordNotFound(_)
+            | crate::errors::AsterError::AuthForbidden(_) => {
+                denied(ApiErrorCode::AdminContentTargetUnavailable)
             }
-            Ok(WorkspaceResourceScope::Personal { user_id: user.id })
-        }
-        AdminScopeKind::Team => {
-            let team = team_repo::find_by_id(state.writer_db(), scope.target_id)
-                .await
-                .map_err(|e| match e {
-                    crate::errors::AsterError::RecordNotFound(_) => {
-                        denied(ApiErrorCode::AdminContentTargetUnavailable)
-                    }
-                    e => e,
-                })?;
-            if team.archived_at.is_some() {
-                return Err(denied(ApiErrorCode::AdminContentTargetUnavailable));
-            }
-            Ok(WorkspaceResourceScope::Team { team_id: team.id })
-        }
-    }
+            error => error,
+        })?;
+    Ok(resource)
 }
 
 fn validate_request(request: &CreateAdminContentAccess) -> Result<WorkspaceAccess> {
@@ -133,7 +98,12 @@ pub async fn create(
     ctx: &audit::AuditContext,
     request: &CreateAdminContentAccess,
 ) -> Result<AdminContentAccessInfo> {
-    require_actor(state, claims).await?;
+    crate::services::workspace::scope::authorize_admin_actor(
+        state,
+        claims,
+        crate::services::workspace::scope::AdminContentOperation::Inspect,
+    )
+    .await?;
     let payload = validate_request(request)?;
     require_target(state, &payload.scope).await?;
     let txn = state.writer_db().begin().await?;
@@ -181,40 +151,6 @@ async fn persist<C: sea_orm::ConnectionTrait>(
     )
     .await?;
     Ok(AdminContentAccessInfo { id, expires_at })
-}
-
-async fn load(state: &impl SharedRuntimeState, claims: &Claims, id: &str) -> Result<AccessPayload> {
-    require_actor(state, claims).await?;
-    if id.is_empty() {
-        return Err(denied(ApiErrorCode::AdminContentContextRequired));
-    }
-    if id.len() > 64 {
-        return Err(denied(ApiErrorCode::AdminContentContextInvalid));
-    }
-    let grant = admin_content_access_repo::find(state.writer_db(), id)
-        .await?
-        .ok_or_else(|| denied(ApiErrorCode::AdminContentContextInvalid))?;
-    if grant.actor_user_id != claims.user_id
-        || grant.session_id != claims.sid
-        || grant.expires_at <= Utc::now()
-    {
-        return Err(denied(ApiErrorCode::AdminContentContextInvalid));
-    }
-    let payload: AccessPayload = serde_json::from_str(&grant.payload)
-        .map_err(|_| denied(ApiErrorCode::AdminContentContextInvalid))?;
-    require_target(state, &payload.scope()).await?;
-    Ok(payload)
-}
-
-async fn load_workspace(
-    state: &impl SharedRuntimeState,
-    claims: &Claims,
-    id: &str,
-) -> Result<WorkspaceAccess> {
-    match load(state, claims, id).await? {
-        AccessPayload::Workspace(access) => Ok(access),
-        AccessPayload::Download { .. } => Err(denied(ApiErrorCode::AdminContentContextInvalid)),
-    }
 }
 
 async fn record<C: sea_orm::ConnectionTrait>(

@@ -526,28 +526,6 @@
     },
     {
       "attributes": [
-        "event"
-      ],
-      "buckets": [],
-      "description": "Total shared download rollback queue events.",
-      "integer_attributes": [],
-      "kind": "Counter",
-      "name": "aster.drive.share.download.rollback.events",
-      "prometheus": "aster_drive_share_download_rollback_events_total",
-      "unit": "{event}"
-    },
-    {
-      "attributes": [],
-      "buckets": [],
-      "description": "Pending shared download rollback operations.",
-      "integer_attributes": [],
-      "kind": "Gauge",
-      "name": "aster.drive.share.download.rollback.pending",
-      "prometheus": "aster_drive_share_download_rollback_pending",
-      "unit": "{count}"
-    },
-    {
-      "attributes": [
         "scope",
         "kind"
       ],

@@ -30,7 +30,8 @@ import {
 	isApiErrorCode,
 } from "@/types/api-helpers";
 import { CSRF_HEADER_NAME, getCsrfToken } from "./csrf";
-import { ApiError, api } from "./http";
+import { ApiError, api as baseApi } from "./http";
+import { bindOperationSignal } from "./operationRequestScope";
 
 export type {
 	BrowserUploadRequest,
@@ -145,7 +146,27 @@ export function buildUploadPath(workspace: Workspace, path: string) {
 	return buildWorkspacePath(workspace, path);
 }
 
-export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
+export function createUploadService(
+	workspace: Workspace = PERSONAL_WORKSPACE,
+	operationSignal?: AbortSignal,
+) {
+	const api = operationSignal
+		? bindOperationSignal(baseApi, operationSignal)
+		: baseApi;
+	const createUploadXhr = () => {
+		operationSignal?.throwIfAborted();
+		const xhr = new XMLHttpRequest();
+		const abort = () => xhr.abort();
+		if (operationSignal) {
+			operationSignal.addEventListener("abort", abort, { once: true });
+			xhr.addEventListener(
+				"loadend",
+				() => operationSignal.removeEventListener("abort", abort),
+				{ once: true },
+			);
+		}
+		return xhr;
+	};
 	const executeBrowserRequest = (
 		request: BrowserUploadRequest,
 		file: Blob,
@@ -210,7 +231,7 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 				reject(new UploadRequestError("invalid browser upload instruction"));
 				return;
 			}
-			const xhr = new XMLHttpRequest();
+			const xhr = createUploadXhr();
 			xhr.open(request.method, url.href);
 			xhr.withCredentials = false;
 			xhr.timeout = timeoutMs;
@@ -288,6 +309,7 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 			// An onCreateXhr cancellation can happen before send().
 			if (!settled) {
 				sent = true;
+				operationSignal?.throwIfAborted();
 				xhr.send(range ? file.slice(range.start, range.end) : null);
 			}
 		});
@@ -316,7 +338,7 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 			onCreateXhr?: (xhr: XMLHttpRequest) => void,
 		): Promise<ChunkUploadResponse> => {
 			return new Promise((resolve, reject) => {
-				const xhr = new XMLHttpRequest();
+				const xhr = createUploadXhr();
 				onCreateXhr?.(xhr);
 				xhr.open(
 					"PUT",
@@ -403,6 +425,7 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 							status: xhr.status,
 						}),
 					);
+				operationSignal?.throwIfAborted();
 				xhr.send(data);
 			});
 		},
@@ -414,7 +437,7 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 			onCreateXhr?: (xhr: XMLHttpRequest) => void,
 		): Promise<FileInfo> =>
 			new Promise((resolve, reject) => {
-				const xhr = new XMLHttpRequest();
+				const xhr = createUploadXhr();
 				onCreateXhr?.(xhr);
 				xhr.open(
 					"PUT",
@@ -468,6 +491,7 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 							status: xhr.status,
 						}),
 					);
+				operationSignal?.throwIfAborted();
 				xhr.send(data);
 			}),
 
@@ -521,7 +545,7 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 			options: PresignedUploadOptions = {},
 		): Promise<string> => {
 			return new Promise((resolve, reject) => {
-				const xhr = new XMLHttpRequest();
+				const xhr = createUploadXhr();
 				const blockId = new URL(presignedUrl).searchParams.get("blockid");
 				const requireEtag = options.requireEtag ?? true;
 				const requestHeaders = options.headers ?? {};
@@ -602,6 +626,7 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 							retryable: false,
 						}),
 					);
+				operationSignal?.throwIfAborted();
 				xhr.send(file);
 			});
 		},

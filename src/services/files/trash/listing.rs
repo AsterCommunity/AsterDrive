@@ -5,7 +5,7 @@ use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
     files::lock,
-    workspace::storage::{self, WorkspaceResourceScope, WorkspaceStorageScope},
+    workspace::storage::{WorkspaceResourceScope, WorkspaceStorageScope},
 };
 use aster_forge_utils::numbers::usize_to_u64;
 
@@ -39,10 +39,16 @@ async fn list_trash_in_scope(
         has_file_cursor = file_cursor.is_some(),
         "listing trash contents"
     );
-    storage::require_scope_access(state, scope).await?;
+    let access = crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     list_authorized_trash(
         state,
-        scope.into(),
+        &access.into_resource_read().allow_trash(),
         folder_limit,
         folder_offset,
         file_limit,
@@ -54,12 +60,13 @@ async fn list_trash_in_scope(
 /// Shared recycle-bin projection after the caller's own workspace authorization.
 pub(crate) async fn list_authorized_trash(
     state: &impl SharedRuntimeState,
-    scope: WorkspaceResourceScope,
+    access: &crate::services::workspace::scope::AuthorizedResourceRead,
     folder_limit: u64,
     folder_offset: u64,
     file_limit: u64,
     file_cursor: Option<(chrono::DateTime<chrono::Utc>, i64)>,
 ) -> Result<TrashContents> {
+    let scope = access.scope();
     let retention_days = load_retention_days(state);
 
     let (raw_folders, folders_total) = match scope {

@@ -5,13 +5,23 @@ import {
 	isStaleRefreshTokenError,
 } from "@/lib/authErrors";
 import {
+	getAuthOperationGeneration,
+	setAuthOperationOwner,
+} from "@/lib/authOperationOwner";
+import {
+	broadcastLogout,
+	getLogoutEpoch,
 	isCrossTabRefreshAuthFailure,
 	runWithCrossTabRefreshLock,
+	subscribeLogout,
 } from "@/lib/crossTabRefresh";
 import { logger } from "@/lib/logger";
 import { cancelPreferenceSync } from "@/lib/preferenceSync";
 import { authService } from "@/services/authService";
+import { clearAccountDownloads } from "@/services/downloadCoordinator";
 import { useDisplayTimeZoneStore } from "@/stores/displayTimeZoneStore";
+import { useFileStore } from "@/stores/fileStore";
+import { useMusicPlayerStore } from "@/stores/musicPlayerStore";
 import { useTeamStore } from "@/stores/teamStore";
 import { useThemeStore } from "@/stores/themeStore";
 import type {
@@ -31,6 +41,9 @@ export const SESSION_REFRESH_THRESHOLD_MS = 30_000;
 
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let inFlightRefresh: Promise<void> | null = null;
+let inFlightLogout: Promise<void> | null = null;
+let sessionEnded = false;
+let activeLogoutEpoch = getLogoutEpoch();
 let inFlightFullRefreshUser: Promise<void> | null = null;
 let profileMutationGeneration = 0;
 
@@ -209,6 +222,7 @@ interface AuthState {
 const initialCachedUser = getCachedUser();
 const initialOfflineUser = cachedUserToOfflineUser(initialCachedUser);
 const initialExpiresAt = getStoredExpiresAt();
+setAuthOperationOwner(initialOfflineUser?.id ?? null);
 const LOGGED_OUT_STATE = {
 	isAuthenticated: false,
 	isChecking: false,
@@ -229,6 +243,12 @@ const LOGGED_OUT_STATE = {
 function applyLoggedOutState(
 	setAuthState: (state: Partial<AuthState>) => void,
 ) {
+	// 身份先失效、请求先取消；不能等服务端 logout 返回后才停止旧操作。
+	setAuthOperationOwner(null);
+	sessionEnded = true;
+	activeLogoutEpoch = getLogoutEpoch();
+	inFlightRefresh = null;
+	inFlightFullRefreshUser = null;
 	cancelPreferenceSync();
 	void import("@/hooks/useBlobUrl")
 		.then(({ clearBlobUrlCache, clearPersistedBlobUrlCache }) => {
@@ -241,6 +261,10 @@ function applyLoggedOutState(
 	clearRefreshTimer();
 	// teamStore 是独立的子状态，登出时直接清空
 	useTeamStore.getState().clear();
+	// 私有 metadata 与媒体生命周期跟随账号；file reset 同时 abort 请求并使旧响应失效。
+	useFileStore.getState().resetWorkspaceState();
+	useMusicPlayerStore.getState().clear();
+	clearAccountDownloads();
 	setStoredExpiresAt(null);
 	setCachedUser(null);
 	setAuthState(LOGGED_OUT_STATE);
@@ -251,6 +275,8 @@ function commitAuthenticatedUser(
 	getState: () => AuthState,
 	setAuthState: (state: Partial<AuthState>) => void,
 ) {
+	sessionEnded = false;
+	activeLogoutEpoch = getLogoutEpoch();
 	const expiresAt =
 		getExpiresAtFromUser(user) ?? getState().expiresAt ?? getStoredExpiresAt();
 	setCachedUser(user);
@@ -271,11 +297,21 @@ async function bootstrapCurrentSession(
 	setAuthState: (state: Partial<AuthState>) => void,
 	publicProbe: boolean,
 ) {
+	// Public/login routes may mount as soon as local logout clears the protected shell, while
+	// the remote revoke is still waiting for refresh. Do not bootstrap that old cookie again.
+	if (inFlightLogout || sessionEnded) return;
+	const startedGeneration = getAuthOperationGeneration();
+	const startedLogoutEpoch = getLogoutEpoch();
 	setAuthState({ isChecking: true, bootOffline: false });
 	try {
 		const user = publicProbe
 			? await authService.probeCurrentSession()
 			: await authService.me();
+		if (
+			startedGeneration !== getAuthOperationGeneration() ||
+			startedLogoutEpoch !== getLogoutEpoch()
+		)
+			return;
 		const expiresAt = commitAuthenticatedUser(user, getState, setAuthState);
 
 		if (publicProbe) return;
@@ -289,6 +325,11 @@ async function bootstrapCurrentSession(
 			getState().startAutoRefresh();
 		}
 	} catch (error) {
+		if (
+			startedGeneration !== getAuthOperationGeneration() ||
+			startedLogoutEpoch !== getLogoutEpoch()
+		)
+			return;
 		if (isSessionAuthFailure(error)) {
 			applyLoggedOutState(setAuthState);
 			return;
@@ -390,8 +431,18 @@ function updateCachedSessionExpiry(expiresAt: number) {
 async function syncSessionFromMe(
 	getState: () => AuthState,
 	setAuthState: (state: Partial<AuthState>) => void,
+	startedGeneration: number,
 ) {
+	const startedLogoutEpoch = getLogoutEpoch();
+	if (startedGeneration !== getAuthOperationGeneration() || sessionEnded)
+		return;
 	const user = await authService.me(["session"]);
+	if (
+		startedGeneration !== getAuthOperationGeneration() ||
+		startedLogoutEpoch !== getLogoutEpoch() ||
+		sessionEnded
+	)
+		return;
 	const expiresAt = getExpiresAtFromUser(user) ?? Date.now() + REFRESH_RETRY_MS;
 	const expiresAtSeconds = updateCachedSessionExpiry(expiresAt);
 	const currentUser = getState().user;
@@ -417,6 +468,9 @@ async function syncSessionFromMe(
 // authStore 只管自身状态，跨 store 写入统一通过此 subscription 完成，
 // 而不是在每个 login / checkAuth / refreshUser 中重复调用。
 function handleAuthStateChange(state: AuthState, prevState: AuthState) {
+	setAuthOperationOwner(
+		state.isAuthenticated ? (state.user?.id ?? null) : null,
+	);
 	if (state.user !== prevState.user && state.isAuthenticated) {
 		if (state.user?.preferences) {
 			applyServerPreferences(state.user.preferences);
@@ -436,6 +490,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 	expiresAt: initialExpiresAt,
 
 	login: async (identifier, password) => {
+		// A pending logout clears cookies: never let it finish after a new local login.
+		await inFlightLogout;
+		setAuthOperationOwner(null, true);
+		const startedGeneration = getAuthOperationGeneration();
 		const session = await authService.login(identifier, password);
 		if (
 			session.status !== "authenticated" &&
@@ -444,6 +502,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 			throw new Error("MFA verification is required before session sync");
 		}
 		const user = await authService.me();
+		if (startedGeneration !== getAuthOperationGeneration()) return;
 		setCachedUser(user);
 		set({
 			isAuthenticated: true,
@@ -455,14 +514,28 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 		get().syncSession(session.expiresIn);
 	},
 
-	logout: async () => {
+	logout: () => {
+		if (inFlightLogout) return inFlightLogout;
+		const pendingRefresh = inFlightRefresh;
 		get().stopAutoRefresh();
-		try {
-			await authService.logout();
-		} catch {
-			// logout 失败不阻塞
-		}
+		broadcastLogout();
 		applyLoggedOutState(set);
+		inFlightLogout = (async () => {
+			try {
+				// An aborted request may already have installed Set-Cookie. Let the refresh
+				// settle rather than aborting it, then revoke using the installed cookie.
+				await pendingRefresh?.catch(() => undefined);
+				await runWithCrossTabRefreshLock(() => authService.logout(), {
+					operation: "logout",
+				});
+			} catch (error) {
+				// Keep the UI signed out while preserving evidence of a failed remote revoke.
+				logger.warn("Session logout could not be confirmed", error);
+			} finally {
+				inFlightLogout = null;
+			}
+		})();
+		return inFlightLogout;
 	},
 
 	checkAuth: async () => {
@@ -486,20 +559,38 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 	},
 
 	refreshToken: async () => {
+		if (activeLogoutEpoch !== getLogoutEpoch()) {
+			applyLoggedOutState(set);
+			return;
+		}
+		if (inFlightLogout || sessionEnded) return;
 		if (inFlightRefresh) return inFlightRefresh;
 
+		const startedGeneration = getAuthOperationGeneration();
+		const startedLogoutEpoch = getLogoutEpoch();
 		inFlightRefresh = (async () => {
 			try {
 				const refreshedLocally = await runWithCrossTabRefreshLock(
 					async () => {
+						if (
+							startedGeneration !== getAuthOperationGeneration() ||
+							startedLogoutEpoch !== getLogoutEpoch()
+						)
+							return;
 						try {
 							const session = await authService.refreshToken();
+							if (
+								startedGeneration !== getAuthOperationGeneration() ||
+								startedLogoutEpoch !== getLogoutEpoch()
+							)
+								return;
 							get().syncSession(session.expiresIn);
 						} catch (error) {
+							if (startedLogoutEpoch !== getLogoutEpoch()) return;
 							if (!isStaleRefreshTokenError(error)) {
 								throw error;
 							}
-							await syncSessionFromMe(get, set);
+							await syncSessionFromMe(get, set, startedGeneration);
 						}
 					},
 					{
@@ -509,10 +600,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 								: "transient",
 					},
 				);
-				if (!refreshedLocally) {
-					await syncSessionFromMe(get, set);
+				if (!refreshedLocally && startedLogoutEpoch === getLogoutEpoch()) {
+					await syncSessionFromMe(get, set, startedGeneration);
 				}
 			} catch (error) {
+				if (
+					startedGeneration !== getAuthOperationGeneration() ||
+					startedLogoutEpoch !== getLogoutEpoch()
+				)
+					return;
 				if (
 					isCrossTabRefreshAuthFailure(error) ||
 					isSessionAuthFailure(error)
@@ -524,7 +620,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 				}
 				throw error;
 			} finally {
-				inFlightRefresh = null;
+				if (startedGeneration === getAuthOperationGeneration()) {
+					inFlightRefresh = null;
+				}
 			}
 		})();
 
@@ -539,12 +637,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 			return inFlightFullRefreshUser;
 		}
 
+		const startedGeneration = getAuthOperationGeneration();
 		const refresh = (async () => {
 			const startedProfileGeneration = profileMutationGeneration;
 			try {
 				const response = isPartialRefresh
 					? await authService.me(selectedFields)
 					: await authService.me();
+				if (startedGeneration !== getAuthOperationGeneration()) return;
 				let user = isPartialRefresh
 					? mergePartialUser(
 							get().user,
@@ -616,6 +716,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 	},
 
 	syncSession: (expiresIn) => {
+		sessionEnded = false;
+		activeLogoutEpoch = getLogoutEpoch();
 		const expiresAt = Date.now() + expiresIn * 1000;
 		setStoredExpiresAt(expiresAt);
 		set({
@@ -661,6 +763,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
 // store 创建后注册订阅，避免 store 定义体内循环引用
 useAuthStore.subscribe(handleAuthStateChange);
+subscribeLogout(() =>
+	applyLoggedOutState(useAuthStore.setState.bind(useAuthStore)),
+);
 
 export function forceLogout() {
 	applyLoggedOutState(useAuthStore.setState.bind(useAuthStore));

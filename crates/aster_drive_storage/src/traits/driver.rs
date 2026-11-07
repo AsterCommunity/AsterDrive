@@ -11,6 +11,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
+/// Bounds a copy to the caller's verified size and selects its scratch volume.
+#[derive(Debug, Clone, Default)]
+pub struct StorageCopyOptions {
+    pub expected_size: Option<u64>,
+    /// Defaults to the system temporary directory for callers without runtime configuration.
+    pub temp_root: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct BlobMetadata {
     pub size: u64,
@@ -147,7 +155,7 @@ pub enum StoragePathVisitControl {
 ///
 /// 设计原则：
 /// - 最小接口：仅包含所有存储类型必须实现的基础操作
-/// - 默认实现：copy_object 提供基于 get+put 的通用实现，驱动可覆盖优化
+/// - 默认实现：copy_object 提供有界流式通用实现，驱动可覆盖优化
 /// - 扩展能力：通过 extensions() 返回的可选 trait bundle 暴露，避免强制实现
 ///
 /// 这不是配置层 trait。实现者应该假设 endpoint、bucket、凭据、OAuth token 等
@@ -229,11 +237,16 @@ pub trait StorageDriver: Send + Sync {
 
     /// 同 bucket/存储内复制对象
     ///
-    /// 默认实现基于 get + put，性能较慢但通用。
+    /// 默认实现先流式暂存并校验大小，再流式上传，避免发布可变源的部分内容。
+    /// 不支持流式上传的驱动仅缓冲有界小对象。
     /// 支持 server-side copy 的驱动（如 S3）应覆盖此方法。
-    async fn copy_object(&self, src_path: &str, dest_path: &str) -> Result<String> {
-        let data = self.get(src_path).await?;
-        self.put(dest_path, &data).await
+    async fn copy_object(
+        &self,
+        src_path: &str,
+        dest_path: &str,
+        options: StorageCopyOptions,
+    ) -> Result<String> {
+        copy_object_via_temp_file(self, src_path, dest_path, options).await
     }
 
     // =========================================================================
@@ -264,6 +277,75 @@ pub trait StorageDriver: Send + Sync {
     fn capacity_probe_policy(&self) -> super::extensions::StorageCapacityProbePolicy {
         super::extensions::StorageCapacityProbePolicy::default()
     }
+}
+
+/// Bounded fallback shared by generic drivers and native providers with a local relay path.
+pub async fn copy_object_via_temp_file<D: StorageDriver + ?Sized>(
+    driver: &D,
+    src_path: &str,
+    dest_path: &str,
+    options: StorageCopyOptions,
+) -> Result<String> {
+    let size = match options.expected_size {
+        Some(size) => size,
+        None => driver.metadata(src_path).await?.size,
+    };
+    let size_i64 = i64::try_from(size).map_err(|_| {
+        storage_driver_error(
+            StorageErrorKind::Precondition,
+            "copy source size exceeds supported range",
+        )
+    })?;
+    if let Some(upload) = driver.extensions().stream_upload {
+        use tokio::io::{AsyncSeekExt, AsyncWriteExt};
+
+        let temp_root = options
+            .temp_root
+            .unwrap_or_else(|| std::env::temp_dir().to_string_lossy().into_owned());
+        let scratch = aster_forge_runtime::startup::create_runtime_temp_dir_guard(
+            &temp_root,
+            "object-copy",
+            "object copy scratch directory",
+        )
+        .await
+        .map_storage_err_ctx(StorageErrorKind::Transient, "create copy scratch directory")?;
+        let mut open = tokio::fs::OpenOptions::new();
+        open.read(true).write(true).create_new(true);
+        #[cfg(unix)]
+        open.mode(0o600);
+        let mut file = open
+            .open(scratch.path().join("source"))
+            .await
+            .map_storage_err_ctx(StorageErrorKind::Transient, "create copy scratch file")?;
+        let mut reader = crate::ExactSizeReader::new(driver.get_stream(src_path).await?, size);
+        tokio::io::copy(&mut reader, &mut file)
+            .await
+            .map_storage_err_ctx(StorageErrorKind::Precondition, "stage copy source")?;
+        file.flush()
+            .await
+            .map_storage_err_ctx(StorageErrorKind::Transient, "flush copy scratch")?;
+        file.rewind()
+            .await
+            .map_storage_err_ctx(StorageErrorKind::Transient, "rewind copy scratch")?;
+        return upload.put_reader(dest_path, Box::new(file), size_i64).await;
+    }
+    // Drivers without streaming retain small-object compatibility, with a
+    // bound enforced before allocation and while reading the actual stream.
+    const MAX_BUFFERED_COPY: u64 = 8 * 1024 * 1024;
+    if size > MAX_BUFFERED_COPY {
+        return Err(storage_driver_error(
+            StorageErrorKind::Unsupported,
+            "large object copy requires streaming upload support",
+        ));
+    }
+    let reader = crate::ExactSizeReader::new(driver.get_stream(src_path).await?, size);
+    let mut data = Vec::new();
+    reader
+        .take(MAX_BUFFERED_COPY + 1)
+        .read_to_end(&mut data)
+        .await
+        .map_storage_err_ctx(StorageErrorKind::Transient, "read copy source")?;
+    driver.put(dest_path, &data).await
 }
 
 #[cfg(test)]
@@ -315,6 +397,7 @@ mod tests {
     struct CountingReader {
         inner: std::io::Cursor<Vec<u8>>,
         bytes_read: Arc<AtomicU64>,
+        stall: bool,
     }
 
     impl tokio::io::AsyncRead for CountingReader {
@@ -323,6 +406,9 @@ mod tests {
             _context: &mut Context<'_>,
             buffer: &mut ReadBuf<'_>,
         ) -> Poll<std::io::Result<()>> {
+            if self.stall {
+                return Poll::Pending;
+            }
             let result = std::io::Read::read(&mut self.inner, buffer.initialize_unfilled());
             if let Ok(read) = result {
                 buffer.advance(read);
@@ -338,6 +424,9 @@ mod tests {
         writes: Mutex<Vec<(String, Vec<u8>)>>,
         stream_opens: AtomicUsize,
         bytes_read: Arc<AtomicU64>,
+        streaming: bool,
+        fail_upload: bool,
+        stall_read: bool,
     }
 
     impl MemoryDriver {
@@ -347,6 +436,9 @@ mod tests {
                 writes: Mutex::new(Vec::new()),
                 stream_opens: AtomicUsize::new(0),
                 bytes_read: Arc::new(AtomicU64::new(0)),
+                streaming: false,
+                fail_upload: false,
+                stall_read: false,
             }
         }
     }
@@ -370,6 +462,7 @@ mod tests {
             Ok(Box::new(CountingReader {
                 inner: std::io::Cursor::new(self.data.clone()),
                 bytes_read: self.bytes_read.clone(),
+                stall: self.stall_read,
             }))
         }
 
@@ -387,6 +480,146 @@ mod tests {
                 content_type: Some("application/octet-stream".to_string()),
             })
         }
+
+        fn extensions(&self) -> crate::StorageDriverExtensions<'_> {
+            crate::StorageDriverExtensions {
+                stream_upload: self.streaming.then_some(self),
+                ..Default::default()
+            }
+        }
+    }
+
+    #[async_trait]
+    impl crate::StreamUploadDriver for MemoryDriver {
+        async fn put_reader(
+            &self,
+            path: &str,
+            mut reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
+            size: i64,
+        ) -> Result<String> {
+            if self.fail_upload {
+                return Err(storage_driver_error(
+                    StorageErrorKind::Transient,
+                    "upload failed",
+                ));
+            }
+            let mut data = Vec::new();
+            reader
+                .read_to_end(&mut data)
+                .await
+                .map_storage_err(StorageErrorKind::Transient)?;
+            assert_eq!(data.len() as i64, size);
+            self.put(path, &data).await
+        }
+
+        async fn put_file(&self, _path: &str, _file: &str) -> Result<String> {
+            panic!("copy must stream the opened scratch file");
+        }
+    }
+
+    #[tokio::test]
+    async fn copy_stages_large_object_in_forge_runtime_directory_and_cleans_up() {
+        let root = aster_forge_utils::raii::TempDirGuard::new(
+            std::env::temp_dir().join(aster_forge_utils::id::new_uuid()),
+            "copy test root",
+        );
+        let data = vec![42; 9 * 1024 * 1024];
+        let mut driver = MemoryDriver::new(&data);
+        driver.streaming = true;
+        let options = StorageCopyOptions {
+            expected_size: Some(data.len() as u64),
+            temp_root: Some(root.path().to_string_lossy().into_owned()),
+        };
+        assert_eq!(
+            driver
+                .copy_object("source", "target", options.clone())
+                .await
+                .unwrap(),
+            "target"
+        );
+        assert_eq!(driver.writes.lock().unwrap()[0].1, data);
+        let copy_dir = root.path().join("_runtime/object-copy");
+        assert_eq!(std::fs::read_dir(&copy_dir).unwrap().count(), 0);
+        driver.fail_upload = true;
+        assert!(
+            driver
+                .copy_object("source", "other", options)
+                .await
+                .is_err()
+        );
+        assert_eq!(std::fs::read_dir(copy_dir).unwrap().count(), 0);
+    }
+
+    #[tokio::test]
+    async fn copy_rejects_changed_size_before_starting_destination_upload() {
+        for streaming in [false, true] {
+            for size in [0, 4, 6] {
+                let mut driver = MemoryDriver::new(b"hello");
+                driver.streaming = streaming;
+                let error = driver
+                    .copy_object(
+                        "source",
+                        "target",
+                        StorageCopyOptions {
+                            expected_size: Some(size),
+                            ..Default::default()
+                        },
+                    )
+                    .await;
+                assert!(error.is_err());
+                assert!(driver.writes.lock().unwrap().is_empty());
+                assert!(driver.bytes_read.load(Ordering::SeqCst) <= size + 1);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn cancelling_copy_removes_private_forge_scratch_before_publication() {
+        let root = aster_forge_utils::raii::TempDirGuard::new(
+            std::env::temp_dir().join(aster_forge_utils::id::new_uuid()),
+            "cancel copy root",
+        );
+        let mut driver = MemoryDriver::new(b"hello");
+        driver.streaming = true;
+        driver.stall_read = true;
+        let driver = Arc::new(driver);
+        let options = StorageCopyOptions {
+            expected_size: Some(5),
+            temp_root: Some(root.path().to_string_lossy().into_owned()),
+        };
+        let task_driver = driver.clone();
+        let task =
+            tokio::spawn(async move { task_driver.copy_object("source", "target", options).await });
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while driver.stream_opens.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let scratch_root = root.path().join("_runtime/object-copy");
+        let scratch = std::fs::read_dir(&scratch_root)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(scratch.join("source"))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert_eq!(std::fs::read_dir(scratch_root).unwrap().count(), 0);
+        assert!(driver.writes.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -433,7 +666,7 @@ mod tests {
         let driver = MemoryDriver::new(b"copy body");
 
         let copied_path = driver
-            .copy_object("source.bin", "dest.bin")
+            .copy_object("source.bin", "dest.bin", Default::default())
             .await
             .expect("copy should succeed");
 

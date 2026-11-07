@@ -44,16 +44,25 @@ async fn list_versions_in_scope(
     file_id: i64,
     query: FileVersionListQuery,
 ) -> Result<Vec<FileVersion>> {
-    storage::verify_file_access_for_read(state, scope, file_id).await?;
-    list_authorized_versions(state, file_id, query).await
+    let access = crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
+    list_authorized_versions(state, &access.into_resource_read(), file_id, query).await
 }
 
 /// Revision projection after the caller has verified its own product access context.
 pub(crate) async fn list_authorized_versions(
     state: &impl SharedRuntimeState,
+    access: &crate::services::workspace::scope::AuthorizedResourceRead,
     file_id: i64,
     query: FileVersionListQuery,
 ) -> Result<Vec<FileVersion>> {
+    let file = file_repo::find_by_id(state.writer_db(), file_id).await?;
+    access.file_on(state.writer_db(), &file).await?;
     // A successful restore must be visible to the immediate follow-up history refresh.
     // Version history includes the authoritative current-head projection, so replica lag is not
     // an acceptable source for this read.
@@ -83,6 +92,14 @@ async fn restore_version_inner(
 ) -> Result<aster_drive_model::entities::file::Model> {
     let now = Utc::now();
     let txn = transaction::begin(state.writer_db()).await?;
+    let access = crate::services::workspace::scope::authorize_workspace_on(
+        &txn,
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::Restore,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
+    access.file(&file).await?;
     let actor_username = storage::load_scope_actor_username(&txn, scope).await?;
     let current = crate::services::files::lock::enforce_file_mutation_on(
         &txn,
@@ -238,13 +255,13 @@ async fn restore_version_in_scope(
     version_id: i64,
 ) -> Result<aster_drive_model::entities::file::Model> {
     let file = storage::verify_file_access(state, scope, file_id).await?;
-    if let WorkspaceStorageScope::Team {
-        team_id,
-        actor_user_id,
-    } = scope
-    {
-        storage::require_team_management_access(state, team_id, actor_user_id).await?;
-    }
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ManageWorkspace,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let restored = restore_version_inner(state, scope, file, version_id).await?;
     cleanup_excess(state, file_id).await?;
     Ok(restored)
@@ -257,13 +274,13 @@ async fn delete_version_in_scope(
     version_id: i64,
 ) -> Result<()> {
     let file = storage::verify_file_access(state, scope, file_id).await?;
-    if let WorkspaceStorageScope::Team {
-        team_id,
-        actor_user_id,
-    } = scope
-    {
-        storage::require_team_management_access(state, team_id, actor_user_id).await?;
-    }
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ManageWorkspace,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     delete_version_inner(state, scope, &file, version_id).await
 }
 

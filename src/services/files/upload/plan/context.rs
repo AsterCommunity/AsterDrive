@@ -661,7 +661,7 @@ pub(super) async fn init_multipart_session_with_retry(
     } = params;
 
     with_unique_upload_id(|upload_id| async {
-        let temp_key = format!("files/{upload_id}");
+        let temp_key = aster_drive_storage::object_path::upload_path(&upload_id)?;
         let multipart_id = multipart.create_multipart_upload(&temp_key).await?;
         let inserted_result = try_persist_upload_session(
             state.writer_db(),
@@ -743,6 +743,29 @@ pub(super) async fn init_multipart_session_with_retry(
         )))
     })
     .await
+}
+
+pub(super) async fn reserve_provider_upload_session(
+    db: &sea_orm::DatabaseConnection,
+    expected_policy: &storage_policy::Model,
+    params: UploadSessionRecordParams<'_>,
+) -> Result<bool> {
+    let txn = aster_forge_db::transaction::begin(db).await?;
+    let current = crate::db::repository::policy_repo::lock_by_id(&txn, expected_policy.id).await?;
+    if current.storage_config != expected_policy.storage_config
+        || current.connector_id != expected_policy.connector_id
+    {
+        return Err(AsterError::conflict(
+            "storage policy changed before provider upload reservation; retry",
+        ));
+    }
+    if let Some(folder_id) = params.folder_id {
+        crate::db::repository::folder_repo::lock_by_id(&txn, folder_id).await?;
+    }
+    let inserted =
+        upload_session_repo::try_create(&txn, upload_session_active_model(params)).await?;
+    aster_forge_db::transaction::commit(txn).await?;
+    Ok(inserted)
 }
 
 fn upload_session_active_model(

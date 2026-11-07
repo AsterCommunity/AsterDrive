@@ -382,6 +382,21 @@ pub fn resolve_placement(
     resolve_placement_with_random(profile, context, folder_override, None)
 }
 
+/// Validate upload admission without selecting a destination. Replacements retain
+/// their current blob policy, but obey the current profile's upload constraints.
+pub(crate) fn admit_upload(
+    profile: &CompiledPlacementProfile,
+    context: &StoragePlacementContext,
+) -> Result<(), PlacementRejection> {
+    if !profile.is_enabled {
+        return Err(PlacementRejection::ProfileDisabled);
+    }
+    if profile.admission.max_file_size > 0 && context.file_size > profile.admission.max_file_size {
+        return Err(PlacementRejection::AdmissionFileTooLarge);
+    }
+    apply_admission(&profile.admission, context)
+}
+
 /// Largest final size this topology can admit, without binding an unknown-size stream to a
 /// target. All size predicates are constant between these inclusive interval endpoints. Reuse
 /// the resolver so rule priority, reject/fallback, classification and target eligibility stay
@@ -507,13 +522,7 @@ fn resolve_placement_internal(
         evaluated_rules: Vec::new(),
         excluded_targets: Vec::new(),
     };
-    if !profile.is_enabled {
-        return rejected(PlacementRejection::ProfileDisabled);
-    }
-    if profile.admission.max_file_size > 0 && context.file_size > profile.admission.max_file_size {
-        return rejected(PlacementRejection::AdmissionFileTooLarge);
-    }
-    if let Err(rejection) = apply_admission(&profile.admission, context) {
+    if let Err(rejection) = admit_upload(profile, context) {
         return rejected(rejection);
     }
 

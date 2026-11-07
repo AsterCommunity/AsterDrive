@@ -73,7 +73,7 @@ impl PreparedEmptyFile {
     ) -> Result<Self> {
         let folder = match self.folder_id {
             Some(folder_id) => {
-                let folder = lock_folder_access_on(txn, state, self.scope, folder_id).await?;
+                let folder = lock_folder_access_on(txn, self.scope, folder_id).await?;
                 Some(resolve_verified_folder_policy_hint_on(txn, self.scope, folder).await?)
             }
             None => None,
@@ -123,12 +123,21 @@ impl PreparedEmptyFile {
         &self,
         txn: &C,
         blob: &file_blob::Model,
+        credentials: &crate::services::files::lock::SubmittedLockCredentials<'_>,
     ) -> Result<file::Model> {
-        crate::services::workspace::storage_core::create_file_from_blob_with_name_mode(
+        let access = crate::services::workspace::scope::authorize_workspace_on(
             txn,
+            self.scope,
+            crate::services::workspace::scope::WorkspaceOperation::CreateFile,
+            &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+        )
+        .await?;
+        let creation = access
+            .for_file_creation(self.folder_id, credentials)
+            .await?;
+        crate::services::workspace::storage_core::create_file_from_blob(
             crate::services::workspace::storage_core::CreateFileFromBlobParams {
-                scope: self.scope,
-                folder_id: self.folder_id,
+                creation: &creation,
                 filename: &self.filename,
                 blob,
                 now: Utc::now(),

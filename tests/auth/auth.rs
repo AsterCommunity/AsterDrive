@@ -524,6 +524,21 @@ async fn test_register_and_login() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
 
+    for email in [
+        "alice\n@example.com",
+        "alice@example.com\r\n",
+        "a\0b@example.com",
+    ] {
+        let req = test::TestRequest::post()
+            .uri("/api/v1/auth/register")
+            .peer_addr("127.0.0.1:12345".parse().unwrap())
+            .set_json(serde_json::json!({
+                "username": "alice", "email": email, "password": "secret123"
+            }))
+            .to_request();
+        assert_eq!(test::call_service(&app, req).await.status(), 400);
+    }
+
     // 注册
     let req = test::TestRequest::post()
         .uri("/api/v1/auth/register")
@@ -3668,6 +3683,105 @@ async fn test_refresh_token_cannot_access_protected_routes() {
 }
 
 #[actix_web::test]
+async fn storage_events_cap_is_shared_between_app_workers_and_released_on_body_drop() {
+    let state = common::setup().await;
+    let first_worker = create_test_app!(state.clone());
+    let second_worker = create_test_app!(state);
+    let (token, _) = register_and_login!(first_worker);
+    let mut bodies = Vec::new();
+    for _ in 0..8 {
+        let response = test::call_service(
+            &first_worker,
+            test::TestRequest::get()
+                .uri("/api/v1/auth/events/storage")
+                .insert_header(("Cookie", common::access_cookie_header(&token)))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), 200);
+        bodies.push(response.into_body());
+    }
+    let response = test::call_service(
+        &second_worker,
+        test::TestRequest::get()
+            .uri("/api/v1/auth/events/storage")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 507);
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["code"], "operation.resource_limit_exceeded");
+    drop(bodies.pop());
+    let response = test::call_service(
+        &second_worker,
+        test::TestRequest::get()
+            .uri("/api/v1/auth/events/storage")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+}
+
+#[actix_web::test]
+async fn unrelated_personal_events_skip_writer_revalidation_but_relevant_events_still_revoke() {
+    use aster_drive::services::events::storage_change::{self, StorageChangeEvent};
+    use aster_drive::services::files::folder;
+    use std::{future::poll_fn, pin::Pin};
+
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let user = user_repo::find_by_username(state.writer_db(), "testuser")
+        .await
+        .unwrap()
+        .unwrap();
+    let other =
+        common::create_test_account(&state, "sse-other", "sse-other@example.com", "pass1234")
+            .await
+            .unwrap();
+    let response = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/api/v1/auth/events/storage")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let mut body = response.into_body();
+    let heartbeat = poll_fn(|cx| Pin::new(&mut body).poll_next(cx))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(heartbeat.as_ref(), b": keep-alive\n\n");
+    local::revoke_user_sessions(&state, user.id).await.unwrap();
+    folder::create(&state, other.id, "unrelated", None)
+        .await
+        .unwrap();
+    assert!(
+        tokio::time::timeout(
+            Duration::from_millis(100),
+            poll_fn(|cx| Pin::new(&mut body).poll_next(cx))
+        )
+        .await
+        .is_err(),
+        "unrelated event must neither query revoked account state nor deliver a frame"
+    );
+    storage_change::publish(&state, StorageChangeEvent::sync_required());
+    assert!(
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            poll_fn(|cx| Pin::new(&mut body).poll_next(cx))
+        )
+        .await
+        .unwrap()
+        .is_none()
+    );
+}
+
+#[actix_web::test]
 async fn test_storage_events_stream_receives_file_change_frames() {
     let state = common::setup().await;
     let app = create_test_app!(state);
@@ -3885,7 +3999,12 @@ async fn test_storage_events_stream_closes_on_server_shutdown() {
                 .app_data(web::Data::new(shutdown_token.clone()))
                 .app_data(web::Data::new(state))
                 .configure(move |cfg| {
-                    aster_drive::api::configure_primary(cfg, &db, &Default::default())
+                    aster_drive::api::configure_primary(
+                        cfg,
+                        &db,
+                        &Default::default(),
+                        &Default::default(),
+                    )
                 }),
         )
         .await
@@ -3924,7 +4043,12 @@ async fn test_storage_events_stream_rejects_new_connections_after_shutdown() {
                 .app_data(web::Data::new(shutdown_token.clone()))
                 .app_data(web::Data::new(state))
                 .configure(move |cfg| {
-                    aster_drive::api::configure_primary(cfg, &db, &Default::default())
+                    aster_drive::api::configure_primary(
+                        cfg,
+                        &db,
+                        &Default::default(),
+                        &Default::default(),
+                    )
                 }),
         )
         .await
@@ -4080,8 +4204,12 @@ async fn test_logout_clears_cookies_and_revokes_refresh_token() {
         .insert_header(("Cookie", common::access_cookie_header(&access)))
         .insert_header(common::csrf_header_for(&access))
         .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 200);
+    assert_service_status!(
+        app,
+        req,
+        401,
+        "logout must invalidate existing access credentials"
+    );
 
     let req = test::TestRequest::post()
         .uri("/api/v1/auth/refresh")
@@ -4506,7 +4634,8 @@ async fn test_disable_user_rejects_old_tokens_with_memory_cache() {
         metrics: aster_drive_metrics::NoopMetrics::arc(),
         mail_sender: base.mail_sender,
         storage_change_bus: base.storage_change_bus,
-        share_download_rollback: base.share_download_rollback,
+        storage_event_streams: base.storage_event_streams,
+
         background_task_dispatch_wakeup: base.background_task_dispatch_wakeup,
         remote_protocol: base.remote_protocol,
     };

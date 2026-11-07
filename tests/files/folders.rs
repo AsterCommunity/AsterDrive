@@ -830,8 +830,8 @@ async fn test_folder_tree_staging_is_idempotent_and_cascades_with_task_record() 
             &[41],
         )
         .await
-        .expect("retry staging should remain idempotent"),
-        1
+        .expect("retry staging should report no newly inserted members"),
+        0
     );
     assert_eq!(
         folder_tree_operation_repo::count(state.writer_db(), task.id)
@@ -842,8 +842,8 @@ async fn test_folder_tree_staging_is_idempotent_and_cascades_with_task_record() 
     assert_eq!(
         folder_tree_operation_repo::stage_ids(state.writer_db(), task.id, EntityType::Folder, &[],)
             .await
-            .expect("empty staging batch should preserve the authoritative count"),
-        1
+            .expect("empty staging batch should report no newly inserted members"),
+        0
     );
 
     background_task::Entity::delete_by_id(task.id)

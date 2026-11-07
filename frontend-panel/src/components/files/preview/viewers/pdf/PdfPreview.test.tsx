@@ -235,6 +235,7 @@ describe("PdfPreview", () => {
 		mockState.getTotalSize.mockReturnValue(0);
 		mockState.virtualizerInstance = null;
 		vi.spyOn(window, "open").mockImplementation(() => null);
+		vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:/safe-pdf");
 	});
 
 	it("loads the PDF through a blob URL and passes streaming options to the document loader", () => {
@@ -414,6 +415,36 @@ describe("PdfPreview", () => {
 		requestAnimationFrame.mockRestore();
 	});
 
+	it("gives a mislabeled PDF its own PDF-typed URL and revokes it on unmount", () => {
+		const original = new Blob(["%PDF-1.4\n<script>unsafe()</script>"], {
+			type: "text/html",
+		});
+		mockState.useBlobUrl.mockReturnValue({
+			blob: original,
+			blobUrl: "blob:/untrusted-html",
+			error: false,
+			loading: false,
+			retry: vi.fn(),
+		});
+		const revoke = vi.spyOn(URL, "revokeObjectURL");
+		const view = render(
+			<PdfPreview resource={apiResource} fileName="polyglot.pdf" />,
+		);
+		const created = vi
+			.mocked(URL.createObjectURL)
+			.mock.calls.at(-1)?.[0] as Blob;
+		expect(created.type).toBe("application/pdf");
+		expect(created.size).toBe(original.size);
+		fireEvent.click(screen.getByLabelText("pdf_open_new_tab"));
+		expect(window.open).toHaveBeenCalledWith(
+			"blob:/safe-pdf",
+			"_blank",
+			"noopener,noreferrer",
+		);
+		view.unmount();
+		expect(revoke).toHaveBeenCalledWith("blob:/safe-pdf");
+	});
+
 	it("opens and downloads the loaded blob URL", () => {
 		const clickSpy = vi
 			.spyOn(HTMLAnchorElement.prototype, "click")
@@ -423,7 +454,7 @@ describe("PdfPreview", () => {
 
 		fireEvent.click(screen.getByLabelText("pdf_open_new_tab"));
 		expect(window.open).toHaveBeenCalledWith(
-			"blob:/pdf",
+			"blob:/safe-pdf",
 			"_blank",
 			"noopener,noreferrer",
 		);
@@ -433,7 +464,7 @@ describe("PdfPreview", () => {
 			result.value instanceof HTMLAnchorElement ? [result.value] : [],
 		);
 		const downloadLink = createdLinks.find((link) =>
-			link.href.endsWith("blob:/pdf"),
+			link.href.endsWith("blob:/safe-pdf"),
 		);
 		expect(downloadLink).toBeDefined();
 		expect(downloadLink?.download).toBe("manual.pdf");

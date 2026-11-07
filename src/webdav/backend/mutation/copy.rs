@@ -30,6 +30,19 @@ impl AsterDavFs {
         let mut lock_mutation = lock::WebDavLockMutation::begin(&txn, self.scope)
             .await
             .map_err(map_ancestor_lock_error)?;
+        crate::services::workspace::scope::authorize_workspace_on(
+            &txn,
+            self.scope,
+            crate::services::workspace::scope::WorkspaceOperation::Copy,
+            &self.access_constraints,
+        )
+        .await
+        .map_err(super::super::map_product_mutation_error)?;
+        let lock_credentials =
+            lock::submitted_credentials_on(&txn, self.scope, self.root_folder_id, &conditions)
+                .await
+                .map_err(super::super::map_product_mutation_error)?;
+
         lock_mutation
             .lock_ancestor_entities(self.scope, self.root_folder_id, destination)
             .await
@@ -114,7 +127,7 @@ impl AsterDavFs {
                     self.scope,
                     folder.id,
                     Some(MUTATION_FOLDER_TREE_LIMITS),
-                    true,
+                    &lock_credentials.submitted(),
                 )
                 .await
                 .map_err(super::super::map_product_mutation_error)?,
@@ -158,7 +171,7 @@ impl AsterDavFs {
                         &txn,
                         self.scope,
                         file.id,
-                        true,
+                        &lock_credentials.submitted(),
                         crate::services::workspace::activity::ActivitySource::Webdav,
                     )
                     .await
@@ -189,11 +202,21 @@ impl AsterDavFs {
         )
         .await
         .map_err(AsterDavMutationError::FileSystem)?;
-        let copied = file_ops::duplicate_file_record_without_initial_revision_in_scope_on(
+        let access = crate::services::workspace::scope::authorize_workspace_on(
             &txn,
             self.scope,
+            crate::services::workspace::scope::WorkspaceOperation::Copy,
+            &self.access_constraints,
+        )
+        .await
+        .map_err(super::super::map_product_mutation_error)?;
+        let creation = access
+            .for_file_creation(destination_parent_id, &lock_credentials.submitted())
+            .await
+            .map_err(super::super::map_product_mutation_error)?;
+        let copied = file_ops::duplicate_file_record_without_initial_revision_in_scope_on(
+            &creation,
             &source_file,
-            destination_parent_id,
             &destination_name,
             crate::services::workspace::activity::ActivitySource::Webdav,
         )

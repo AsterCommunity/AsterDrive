@@ -250,15 +250,25 @@ pub(crate) async fn find_child_ids_in_parents<C: ConnectionTrait>(
     db: &C,
     scope: FolderScope,
     parent_ids: &[i64],
+    include_deleted: bool,
+    limit: Option<u64>,
 ) -> Result<Vec<i64>> {
     if parent_ids.is_empty() {
         return Ok(vec![]);
     }
-    Folder::find()
+    let mut query = Folder::find()
         .select_only()
         .column(folder::Column::Id)
-        .filter(active_scope_condition(scope))
-        .filter(folder::Column::ParentId.is_in(parent_ids.iter().copied()))
+        .filter(scope_condition(scope))
+        .filter(folder::Column::ParentId.is_in(parent_ids.iter().copied()));
+    if !include_deleted {
+        query = query.filter(folder::Column::DeletedAt.is_null());
+    }
+    // Apply the caller's remaining budget in SQL, before materializing rows.
+    if let Some(limit) = limit {
+        query = query.limit(limit);
+    }
+    query
         .into_tuple::<i64>()
         .all(db)
         .await

@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
@@ -74,7 +75,8 @@ impl MultipartStorageDriver for RemoteDriver {
                 "reverse tunnel remote nodes do not support presigned multipart upload URLs",
             ));
         }
-        let part_key = Self::multipart_part_key(upload_id, part_number)?;
+        let part_key =
+            aster_drive_storage::object_path::multipart_part_path(upload_id, part_number)?;
         self.client
             .presigned_put_url(&self.object_key(&part_key), expires)
             .map(aster_drive_storage::PresignedUploadRequest::without_headers)
@@ -98,7 +100,8 @@ impl MultipartStorageDriver for RemoteDriver {
         let mut expected_size = 0i64;
         let mut part_keys = Vec::with_capacity(parts.len());
         for (part_number, _) in parts {
-            let part_key = Self::multipart_part_key(upload_id, part_number)?;
+            let part_key =
+                aster_drive_storage::object_path::multipart_part_path(upload_id, part_number)?;
             let remote_key = self.object_key(&part_key);
             let metadata = self.client.metadata(&remote_key).await?;
             let part_size = i64::try_from(metadata.size).map_err(|_| {
@@ -129,7 +132,8 @@ impl MultipartStorageDriver for RemoteDriver {
         part_number: i32,
         data: &[u8],
     ) -> aster_drive_storage::Result<String> {
-        let part_key = Self::multipart_part_key(upload_id, part_number)?;
+        let part_key =
+            aster_drive_storage::object_path::multipart_part_path(upload_id, part_number)?;
         self.client
             .put_bytes(&self.object_key(&part_key), data)
             .await?;
@@ -147,7 +151,8 @@ impl MultipartStorageDriver for RemoteDriver {
         reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         size: i64,
     ) -> aster_drive_storage::Result<String> {
-        let part_key = Self::multipart_part_key(upload_id, part_number)?;
+        let part_key =
+            aster_drive_storage::object_path::multipart_part_path(upload_id, part_number)?;
         let size = u64::try_from(size).map_err(|_| {
             storage_driver_error(
                 StorageErrorKind::Precondition,
@@ -198,9 +203,17 @@ impl MultipartStorageDriver for RemoteDriver {
         _path: &str,
         upload_id: &str,
     ) -> aster_drive_storage::Result<()> {
-        let prefix = Self::multipart_parts_prefix(upload_id);
+        let prefix = aster_drive_storage::object_path::multipart_parts_prefix(upload_id)?;
         let parts = self.list_paths(Some(&prefix)).await?;
-        for part_path in parts {
+        // Validate the entire response before issuing any destructive request.
+        // The listing is lower trust than this caller's upload ownership.
+        let part_numbers = parts
+            .iter()
+            .map(|path| canonical_part_number(upload_id, path))
+            .collect::<aster_drive_storage::Result<BTreeSet<_>>>()?;
+        for part_number in part_numbers {
+            let part_path =
+                aster_drive_storage::object_path::multipart_part_path(upload_id, part_number)?;
             self.client.delete(&self.object_key(&part_path)).await?;
         }
         Ok(())
@@ -211,17 +224,15 @@ impl MultipartStorageDriver for RemoteDriver {
         _path: &str,
         upload_id: &str,
     ) -> aster_drive_storage::Result<Vec<UploadedMultipartPart>> {
-        let prefix = Self::multipart_parts_prefix(upload_id);
+        let prefix = aster_drive_storage::object_path::multipart_parts_prefix(upload_id)?;
         let mut parts = self
             .list_paths(Some(&prefix))
             .await?
             .into_iter()
             .filter_map(|path| {
-                path.rsplit('/')
-                    .next()
-                    .and_then(|segment| segment.parse::<i32>().ok())
-                    .filter(|part_number| *part_number > 0)
-                    .map(|part_number| (part_number, path))
+                canonical_part_number(upload_id, &path)
+                    .ok()
+                    .map(|number| (number, path))
             })
             .collect::<Vec<_>>();
         parts.sort_unstable_by_key(|(part_number, _)| *part_number);
@@ -240,4 +251,26 @@ impl MultipartStorageDriver for RemoteDriver {
         }
         Ok(details)
     }
+}
+
+fn canonical_part_number(upload_id: &str, path: &str) -> aster_drive_storage::Result<i32> {
+    let prefix = aster_drive_storage::object_path::multipart_parts_prefix(upload_id)?;
+    let number = path
+        .strip_prefix(&prefix)
+        .and_then(|suffix| suffix.strip_prefix('/'))
+        .and_then(|number| number.parse::<i32>().ok())
+        .filter(|number| *number > 0)
+        .ok_or_else(|| {
+            storage_driver_error(
+                StorageErrorKind::Precondition,
+                "remote listing contains a key outside this multipart upload",
+            )
+        })?;
+    if aster_drive_storage::object_path::multipart_part_path(upload_id, number)? != path {
+        return Err(storage_driver_error(
+            StorageErrorKind::Precondition,
+            "remote listing contains a noncanonical multipart part key",
+        ));
+    }
+    Ok(number)
 }

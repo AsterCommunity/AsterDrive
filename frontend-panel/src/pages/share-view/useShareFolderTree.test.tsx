@@ -402,4 +402,31 @@ describe("useShareFolderTree", () => {
 		);
 		expect(mockState.listSubfolderContent).toHaveBeenCalledTimes(2);
 	});
+	it("bounds automatic requests for a deep route and still allows manual expansion", async () => {
+		const breadcrumb = [
+			{ id: null, name: "Root" },
+			...Array.from({ length: 100 }, (_, index) => ({
+				id: index + 1,
+				name: `folder-${index + 1}`,
+			})),
+		];
+		const { result } = renderHook(() =>
+			useShareFolderTree({
+				breadcrumb,
+				folderContents: contents([]),
+				token: "deep-share",
+			}),
+		);
+		await waitFor(() => expect(result.current.loadingKeys.size).toBe(0));
+		expect(mockState.listContent).toHaveBeenCalledTimes(1);
+		expect(mockState.listSubfolderContent).toHaveBeenCalledTimes(7);
+		expect(result.current.currentFolderId).toBe(100);
+		expect(result.current.nodeMap.has(100)).toBe(true);
+		expect(result.current.expandedKeys.has("99")).toBe(false);
+		act(() => result.current.toggle(99));
+		await waitFor(() =>
+			expect(mockState.listSubfolderContent).toHaveBeenCalledTimes(8),
+		);
+		expect(result.current.expandedKeys.has("99")).toBe(true);
+	});
 });

@@ -577,3 +577,7 @@ This document does not require a one-shot service rewrite. Follow-up PRs should:
 - Add focused tests around moved rules
 - Avoid introducing a broad framework-style architecture layer for purity
 - Avoid renaming clear AsterDrive domain names into vague manager/helper/object names
+
+## Workspace and resource authorization
+
+See [Workspace and resource authorization](../design/workspace-authorization.md) for operation grants, authority sources, transaction ordering and regression coverage across files, protocols, tasks, public capabilities and governed administrator reads. `WorkspaceStorageScope` is an unverified target input. Grants are not persisted, and delayed publication rechecks current authority. Authentication, resource ownership and lock credentials retain distinct meanings.

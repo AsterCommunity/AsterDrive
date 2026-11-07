@@ -18,7 +18,7 @@ import type {
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({
 		t: (key: string, options?: Record<string, unknown>) => {
-			if (options?.ns === "plugin.follower-only") {
+			if (options?.ns === "aster_storage_primary_plugin.follower-only") {
 				return key === "follower_label" ? "Follower 专用存储" : "远端目录";
 			}
 			return options?.name ? `${key}:${options.name}` : key;

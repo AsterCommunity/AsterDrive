@@ -68,12 +68,14 @@ pub(crate) async fn resolve_blob_write_size_limit(
     request: BlobPolicyRequest<'_>,
 ) -> Result<i64> {
     if request.existing_file_id.is_some() {
+        let group_limit = ensure_blob_write_admission(state.policy_snapshot(), &request)?;
         let policy = resolve_blob_policy_for_write(state, request).await?.policy;
-        return Ok(if policy.max_file_size > 0 {
+        let policy_limit = if policy.max_file_size > 0 {
             policy.max_file_size
         } else {
             i64::MAX
-        });
+        };
+        return Ok(group_limit.min(policy_limit));
     }
     let folder = match (request.folder_hint, request.folder_id) {
         (Some(hint), _) => Some(hint),
@@ -86,7 +88,7 @@ pub(crate) async fn resolve_blob_write_size_limit(
         }
         (None, None) => None,
     };
-    let profile_id = placement_profile_id(state, request.scope)?;
+    let profile_id = placement_profile_id(state.policy_snapshot(), request.scope)?;
     let profile = state
         .policy_snapshot()
         .get_placement_profile(profile_id)
@@ -103,6 +105,34 @@ pub(crate) async fn resolve_blob_write_size_limit(
     )
     .map_err(|rejection| {
         AsterError::validation_error(format!("{}: {profile_id}", rejection.code()))
+    })
+}
+
+/// Snapshot-only admission; no per-file SQL or target selection is needed.
+pub(crate) fn ensure_blob_write_admission(
+    snapshot: &crate::storage::PolicySnapshot,
+    request: &BlobPolicyRequest<'_>,
+) -> Result<i64> {
+    let profile_id = placement_profile_id(snapshot, request.scope)?;
+    let profile = snapshot.get_placement_profile(profile_id).ok_or_else(|| {
+        AsterError::storage_policy_not_found(format!("placement profile #{profile_id}"))
+    })?;
+    let context = StoragePlacementContext::from_filename(
+        profile_id,
+        request.filename,
+        request.file_size,
+        request.mime_type,
+    );
+    crate::services::storage_policy::policy::placement::admit_upload(&profile, &context)
+        .map_err(|rejection| match rejection {
+            crate::services::storage_policy::policy::placement::PlacementRejection::AdmissionFileTooLarge => {
+                AsterError::file_too_large(format!("file size {} exceeds profile limit {}", request.file_size, profile.admission.max_file_size))
+            }
+            _ => AsterError::validation_error(format!("{}: {profile_id}", rejection.code())),
+        })?;
+    Ok(match profile.admission.max_file_size {
+        1.. => profile.admission.max_file_size,
+        _ => i64::MAX,
     })
 }
 
@@ -137,6 +167,7 @@ async fn resolve_blob_policy_for_write_internal(
     record_routing: bool,
 ) -> Result<BlobPolicyResolution> {
     if let Some(existing_file_id) = request.existing_file_id {
+        ensure_blob_write_admission(state.policy_snapshot(), &request)?;
         let file = crate::services::workspace::scope::verify_file_access(
             state,
             request.scope,
@@ -218,7 +249,7 @@ fn resolve_new_blob_policy_from_snapshot(
     aster_drive_model::entities::storage_policy::Model,
     StorageRoutingDecision,
 )> {
-    let profile_id = placement_profile_id(state, request.scope)?;
+    let profile_id = placement_profile_id(state.policy_snapshot(), request.scope)?;
     let context = StoragePlacementContext::from_filename(
         profile_id,
         request.filename,
@@ -267,15 +298,14 @@ fn resolve_new_blob_policy_from_snapshot(
 
 /// Read a user/team assignment solely from the routing snapshot and fail explicitly when missing.
 fn placement_profile_id(
-    state: &impl SharedRuntimeState,
+    snapshot: &crate::storage::PolicySnapshot,
     scope: WorkspaceStorageScope,
 ) -> Result<i64> {
     match scope {
-        WorkspaceStorageScope::Personal { user_id } => state
-            .policy_snapshot()
-            .require_user_policy_group_id(user_id),
-        WorkspaceStorageScope::Team { team_id, .. } => state
-            .policy_snapshot()
+        WorkspaceStorageScope::Personal { user_id } => {
+            snapshot.require_user_policy_group_id(user_id)
+        }
+        WorkspaceStorageScope::Team { team_id, .. } => snapshot
             .resolve_team_policy_group_id(team_id)
             .ok_or_else(|| {
                 AsterError::storage_policy_not_found(format!(

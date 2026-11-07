@@ -614,7 +614,7 @@ pub(super) async fn archive_team_record(
     }
     tracing::info!(
         team_id,
-        team_name = %team_name,
+        team_name = ?team_name,
         archived_at = %now,
         "archived team"
     );
@@ -642,7 +642,7 @@ pub(super) async fn restore_team_record(
     }
     tracing::info!(
         team_id,
-        team_name = %team_name,
+        team_name = ?team_name,
         "restored archived team"
     );
     Ok(restored)

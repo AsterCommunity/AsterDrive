@@ -87,6 +87,40 @@ fn outbox_model(
     }
 }
 
+#[tokio::test]
+async fn test_historical_outbox_controls_are_escaped_by_pinned_forge_dispatcher() {
+    let state = common::setup().await;
+    apply_mail_config(&state);
+    for attempt in [0, 5] {
+        let payload =
+            aster_drive::services::mail::template::MailTemplatePayload::register_activation(
+                "alice",
+                "token-123",
+                "AsterDrive",
+            )
+            .to_stored()
+            .unwrap();
+        let mut row = outbox_model(MailOutboxStatus::Pending, attempt, Utc::now(), payload);
+        row.to_address = Set("legacy\r\nforged@example.com".to_string());
+        insert_outbox(state.writer_db(), row).await.unwrap();
+        let sender: Arc<dyn MailSender> = FailingMailSender::new("smtp\nforged");
+        let logs = aster_forge_test::logs::CapturedLogs::default();
+        let stats = logs
+            .capture_future(outbox::dispatch_due_with(
+                state.writer_db(),
+                &state.runtime_config,
+                &sender,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(stats.retried + stats.failed, 1);
+        let text = logs.text();
+        assert!(text.contains("legacy\\r\\nforged@example.com"), "{text}");
+        assert!(!text.contains("legacy\r\nforged@example.com"), "{text}");
+        assert!(text.contains("smtp\\nforged"), "{text}");
+    }
+}
+
 async fn find_outbox_row(db: &sea_orm::DatabaseConnection, id: i64) -> mail_outbox::Model {
     mail_outbox::Entity::find_by_id(id)
         .one(db)

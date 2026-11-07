@@ -22,6 +22,31 @@ pub fn build_governor(
     )
 }
 
+/// Construct once per server, then clone the shared governor counters into each HTTP worker.
+#[derive(Clone)]
+pub struct AuthRouteLimiters {
+    pub(crate) auth: GovernorConfig<TrustedProxyIpKeyExtractor, NoOpMiddleware>,
+    pub(crate) api: GovernorConfig<TrustedProxyIpKeyExtractor, NoOpMiddleware>,
+}
+
+impl AuthRouteLimiters {
+    pub fn new(
+        config: &crate::config::RateLimitConfig,
+        trust: &crate::config::NetworkTrustConfig,
+    ) -> Self {
+        Self {
+            auth: build_governor(&config.auth, &trust.trusted_proxies),
+            api: build_governor(&config.api, &trust.trusted_proxies),
+        }
+    }
+}
+
+impl Default for AuthRouteLimiters {
+    fn default() -> Self {
+        Self::new(&Default::default(), &Default::default())
+    }
+}
+
 fn rate_limit_response(wait_time: u64, mut response: HttpResponseBuilder) -> HttpResponse {
     let message = format!("Too Many Requests, retry after {wait_time}s");
     response
@@ -48,5 +73,90 @@ mod tests {
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(payload["code"], ApiErrorCode::RateLimited.as_str());
         assert_eq!(payload["msg"], "Too Many Requests, retry after 7s");
+    }
+
+    #[actix_web::test]
+    async fn independent_worker_apps_consume_the_same_auth_allowance() {
+        use super::AuthRouteLimiters;
+        use actix_governor::Governor;
+        use actix_web::{App, HttpResponse, middleware::Condition, test, web};
+        let config = crate::config::RateLimitConfig {
+            enabled: true,
+            auth: crate::config::RateLimitTier {
+                seconds_per_request: std::num::NonZeroU64::new(3600).unwrap(),
+                burst_size: std::num::NonZeroU32::new(1).unwrap(),
+            },
+            ..Default::default()
+        };
+        let shared = AuthRouteLimiters::new(&config, &Default::default());
+        let worker_one = shared.clone();
+        let worker_two = shared.clone();
+        let app_one = test::init_service(
+            App::new().service(
+                web::resource("/probe")
+                    .wrap(Condition::new(
+                        config.enabled,
+                        Governor::new(&worker_one.auth),
+                    ))
+                    .route(web::post().to(|| async { HttpResponse::Ok().finish() })),
+            ),
+        )
+        .await;
+        let app_two = test::init_service(
+            App::new().service(
+                web::resource("/probe")
+                    .wrap(Condition::new(
+                        config.enabled,
+                        Governor::new(&worker_two.auth),
+                    ))
+                    .route(web::post().to(|| async { HttpResponse::Ok().finish() })),
+            ),
+        )
+        .await;
+        let peer = "192.0.2.10:1234".parse().unwrap();
+        assert_eq!(
+            test::call_service(
+                &app_one,
+                test::TestRequest::post()
+                    .uri("/probe")
+                    .peer_addr(peer)
+                    .to_request()
+            )
+            .await
+            .status(),
+            200
+        );
+        assert_eq!(
+            test::call_service(
+                &app_two,
+                test::TestRequest::post()
+                    .uri("/probe")
+                    .peer_addr(peer)
+                    .to_request()
+            )
+            .await
+            .status(),
+            429
+        );
+        let disabled = test::init_service(
+            App::new().service(
+                web::resource("/probe")
+                    .wrap(Condition::new(false, Governor::new(&shared.auth)))
+                    .route(web::post().to(|| async { HttpResponse::Ok().finish() })),
+            ),
+        )
+        .await;
+        assert_eq!(
+            test::call_service(
+                &disabled,
+                test::TestRequest::post()
+                    .uri("/probe")
+                    .peer_addr(peer)
+                    .to_request()
+            )
+            .await
+            .status(),
+            200
+        );
     }
 }

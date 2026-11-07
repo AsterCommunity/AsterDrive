@@ -49,6 +49,8 @@ pub(super) async fn create_pending_email_verification_flow(
     provider: &external_auth_provider::Model,
     claims: &ExternalAuthUserClaims,
     return_path: Option<String>,
+    browser_pfoxum: &str,
+    verified_email: Option<&str>,
 ) -> Result<PendingExternalAuthEmailVerification> {
     let flow_token = format!("oev_{}", aster_forge_utils::id::new_short_token());
     let now = Utc::now();
@@ -61,16 +63,17 @@ pub(super) async fn create_pending_email_verification_flow(
             "external recovery flow ttl must be positive",
         ));
     }
-    external_auth_email_verification_flow_repo::create(
+    let flow = external_auth_email_verification_flow_repo::create(
         state.writer_db(),
         external_auth_email_verification_flow::ActiveModel {
             provider_id: Set(provider.id),
             identity_namespace: Set(claims.identity_namespace.clone()),
             subject: Set(claims.subject.clone()),
-            target_email: Set(None),
+            target_email: Set(verified_email.map(str::to_string)),
             display_name_snapshot: Set(claims.display_name.clone()),
             preferred_username_snapshot: Set(claims.preferred_username.clone()),
             return_path: Set(return_path.clone()),
+            browser_binding_hash: Set(Some(external_auth_normalize::token_hash(browser_pfoxum))),
             flow_token_hash: Set(external_auth_normalize::token_hash(&flow_token)),
             verification_token_hash: Set(None),
             email_requested_at: Set(None),
@@ -83,6 +86,8 @@ pub(super) async fn create_pending_email_verification_flow(
     .await?;
 
     Ok(PendingExternalAuthEmailVerification {
+        flow_id: flow.id,
+        browser_pfoxum: browser_pfoxum.to_string(),
         flow_token,
         return_path: return_path.unwrap_or_else(|| "/".to_string()),
     })
@@ -91,6 +96,7 @@ pub(super) async fn create_pending_email_verification_flow(
 pub async fn start_email_verification(
     state: &impl SharedRuntimeState,
     input: ExternalAuthEmailVerificationStartRequest,
+    browser_proof: Option<&str>,
 ) -> Result<ExternalAuthEmailVerificationStartResponse> {
     let flow_token = external_auth_normalize::normalize_flow_token(&input.flow_token, 128)?;
     let email = normalize_email_for_external_auth(&input.email)?;
@@ -104,6 +110,7 @@ pub async fn start_email_verification(
     .ok_or_else(|| {
         AsterError::contact_verification_invalid("external auth email verification flow is invalid")
     })?;
+    ensure_recovery_browser(&flow, browser_proof)?;
     ensure_external_recovery_can_process(&flow, now)?;
     if flow.verification_token_hash.is_some() {
         return Err(AsterError::contact_verification_invalid(
@@ -199,6 +206,7 @@ pub async fn start_email_verification(
 pub async fn confirm_email_verification(
     state: &impl SharedRuntimeState,
     token: &str,
+    browser_proofs: &std::collections::HashMap<String, String>,
     _ip_address: Option<&str>,
     _user_agent: Option<&str>,
 ) -> Result<ExternalAuthEmailVerificationConfirmResult> {
@@ -218,6 +226,12 @@ pub async fn confirm_email_verification(
     .ok_or_else(|| {
         AsterError::contact_verification_invalid("external auth email verification link is invalid")
     })?;
+    // Cookie names and extraction belong to the HTTP adapter. The service accepts proofs
+    // indexed only by the persisted flow identity, so transport cannot broaden a binding.
+    let browser_proof = browser_proofs
+        .get(&flow.flow_token_hash)
+        .map(String::as_str);
+    ensure_recovery_browser(&flow, browser_proof)?;
     ensure_external_recovery_can_process(&flow, now)?;
     let email = flow.target_email.clone().ok_or_else(|| {
         AsterError::contact_verification_invalid(
@@ -232,10 +246,38 @@ pub async fn confirm_email_verification(
         ));
     }
 
+    if let Some(user) = user_repo::find_by_email(state.writer_db(), &email).await? {
+        if !user.status.is_active() || user.email_verified_at.is_none() {
+            return Err(AsterError::auth_forbidden(
+                "local account is not eligible for recovery",
+            ));
+        }
+        return Ok(ExternalAuthEmailVerificationConfirmResult {
+            primary_login: ExternalAuthPrimaryLogin {
+                user,
+                return_path: flow.return_path.clone().unwrap_or_else(|| "/".to_string()),
+                provider_key: provider.key,
+                issuer: flow.identity_namespace.clone(),
+                subject: flow.subject.clone(),
+                linked: false,
+                auto_provisioned: false,
+                pending_link: Some(super::PendingExternalLink {
+                    flow_id: flow.id,
+                    browser_pfoxum: browser_proof.unwrap_or_default().to_string(),
+                }),
+            },
+        });
+    }
     let claims = claims_with_verified_local_email(&flow, &email);
     let new_user_password_hash = hash_random_internal_password(state).await?;
     let txn = transaction::begin(state.writer_db()).await?;
     let result = async {
+        let provider = external_auth_provider_repo::lock_by_id(&txn, provider.id).await?;
+        if !provider.enabled {
+            return Err(AsterError::auth_forbidden(
+                "external auth provider is disabled",
+            ));
+        }
         let consumed =
             external_auth_email_verification_flow_repo::mark_consumed_if_unused(&txn, flow.id)
                 .await?;
@@ -285,6 +327,7 @@ pub async fn confirm_email_verification(
             subject: claims.subject,
             linked: resolved.linked,
             auto_provisioned: resolved.auto_provisioned,
+            pending_link: None,
         },
     })
 }
@@ -313,4 +356,94 @@ fn ensure_external_recovery_can_process(
             "external auth email verification flow transition is invalid",
         ),
     })
+}
+
+/// Recovery tokens are URL capabilities, not proof of browser continuity. Legacy unbound rows
+/// fail closed and cannot mail, link identities or issue sessions. Compare only the stored hash.
+pub(super) fn ensure_recovery_browser(
+    flow: &external_auth_email_verification_flow::Model,
+    proof: Option<&str>,
+) -> Result<()> {
+    match (flow.browser_binding_hash.as_deref(), proof) {
+        (Some(expected), Some(proof)) if expected == external_auth_normalize::token_hash(proof) => {
+            Ok(())
+        }
+        _ => Err(AsterError::contact_verification_invalid(
+            "external recovery requires its initiating browser",
+        )),
+    }
+}
+
+/// The final full-authentication transaction owns the identity change. It holds the account and
+/// flow guards, rechecks provider/domain/identity ownership and consumes the flow exactly once.
+/// Errors roll back factor consumption and session creation in the caller's transaction too.
+pub(crate) async fn complete_pending_link<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    pending: &super::PendingExternalLink,
+    user: &aster_drive_model::entities::user::Model,
+    audit_info: &crate::services::ops::audit::AuditRequestInfo,
+) -> Result<()> {
+    let flow = external_auth_email_verification_flow_repo::lock_by_id(db, pending.flow_id)
+        .await?
+        .ok_or_else(|| {
+            AsterError::contact_verification_invalid("external recovery flow unavailable")
+        })?;
+    ensure_recovery_browser(&flow, Some(&pending.browser_pfoxum))?;
+    ensure_external_recovery_can_process(&flow, Utc::now())?;
+    let provider = external_auth_provider_repo::lock_by_id(db, flow.provider_id).await?;
+    if !provider.enabled {
+        return Err(AsterError::auth_forbidden(
+            "external auth provider is disabled",
+        ));
+    }
+    if !external_auth_normalize::email_domain_allowed(
+        provider.allowed_domains.as_deref(),
+        &user.email,
+    )? {
+        return Err(AsterError::auth_forbidden(
+            "external auth email domain is not allowed for this provider",
+        ));
+    }
+    let claims = match flow.target_email.as_deref() {
+        Some(email) => {
+            if user.email != email
+                || user.email_verified_at.is_none()
+                || !external_auth_normalize::email_domain_allowed(
+                    provider.allowed_domains.as_deref(),
+                    email,
+                )?
+            {
+                return Err(AsterError::auth_forbidden(
+                    "external recovery email or policy changed",
+                ));
+            }
+            claims_with_verified_local_email(&flow, email)
+        }
+        None => super::resolution::claims_without_provider_email(&flow),
+    };
+    let resolved = super::resolution::link_external_auth_identity_to_authenticated_user(
+        db,
+        &provider,
+        &claims,
+        user.clone(),
+        Utc::now(),
+    )
+    .await?;
+    if resolved.linked {
+        // A pending first-factor flow is not a completed link. Persist the security event only
+        // with the identity/session transaction, so cancellation and rollback leave no false audit.
+        aster_forge_db::create_audit_log_row(db, aster_forge_db::AuditLogCreate {
+            user_id: user.id,
+            action: aster_drive_model::types::AuditAction::UserExternalAuthLink.as_str().to_string(),
+            entity_type: crate::services::ops::audit::AuditEntityType::ExternalAuthIdentity.as_str().to_string(), entity_id: None, entity_name: Some(provider.key.clone()),
+            details: Some(serde_json::json!({"provider_key":provider.key,"issuer":flow.identity_namespace,"subject":flow.subject,"linked":true,"auto_provisioned":false}).to_string()),
+            ip_address: audit_info.ip_address.clone(), user_agent: audit_info.user_agent.clone(), created_at: Utc::now(),
+        }).await?;
+    }
+    match external_auth_email_verification_flow_repo::mark_consumed_if_unused(db, flow.id).await? {
+        true => Ok(()),
+        false => Err(AsterError::contact_verification_invalid(
+            "external recovery already consumed",
+        )),
+    }
 }

@@ -92,6 +92,7 @@ pub async fn poll_remote_tunnel(
         content_length,
     )
     .await?;
+    crate::storage::remote_protocol::verify_buffered_content_sha256(req.headers(), &body)?;
     let body: RemoteTunnelPollReq = serde_json::from_slice(&body).map_err(|error| {
         AsterError::validation_error(format!("invalid reverse tunnel poll body: {error}"))
     })?;
@@ -130,6 +131,7 @@ pub async fn complete_remote_tunnel(
         content_length,
     )
     .await?;
+    crate::storage::remote_protocol::verify_buffered_content_sha256(req.headers(), &body)?;
     let body: RemoteTunnelResponse = serde_json::from_slice(&body).map_err(|error| {
         AsterError::validation_error(format!("invalid reverse tunnel completion body: {error}"))
     })?;

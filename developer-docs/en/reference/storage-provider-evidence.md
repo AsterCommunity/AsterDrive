@@ -298,7 +298,7 @@ Cloud acceptance: **not_recorded** — No cloud acceptance record is asserted by
 
 Connector: `asterdrive.storage.sftp`; owner: AsterDrive storage maintainers; fallback: repository maintainers; API: SSH transport RFC 4253; SFTP v3 draft; connector config V1.
 
-SDK/transport: `russh@0.65.0`, `russh-sftp@3.0.1`.
+SDK/transport: `russh@0.65.1`, `russh-sftp@3.0.1`.
 
 Code: [src/storage/connectors/sftp.rs](https://github.com/AsterCommunity/AsterDrive/blob/master/src/storage/connectors/sftp.rs), [src/storage/drivers/sftp.rs](https://github.com/AsterCommunity/AsterDrive/blob/master/src/storage/drivers/sftp.rs).
 

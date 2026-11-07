@@ -33,9 +33,15 @@ pub struct PreviewLinkInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum PreviewSubject {
-    File { file_id: i64 },
-    ShareFile { share_token: String },
-    ShareFolderFile { share_token: String, file_id: i64 },
+    File {
+        file_id: i64,
+    },
+    /// Identifiers are not share credentials. Only this signed file-scoped delegation is public;
+    /// the parent bearer remains on the server and is included only as MAC keying context.
+    SharedFile {
+        share_id: i64,
+        file_id: i64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,8 +79,9 @@ pub async fn create_token_for_shared_file(
     share_token: &str,
 ) -> Result<PreviewLinkInfo> {
     let (share, file) = load_shared_file_ignoring_download_limit(state, share_token).await?;
-    let payload = build_payload(PreviewSubject::ShareFile {
-        share_token: share.token.clone(),
+    let payload = build_payload(PreviewSubject::SharedFile {
+        share_id: share.id,
+        file_id: file.id,
     });
     build_link_for_shared_file(state, &share, &file, &payload, None).await
 }
@@ -85,8 +92,9 @@ pub async fn create_token_for_shared_file_for_origin(
     request_origin: RequestOrigin<'_>,
 ) -> Result<PreviewLinkInfo> {
     let (share, file) = load_shared_file_ignoring_download_limit(state, share_token).await?;
-    let payload = build_payload(PreviewSubject::ShareFile {
-        share_token: share.token.clone(),
+    let payload = build_payload(PreviewSubject::SharedFile {
+        share_id: share.id,
+        file_id: file.id,
     });
     build_link_for_shared_file(state, &share, &file, &payload, Some(request_origin)).await
 }
@@ -98,8 +106,8 @@ pub async fn create_token_for_shared_folder_file(
 ) -> Result<PreviewLinkInfo> {
     let (share, file) =
         load_shared_folder_file_ignoring_download_limit(state, share_token, file_id).await?;
-    let payload = build_payload(PreviewSubject::ShareFolderFile {
-        share_token: share.token.clone(),
+    let payload = build_payload(PreviewSubject::SharedFile {
+        share_id: share.id,
         file_id: file.id,
     });
     build_link_for_shared_file(state, &share, &file, &payload, None).await
@@ -113,8 +121,8 @@ pub async fn create_token_for_shared_folder_file_for_origin(
 ) -> Result<PreviewLinkInfo> {
     let (share, file) =
         load_shared_folder_file_ignoring_download_limit(state, share_token, file_id).await?;
-    let payload = build_payload(PreviewSubject::ShareFolderFile {
-        share_token: share.token.clone(),
+    let payload = build_payload(PreviewSubject::SharedFile {
+        share_id: share.id,
         file_id: file.id,
     });
     build_link_for_shared_file(state, &share, &file, &payload, Some(request_origin)).await
@@ -258,7 +266,7 @@ async fn resolve_token(
     let (payload_segment, signature) = split_token(token)?;
     let payload = decode_payload(payload_segment)?;
     let expires_at = decode_expiry(payload.exp)?;
-    if expires_at < Utc::now() {
+    if expires_at <= Utc::now() {
         return Err(AsterError::share_expired("preview link expired"));
     }
 
@@ -277,9 +285,13 @@ async fn resolve_token(
             }
             Ok(ResolvedPreviewTarget::File { file })
         }
-        PreviewSubject::ShareFile { share_token } => {
-            let (share, file) =
-                load_shared_file_ignoring_download_limit(state, share_token).await?;
+        PreviewSubject::SharedFile { share_id, file_id } => {
+            // Load authoritative share metadata by internal ID. Never serialize or accept the
+            // parent's bearer as a preview claim. Unknown legacy bearer-bearing payloads fail
+            // closed; these URLs last five minutes and callers can request a fresh delegation.
+            let share =
+                crate::db::repository::share_repo::find_by_id(state.writer_db(), *share_id).await?;
+            let file = direct_link::load_public_file(state, *file_id).await?;
             if !verify_shared_payload(
                 &share,
                 &file,
@@ -291,26 +303,14 @@ async fn resolve_token(
                     "preview link token signature mismatch",
                 ));
             }
-            Ok(ResolvedPreviewTarget::Shared { file })
-        }
-        PreviewSubject::ShareFolderFile {
-            share_token,
-            file_id,
-        } => {
-            let (share, file) =
-                load_shared_folder_file_ignoring_download_limit(state, share_token, *file_id)
-                    .await?;
-            if !verify_shared_payload(
+            // Authorize against the share's current file/root and team lifecycle. An ID cannot
+            // substitute another child, and moving the file out of the shared tree invalidates it.
+            let access = crate::services::workspace::scope::authorize_share_resources_on(
+                state.writer_db(),
                 &share,
-                &file,
-                payload_segment,
-                signature,
-                &state.config().auth.direct_link_secret,
-            )? {
-                return Err(AsterError::share_not_found(
-                    "preview link token signature mismatch",
-                ));
-            }
+            )
+            .await?;
+            access.file_on(state.writer_db(), &file).await?;
             Ok(ResolvedPreviewTarget::Shared { file })
         }
     }
@@ -404,6 +404,16 @@ fn shared_payload_mac(
         })?;
     mac.update(b"preview_link:share:");
     mac.update(share.token.as_bytes());
+    // Password and resource-scope edits invalidate already delegated reads. Only their keyed
+    // digest is disclosed: the raw password hash and parent bearer never leave this function.
+    mac.update(b":password:");
+    mac.update(share.password.as_deref().unwrap_or_default().as_bytes());
+    mac.update(b":scope:");
+    mac.update(file_scope_signature(file)?.as_bytes());
+    mac.update(b":target:");
+    mac.update(share.file_id.unwrap_or_default().to_string().as_bytes());
+    mac.update(b":root:");
+    mac.update(share.folder_id.unwrap_or_default().to_string().as_bytes());
     mac.update(b":");
     mac.update(share.id.to_string().as_bytes());
     mac.update(b":");

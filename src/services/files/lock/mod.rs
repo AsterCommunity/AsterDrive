@@ -14,13 +14,17 @@ mod projection;
 mod tests;
 
 pub use cleanup::{cleanup_expired, cleanup_expired_with_audit};
-pub(crate) use cleanup::{delete_all_held_by_on, delete_workspace_namespace_on};
+pub(crate) use cleanup::{
+    delete_all_held_by_on, delete_workspace_namespace_on, load_after_expiry_cleanup,
+};
 pub use domain::{LockRoot, LockRootSummary, LockTarget, LockWorkspace, ResourceLockState};
+pub(crate) use enforcement::lock_overlaps_target_on;
 pub use enforcement::{
     LockMutationCredentials, SubmittedLockCredentials, enforce_collection_membership_mutation_on,
     enforce_file_mutation, enforce_file_mutation_on, enforce_folder_mutation,
     enforce_folder_mutation_on, lock_workspace_for_mutation_on,
 };
+pub(crate) use lifecycle::{AuthorizedLockMutation, mutate_authorized_lock_on};
 pub(crate) use lifecycle::{LockAcquireCommand, acquire_after_namespace_lock_on};
 pub use lifecycle::{
     acquire, acquire_on, force_unlock, force_unlock_with_audit, lock, refresh_by_token_on,

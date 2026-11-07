@@ -228,9 +228,15 @@ aster_drive_storage::storage_connector_schema! {
             }];
             field
         },
-        pub object_storage_upload_strategy: ObjectStorageUploadStrategy => transfer_strategy_field(
-            "object_storage_upload_strategy", StorageTransferDirection::Upload,
-        ),
+        pub object_storage_upload_strategy: ObjectStorageUploadStrategy => {
+            let mut field = transfer_strategy_field("object_storage_upload_strategy", StorageTransferDirection::Upload);
+            #[expect(clippy::single_match, reason = "keep optional descriptor capability handling explicit")]
+            match field.select.as_mut() {
+                Some(select) => select.options.retain(|option| option.value == aster_drive_storage::StorageConnectorSelectOptionValue::String("relay_stream".into())),
+                None => {}
+            }
+            field
+        },
         pub object_storage_download_strategy: ObjectStorageDownloadStrategy => transfer_strategy_field(
             "object_storage_download_strategy", StorageTransferDirection::Download,
         ),
@@ -347,6 +353,19 @@ impl TencentCosConnector {
         descriptor.actions.push(configure_cors_action_descriptor());
         descriptor.promotions.push(promote_from_s3_descriptor());
         descriptor.capabilities.custom_download_base_url = true;
+        descriptor.upload_workflows.presigned_upload = false;
+        #[expect(
+            clippy::single_match,
+            reason = "keep optional multipart capability handling explicit"
+        )]
+        match descriptor
+            .upload_workflows
+            .object_multipart_upload_capabilities
+            .as_mut()
+        {
+            Some(capability) => capability.presigned_part_upload = false,
+            None => {}
+        }
         descriptor
     }
 }
@@ -408,10 +427,20 @@ impl StorageConnector for TencentCosConnector {
         &self,
         input: &aster_drive_storage::ConnectorConfigEnvelope,
     ) -> Result<aster_drive_storage::ConnectorConfigEnvelope> {
+        let mut input = input.clone();
+        match input.values.get("object_storage_upload_strategy") {
+            Some(serde_json::Value::String(value)) if value == "presigned" => {
+                input.values.insert(
+                    "object_storage_upload_strategy".into(),
+                    serde_json::json!("relay_stream"),
+                );
+            }
+            _ => {}
+        }
         let normalized =
             aster_drive_storage::connector_descriptor::normalize_storage_connector_config(
                 &self.descriptor(),
-                input,
+                &input,
             )
             .map_err(|error| AsterError::validation_error(error.to_string()))?;
         let mut config: TencentCosConnectorConfigV1 =
@@ -587,9 +616,11 @@ impl StorageConnector for TencentCosConnector {
         &self,
         policy: &storage_policy::Model,
     ) -> Result<StorageConnectorUploadTransport> {
-        let config = Self::decode_config(policy)?;
+        let _config = Self::decode_config(policy)?;
+        // COS PUT signatures made with the shared static identity also authorize
+        // copy-source operations. Relay retains upload/resume without delegating read authority.
         Ok(StorageConnectorUploadTransport::ObjectStorage(
-            config.object_storage_upload_strategy,
+            ObjectStorageUploadStrategy::RelayStream,
         ))
     }
 

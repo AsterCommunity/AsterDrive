@@ -351,10 +351,10 @@ impl PresignedUploadStorageDriver for TencentCosDriver {
         path: &str,
         expires: Duration,
     ) -> Result<Option<aster_drive_storage::PresignedUploadRequest>> {
-        self.storage
-            .s3_driver()
-            .presigned_put_request(path, expires)
-            .await
+        let _ = (path, expires);
+        // Static COS signatures do not forbid unsigned copy-source headers.
+        // Browser writes must use relay until per-upload scoped credentials exist.
+        Ok(None)
     }
 
     fn presigned_single_put_requires_etag(&self) -> bool {
@@ -370,4 +370,80 @@ super::s3_compatible::delegate_s3_compatible_storage_driver!(
     native_thumbnail,
     native_media_metadata
 );
-super::s3_compatible::delegate_s3_compatible_multipart_driver!(TencentCosDriver, storage);
+
+#[async_trait::async_trait]
+impl aster_drive_storage::MultipartStorageDriver for TencentCosDriver {
+    fn capabilities(&self) -> aster_drive_storage::traits::multipart::MultipartStorageCapabilities {
+        aster_drive_storage::MultipartStorageDriver::capabilities(&self.storage)
+    }
+
+    async fn create_multipart_upload(&self, path: &str) -> aster_drive_storage::Result<String> {
+        self.storage.create_multipart_upload(path).await
+    }
+
+    async fn complete_multipart_upload(
+        &self,
+        path: &str,
+        upload_id: &str,
+        parts: Vec<(i32, String)>,
+    ) -> aster_drive_storage::Result<()> {
+        self.storage
+            .complete_multipart_upload(path, upload_id, parts)
+            .await
+    }
+
+    async fn upload_multipart_part(
+        &self,
+        path: &str,
+        upload_id: &str,
+        part_number: i32,
+        data: &[u8],
+    ) -> aster_drive_storage::Result<String> {
+        self.storage
+            .upload_multipart_part(path, upload_id, part_number, data)
+            .await
+    }
+
+    async fn upload_multipart_part_bytes(
+        &self,
+        path: &str,
+        upload_id: &str,
+        part_number: i32,
+        data: bytes::Bytes,
+    ) -> aster_drive_storage::Result<String> {
+        self.storage
+            .upload_multipart_part_bytes(path, upload_id, part_number, data)
+            .await
+    }
+
+    async fn upload_multipart_part_reader(
+        &self,
+        path: &str,
+        upload_id: &str,
+        part_number: i32,
+        reader: Box<dyn tokio::io::AsyncRead + Unpin + Send + Sync>,
+        size: i64,
+    ) -> aster_drive_storage::Result<String> {
+        self.storage
+            .upload_multipart_part_reader(path, upload_id, part_number, reader, size)
+            .await
+    }
+
+    async fn abort_multipart_upload(
+        &self,
+        path: &str,
+        upload_id: &str,
+    ) -> aster_drive_storage::Result<()> {
+        self.storage.abort_multipart_upload(path, upload_id).await
+    }
+
+    async fn list_uploaded_part_details(
+        &self,
+        path: &str,
+        upload_id: &str,
+    ) -> aster_drive_storage::Result<Vec<aster_drive_storage::UploadedMultipartPart>> {
+        self.storage
+            .list_uploaded_part_details(path, upload_id)
+            .await
+    }
+}

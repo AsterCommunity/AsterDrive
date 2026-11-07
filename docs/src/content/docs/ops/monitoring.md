@@ -14,7 +14,7 @@ AsterDrive 的 Prometheus 指标是可选能力，默认构建不启用。启用
 GET /health/metrics
 ```
 
-输出是 Prometheus text exposition，覆盖 HTTP、数据库、上传下载、后台任务、存储驱动、认证事件、分享下载回滚和进程资源。
+输出是 Prometheus text exposition，覆盖 HTTP、数据库、上传下载、后台任务、存储驱动、认证事件和进程资源。
 
 ## 启用 metrics feature
 
@@ -170,7 +170,7 @@ https://drive.docs.astercosm.com/grafana/asterdrive-overview.json
 - 数据库：SeaORM 查询量、错误量、p95 和平均耗时
 - 存储驱动：操作量、not_found、硬失败、p95 和平均耗时
 - 传输：上传、下载、上传 session 生命周期、传输失败
-- 后台任务：积压量、状态转换、retry、分享下载回滚队列
+- 后台任务：积压量、状态转换、retry
 - 认证：登录和 refresh token 事件、认证失败比例
 - 进程：RSS、CPU core 用量、uptime
 
@@ -333,7 +333,6 @@ service:
 - `aster_drive_storage_driver_operations_total{status="failure",kind!="not_found"}` 是否非零
 - `aster_task_pending` 是否持续堆积
 - `aster_task_retries_total` 是否持续增长
-- `aster_drive_share_download_rollback_pending` 是否持续堆积
 - `process_memory_usage_bytes` 是否单向增长且空闲后不回落
 
 `aster_drive_storage_driver_operations_total{status="failure",kind="not_found"}` 建议单独观察。缩略图、缓存或对象探测场景里，`not_found` 常常只是预期的 miss。告警规则更适合优先关注 `aster_drive_storage_driver_operations_total{status="failure",kind!="not_found"}` 这类硬失败。

@@ -140,7 +140,7 @@ export function useStoragePolicyPromotionController({
 			onPromoted();
 			const targetLabel = translateStorageConnectorMessage(
 				t,
-				savedCandidate.targetDescriptor.connector_id,
+				savedCandidate.targetDescriptor,
 				savedCandidate.targetDescriptor.ui.label_key,
 			);
 			toast.success(

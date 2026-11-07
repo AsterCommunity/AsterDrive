@@ -87,6 +87,7 @@ pub async fn login(
             None,
             ip_address,
             user_agent,
+            None,
         )
         .await?;
 
@@ -136,10 +137,11 @@ fn record_login_metric(
 
 pub async fn change_password(
     state: &impl SharedRuntimeState,
-    user_id: i64,
+    claims: &super::Claims,
     current_password: &str,
     new_password: &str,
 ) -> Result<AuthUserInfo> {
+    let user_id = claims.user_id;
     tracing::debug!(user_id, "changing password");
     let user = user_repo::find_by_id(state.writer_db(), user_id).await?;
 
@@ -166,7 +168,51 @@ pub async fn change_password(
         ));
     }
 
-    set_password(state, user.id, new_password).await
+    validate_password(new_password)?;
+    let new_password_hash = state
+        .runtime_config()
+        .password_hash_runtime()
+        .hash_password(new_password)
+        .await?;
+    commit_verified_password_change(state, &user, claims, new_password_hash).await
+}
+
+async fn commit_verified_password_change(
+    state: &impl SharedRuntimeState,
+    verified_user: &aster_drive_model::entities::user::Model,
+    claims: &super::Claims,
+    new_password_hash: String,
+) -> Result<AuthUserInfo> {
+    transaction::with_transaction(state.writer_db(), async |txn| {
+        let user = user_repo::lock_by_id(txn, verified_user.id).await?;
+        if !user.status.is_active() {
+            return Err(auth_forbidden_with_code(
+                ApiErrorCode::AuthAccountDisabled,
+                "account is disabled",
+            ));
+        }
+        if user.password_hash != verified_user.password_hash
+            || user.session_version != verified_user.session_version
+            || user.session_version != claims.session_version
+        {
+            return Err(AsterError::auth_token_invalid(
+                "credentials changed while authorizing password change",
+            ));
+        }
+        let session = auth_session_repo::lock_by_id_for_user(txn, user.id, &claims.sid)
+            .await?
+            .ok_or_else(|| AsterError::auth_token_invalid("session revoked"))?;
+        if session.revoked_at.is_some()
+            || session.refresh_expires_at <= chrono::Utc::now()
+            || claims.exp <= usize::try_from(chrono::Utc::now().timestamp()).unwrap_or(usize::MAX)
+        {
+            return Err(AsterError::auth_token_invalid("session expired or revoked"));
+        }
+        let updated = update_password_in_connection(txn, user, new_password_hash).await?;
+        auth_session_repo::delete_all_for_user(txn, updated.id).await?;
+        Ok(AuthUserInfo::from(updated))
+    })
+    .await
 }
 
 pub async fn set_password(

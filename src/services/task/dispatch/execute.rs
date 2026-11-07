@@ -143,6 +143,24 @@ impl aster_forge_tasks::ClaimedTaskExecutionStore<background_task::Model, Backgr
             }
         }
 
+        // 用户委托文件任务在每次执行/自动重试前读取当前资格；系统维护是已接受的
+        // 系统工作，不因创建者降权而卡住恢复，但任何手动重启仍单独检查当前管理权限。
+        match task.kind {
+            BackgroundTaskKind::ArchiveExtract
+            | BackgroundTaskKind::ArchiveCompress
+            | BackgroundTaskKind::TrashPurgeAll
+            | BackgroundTaskKind::FolderTreeMutation
+            | BackgroundTaskKind::OfflineDownload => {
+                crate::services::workspace::scope::authorize_workspace_on(
+                    self.state.writer_db(),
+                    crate::services::task::task_scope(task)?,
+                    crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+                    &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+                )
+                .await?;
+            }
+            _ => {}
+        }
         if !self.state.metrics().enabled() {
             return registry::process_task(&self.state, task, context).await;
         }

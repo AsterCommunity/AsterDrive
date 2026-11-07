@@ -17,6 +17,7 @@ import {
 import {
 	installStorageConnectorLocalizations,
 	loadAdminStorageConnectorLocalizations,
+	scopeRemoteStorageConnectorDescriptors,
 	translateStorageConnectorMessage,
 } from "@/lib/adminStorageConnectorLocalizations";
 import {
@@ -149,8 +150,11 @@ export function useStoragePolicyDescriptorController({
 			) {
 				return;
 			}
-			for (const catalog of catalogs) {
-				installStorageConnectorLocalizations(catalog, language, i18n);
+			for (const [index, catalog] of catalogs.entries()) {
+				installStorageConnectorLocalizations(catalog, language, i18n, {
+					kind: "primary",
+					context: contexts[index],
+				});
 			}
 		},
 		[creationCatalogContext, i18n, language, primaryCatalogContext],
@@ -275,8 +279,14 @@ export function useStoragePolicyDescriptorController({
 					catalog.localizations,
 					language,
 					i18n,
+					{ kind: "remote", nodeId: remoteNodeId },
 				);
-				setRemoteStorageTargetConnectorDescriptors(catalog.descriptors);
+				setRemoteStorageTargetConnectorDescriptors(
+					scopeRemoteStorageConnectorDescriptors(
+						catalog.descriptors,
+						remoteNodeId,
+					),
+				);
 				setRemoteStorageTargetConnectorDescriptorsError(null);
 			} catch (error) {
 				if (
@@ -484,14 +494,14 @@ export function useStoragePolicyDescriptorController({
 				const fieldLabel = remoteNodeField
 					? translateStorageConnectorMessage(
 							t,
-							currentStorageDriverDescriptor?.connector_id,
+							currentStorageDriverDescriptor,
 							remoteNodeField.label_key,
 						)
 					: t("remote_node");
 				const message = remoteNodeField?.required_message_key
 					? translateStorageConnectorMessage(
 							t,
-							currentStorageDriverDescriptor?.connector_id,
+							currentStorageDriverDescriptor,
 							remoteNodeField.required_message_key,
 							{ field: fieldLabel },
 						)
@@ -517,7 +527,7 @@ export function useStoragePolicyDescriptorController({
 			}
 		},
 		[
-			currentStorageDriverDescriptor?.connector_id,
+			currentStorageDriverDescriptor,
 			form,
 			loadRemoteStorageTargetsForPolicy,
 			remoteNodeField,

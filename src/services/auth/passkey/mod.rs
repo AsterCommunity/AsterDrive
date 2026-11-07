@@ -1,6 +1,6 @@
 //! Passkey / WebAuthn 业务逻辑。
 
-mod cache;
+mod challenge;
 
 use base64::Engine as _;
 use chrono::Utc;
@@ -298,40 +298,6 @@ fn ensure_passkey_login_enabled(state: &impl SharedRuntimeState) -> Result<()> {
     ))
 }
 
-async fn store_registration_challenge(
-    state: &impl SharedRuntimeState,
-    flow_id: &str,
-    challenge: &PasskeyRegistrationChallenge,
-) {
-    cache::store_registration_challenge(state, flow_id, challenge).await;
-}
-
-async fn take_registration_challenge(
-    state: &impl SharedRuntimeState,
-    flow_id: &str,
-) -> Result<PasskeyRegistrationChallenge> {
-    cache::take_registration_challenge(state, flow_id)
-        .await
-        .ok_or_else(|| AsterError::auth_token_invalid("passkey registration challenge expired"))
-}
-
-async fn store_login_challenge(
-    state: &impl SharedRuntimeState,
-    flow_id: &str,
-    challenge: &PasskeyAuthenticationChallenge,
-) {
-    cache::store_login_challenge(state, flow_id, challenge).await;
-}
-
-async fn take_login_challenge(
-    state: &impl SharedRuntimeState,
-    flow_id: &str,
-) -> Result<PasskeyAuthenticationChallenge> {
-    cache::take_login_challenge(state, flow_id)
-        .await
-        .ok_or_else(|| AsterError::auth_token_invalid("passkey login challenge expired"))
-}
-
 fn serialize_registration_options(
     options: &CreationChallengeResponse,
 ) -> Result<serde_json::Value> {
@@ -478,7 +444,7 @@ pub async fn start_registration(
         default_name: normalize_passkey_name(name)?,
         state: registration,
     };
-    store_registration_challenge(state, &flow_id, &challenge).await;
+    challenge::store_registration_challenge(state, &flow_id, &challenge).await?;
 
     Ok(PasskeyRegisterStartResp {
         flow_id,
@@ -494,7 +460,7 @@ pub async fn finish_registration(
     name: Option<&str>,
 ) -> Result<PasskeyInfo> {
     let webauthn = build_webauthn(state)?;
-    let challenge = take_registration_challenge(state, flow_id).await?;
+    let challenge = challenge::take_registration_challenge(state, flow_id).await?;
     if challenge.user_id != user_id {
         return Err(AsterError::auth_forbidden(
             "passkey registration challenge does not belong to user",
@@ -592,7 +558,7 @@ pub async fn start_login(
     }
 
     let flow_id = new_flow_id();
-    store_login_challenge(state, &flow_id, &challenge).await;
+    challenge::store_login_challenge(state, &flow_id, &challenge).await?;
     Ok(PasskeyLoginStartResp {
         flow_id,
         public_key: serialize_login_options(&options)?,
@@ -614,7 +580,7 @@ pub async fn finish_login(
 ) -> Result<PasskeyLoginResult> {
     ensure_passkey_login_enabled(state)?;
     let webauthn = build_webauthn(state)?;
-    let challenge = take_login_challenge(state, flow_id).await?;
+    let challenge = challenge::take_login_challenge(state, flow_id).await?;
     let credential = parse_login_credential(credential)?;
     let credential_id = credential_id_to_storage(credential.get_credential_id());
 

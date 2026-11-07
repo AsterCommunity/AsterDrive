@@ -11,9 +11,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Storage provider evidence** — Adds a bilingual official protocol index for every built-in connector, with source review dates, exact SDK/transport versions, field/wire drift checks in `make storage-docs-check`, and a separate weekly link report. Local protocol fixtures and real-provider acceptance remain explicit, separate evidence.
 
+### Security
+
+- **HTTP dependency fixes** — Require Actix Web 4.18.2 and Actix HTTP 3.20.3 to fix compressed-body resource exhaustion and malformed chunked-trailer request smuggling. Refresh compatible Rust dependencies; remove the resolved crypto-bigint exception and document the remaining precise upstream exceptions, including test-only tar maintenance.
+
+- **Media input confinement** — FFmpeg thumbnails and ffprobe metadata read only the selected object, with standalone demuxers and external-reference rejection. Local inputs use seekable descriptors; efficient remote backends retain on-demand Range reads through a temporary loopback reader bound to one driver/key/size, with bounded block caching and no full-file staging. Stream-only backends retain exact-size scratch staging. Child processes receive no provider credentials or URLs; inherited proxy bypasses are cleared. Host builds need `fd` protocol support for local inputs; official images provide it.
+
+- **Local inputs and diagnostics** — Remove source/capability URLs before formatting offline-download and OneDrive transport errors, escape untrusted text-log fields, and reject control characters in account email and queued recipients. Create generated configuration with private Unix permissions and tighten permissions before backfilling keys, rejecting link aliases; benchmark runs use fresh private output directories. Existing configuration files without a backfill are not rewritten.
+
+- **Internal drag selection** — Accept move/trash selections only from a live drag registered in the same tab, bound to its current account and workspace. Consume the recorded selection once and clear it on drag end, logout or workspace change; external file uploads retain their separate path.
+
+- **Dependency diagnostics and review completeness** — Adopt Forge's escaped mail-outbox diagnostics for historical rows and pin repository automation to the revision that paginates all review threads and withholds readiness success when the scan is incomplete.
+
+- **Offline staging and final storage conditions** — Give each download engine a private attempt, reject symlinks/nonregular outputs, and seal the same inode into private import staging without copying it. Remove aria2 world-writable staging; different service users require an operator-provisioned shared group. Keep aria2 DNS/connection behavior deployment-owned, without adding a proxy. Recount quota drifts under the existing owner lock, enforce current group admission on replacements and receive limits, and conditionally expire WOPI locks after namespace serialization. Healthy quota scans remain batched.
+
+- **Release verification and managed environment aliases** — Generated cosign verification pins the exact workflow/ref identity instead of a repository substring. Helm rejects case/dotted aliases of managed settings, and startup rejects environment names that normalize to the same configuration path before writing configuration, including aliases imported by external `envFrom` resources. Remove conflicting aliases before upgrading; supplemental configuration remains supported.
+
+- **Account authentication and final checks** — Persist separate account-level MFA login/management budgets and email resend reservations, consume Passkey challenges and signed-request nonces through writer-database authority, share authentication limiter counters across HTTP workers, fence password changes against concurrent recovery/session revocation, enforce restricted optional identities and SSE token expiry, and recheck email blocklists at confirmation. MFA permits five failures per fifteen-minute window followed by a fixed fifteen-minute cooldown; denied attempts do not extend it. Upgrade Primary/Follower writers together; in-flight pre-upgrade Passkey challenges must restart.
+
+- **Remote and provider delegation** — Validate multipart cleanup scope and signed completion body digests, canonicalize target boundaries, bind saved aria2 test secrets to their endpoint, keep enrollment tokens out of argv and quote generated commands, and isolate follower translations by local node/connector scope. Reserve provider uploads before external allocation, reconcile OneDrive tenant/cloud credential changes, and bind cached drivers to policy/credential generations. COS browser uploads use server relay to prevent copy-source delegation; Azure client-writable multipart objects publish through a fresh final key. Explicit HTTP deployment choices remain supported.
+
+- **Blob publication and cleanup ownership** — Keep content hashes as logical deduplication identities while uploads and migrations publish verified private object generations through database CAS/transactions. Warm deduplication hits reuse locked metadata without copying content; local cold candidates retain directory fanout. Failed and losing attempts clean only their own objects, legacy cross-policy aliases retain shared bytes, and delayed cleanup cannot retire another physical generation. Provider completion atomically transfers temporary cleanup authority; team archive preserves permanent objects. Doctor and maintenance recount under the blob lock and preserve cleanup claims. Upgrade all writers together. (#745)
+
+- **Resource processing budgets** — Bound tunnel response collection, WOPI discovery expansion, persisted preferences, image/TIFF processing, archive metadata and range reads, WebDAV lock discovery, and concurrent storage-event streams before expensive work. JSON/CSV previews simplify oversized content. Generic object copies stage and verify the declared length in Forge runtime scratch directories before streaming to the destination; native copies remain available. (#745)
+
+- **External account association** — Preserve the initiating browser through password and email recovery; defer existing-account identity links until required MFA completes, then commit the association, flow consumption, audit and session together. Existing identities obey current provider email/domain policies. Upgrade all authentication writers; pre-upgrade unbound recovery flows must restart.
+
+- **XML previews and scoped delegation** — Isolate generic XML document responses and keep shared preview tokens file-scoped without disclosing the original share credential. Existing shared preview URLs need regeneration; sharing and preview download-count semantics remain unchanged.
+
+- **Uploaded-content isolation** — Sandbox active WebDAV documents for current files and revisions, preserve SVG vectors and animation using opaque-origin display URLs, and open PDF toolbar content through a PDF-typed representation. Isolate the actual external WOPI POST from its opener while preserving configured embeds, iframe permissions, launch fields and referrer behavior.
+
+- **Session logout and MFA budgets** — Logout revokes the signed session even when refresh has rotated its cookie; access and refresh both stop immediately, while other devices retain access. Coordinate browser refresh/logout responses across tabs and enforce the five-failure MFA budget under concurrent verification, with factor and session changes committed together.
+
+- **Workspace and resource authorization** — Unify current actor, delegated scope and operation checks across file services, upload publication, WebDAV, WOPI, shares, tasks and governed administrator reads. Reject missing team membership, stale credential approvals, cross-mount lock operations, collection-lock bypasses and privileged task retries after demotion; bind queued uploads and recovery to their original account and workspace. Clear private listings, playback and downloads on logout and reject responses from earlier accounts. Preserve protocol token/precondition behavior and existing capability lifetimes. (#745)
+
 ### Changed
 
+- **Share download accounting** — Charge when a download/presigned URL is issued or an archive ticket/playback session is initialized. Later failure or cancellation does not refund the count; valid paid capabilities continue without per-GET/Range charges. Keep online document previews uncounted. Remove the refund worker, abort hooks, count-marker cache, queue setting and related metrics. Upgrade all Primary/API writers together; pre-upgrade stream sessions and archive tickets must restart.
+
+- **Storage object naming** — Centralize object and staging names, multipart parts and image derivative paths in `aster_drive_storage::object_path`, migrating callers and removing superseded factories. Existing persisted object paths remain readable without relocating content.
+
+- **Folder hierarchy limits** — Support directory depth up to 4096, counting the workspace root as zero, with consistent checks for creation, relative-path uploads, moves, copies and restores. Keep synchronous operation budgets separate from background processing, preserve cleanup of older deeper trees, and load deep shared navigation lazily. Directory downloads reuse parent handles and support cancellation. Trash cleanup, folder-task staging, revision purge and integrity scans avoid repeated growing scans. (#745)
+
 - **Outbound HTTP policy** — Route built-in HTTP clients through `aster_drive_outbound` and the shared Forge factory. Preserve streaming upload/download timeouts, default to the shared product User-Agent with an explicit per-client override, centralize redirect rejection while preserving conditional 304 responses, share progress/acknowledgement upload handling across providers with separate Google Drive control/download/upload pools, and establish an origin-scoped, bounded and cancellable plugin transport with public-address validation and DNS pinning.
+
+### Deprecated
+
+- **Legacy public direct links** — Retain pre-v2 direct-link compatibility during 0.x by product decision. Remove the unversioned parser and truncated legacy-signature verification in 1.0.0; regenerate those links in the current v2 format before upgrading. This is a retirement plan, not a cryptographic fix to the legacy format. (#745, finding 59)
 
 ### Fixed
 

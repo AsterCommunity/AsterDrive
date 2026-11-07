@@ -566,10 +566,12 @@ impl StorageDriver for SftpDriver {
         &self,
         src_path: &str,
         dest_path: &str,
+        _options: aster_drive_storage::StorageCopyOptions,
     ) -> aster_drive_storage::Result<String> {
         let src_remote_path = self.full_path(src_path)?;
         let dest_remote_path = self.full_path(dest_path)?;
-        let temporary_path = format!("{dest_remote_path}.aster-copy-{}.tmp", uuid::Uuid::now_v7());
+        let temporary_path =
+            aster_drive_storage::object_path::new_copy_staging_path(&dest_remote_path);
         let mut connection = self.acquire_connection().await?;
         ensure_remote_parent_dir(connection.sftp()?, &dest_remote_path).await?;
         let mut src = connection
@@ -1580,7 +1582,10 @@ mod tests {
         range.read_to_end(&mut range_bytes).await.unwrap();
         assert_eq!(range_bytes, b"from");
 
-        driver.copy_object(&object_path, &copy_path).await.unwrap();
+        driver
+            .copy_object(&object_path, &copy_path, Default::default())
+            .await
+            .unwrap();
         assert_eq!(driver.get(&copy_path).await.unwrap(), payload);
 
         driver.delete(&object_path).await.unwrap();

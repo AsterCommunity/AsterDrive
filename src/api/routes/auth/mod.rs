@@ -11,8 +11,8 @@ pub use crate::api::dto::auth::{
 use crate::api::middleware::auth::JwtAuth;
 use crate::api::middleware::rate_limit;
 use crate::api::request_auth::access_token;
+use crate::config::RateLimitConfig;
 use crate::config::site_url;
-use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::runtime::PrimaryAppState;
 use crate::services::{auth::local, events::storage_change};
 use actix_governor::Governor;
@@ -75,10 +75,10 @@ pub mod session;
 
 pub fn routes(
     rl: &RateLimitConfig,
-    network_trust: &NetworkTrustConfig,
+    limiters: &rate_limit::AuthRouteLimiters,
 ) -> impl actix_web::dev::HttpServiceFactory + use<> {
-    let auth_limiter = rate_limit::build_governor(&rl.auth, &network_trust.trusted_proxies);
-    let api_limiter = rate_limit::build_governor(&rl.api, &network_trust.trusted_proxies);
+    let auth_limiter = limiters.auth.clone();
+    let api_limiter = limiters.api.clone();
 
     web::scope("/auth")
         .service(

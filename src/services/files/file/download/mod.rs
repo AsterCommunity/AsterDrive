@@ -10,7 +10,6 @@ mod build;
 mod delivery;
 pub(crate) mod range;
 mod response;
-mod streaming;
 #[cfg(test)]
 mod tests;
 mod types;

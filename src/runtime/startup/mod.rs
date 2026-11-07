@@ -8,7 +8,7 @@ use crate::services::ops::audit;
 
 pub use common::initialize_database_state;
 pub use follower::{PreparedFollowerRuntime, prepare_follower};
-pub use primary::{PreparedPrimaryRuntime, prepare_primary};
+pub use primary::prepare_primary;
 
 /// 记录服务器启动事件。
 pub async fn record_server_start<S: SharedRuntimeState>(state: &S) {

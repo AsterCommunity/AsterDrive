@@ -920,6 +920,100 @@ async fn test_wopi_get_lock_prunes_expired_locks_and_returns_empty_current_lock(
     assert!(locks.is_empty(), "expired WOPI lock rows should be deleted");
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_wopi_expiry_snapshot_cannot_remove_a_completed_renewal() {
+    use std::sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    };
+    let mut state = common::setup_with_pool_size(4).await;
+    if state.writer_db().get_database_backend() == sea_orm::DbBackend::Sqlite {
+        eprintln!(
+            "concurrent WOPI interleaving requires PostgreSQL/MySQL; SQLite has one writer connection"
+        );
+        return;
+    }
+    configure_test_wopi_runtime(&state);
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let file_id = upload_test_file_named!(app, token, "document.docx");
+    let session = open_wopi_session!(
+        app,
+        token,
+        &format!("/api/v1/files/{file_id}/wopi/open"),
+        TEST_WOPI_APP_KEY
+    );
+    let access = session["data"]["access_token"].as_str().unwrap();
+    let cutoff = Utc::now();
+    let expired = insert_test_resource_lock(
+        state.writer_db(),
+        file_id,
+        "renewed-after-snapshot",
+        Some(stored_wopi_owner("preserved")),
+        Some(cutoff - Duration::seconds(1)),
+    )
+    .await;
+    let lock_token = expired.token.clone();
+    let update_db = state.writer_db().clone();
+    let handle = tokio::runtime::Handle::current();
+    let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+    let sender = Arc::new(Mutex::new(Some(entered_tx)));
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let release_rx = Arc::new(Mutex::new(release_rx));
+    let armed = Arc::new(AtomicBool::new(true));
+    let gate = armed.clone();
+    let mut db = state.writer_db().clone();
+    db.set_metric_callback(move |info| {
+        let sql = info.statement.sql.to_ascii_lowercase();
+        if sql.contains("select")
+            && sql.contains("resource_locks")
+            && sql.contains("root_file_id")
+            && gate.swap(false, Ordering::SeqCst)
+        {
+            sender.lock().unwrap().take().unwrap().send(()).unwrap();
+            release_rx
+                .lock()
+                .unwrap()
+                .recv_timeout(std::time::Duration::from_secs(20))
+                .unwrap();
+        }
+    });
+    state.db_handles = aster_forge_db::DbHandles::single(db);
+    let renewer = std::thread::spawn(move || {
+        handle.block_on(async move {
+            entered_rx.await.unwrap();
+            let result = aster_drive::services::files::lock::refresh_by_token_on(
+                &update_db,
+                &lock_token,
+                Some(cutoff + Duration::minutes(5)),
+            )
+            .await;
+            release_tx.send(()).unwrap();
+            result
+        })
+    });
+    // Use a new app carrying the observed writer; token and session remain valid.
+    let observed_app = create_test_app!(state.clone());
+    let response = test::call_service(
+        &observed_app,
+        test::TestRequest::post()
+            .uri(&wopi_file_query(file_id, access))
+            .insert_header(("Origin", TEST_WOPI_ORIGIN))
+            .insert_header(("X-WOPI-Override", "GET_LOCK"))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.headers().get("X-WOPI-Lock").unwrap(), "preserved");
+    assert!(renewer.join().unwrap().is_ok());
+    assert!(
+        lock_repo::find_by_token(state.writer_db(), &expired.token)
+            .await
+            .unwrap()
+            .is_some()
+    );
+}
+
 #[actix_web::test]
 async fn test_wopi_unlock_and_relock_replaces_active_lock() {
     let state = common::setup().await;

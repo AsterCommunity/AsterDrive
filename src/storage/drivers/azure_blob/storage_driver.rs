@@ -7,8 +7,8 @@ use futures::TryStreamExt as _;
 use tokio::io::AsyncRead;
 
 use aster_drive_storage::traits::driver::{BlobMetadata, StorageDriver};
-use aster_drive_storage::traits::extensions::{StorageCapacityInfo, StreamUploadDriver};
-use aster_drive_storage::{MapStorageErr, Result, StorageErrorKind, storage_driver_error};
+use aster_drive_storage::traits::extensions::StorageCapacityInfo;
+use aster_drive_storage::{MapStorageErr, StorageErrorKind, storage_driver_error};
 
 use super::{AzureBlobDriver, AzureBlobResponseHeaders, DEFAULT_OPERATION_SAS_TTL};
 
@@ -126,6 +126,7 @@ impl StorageDriver for AzureBlobDriver {
         &self,
         src_path: &str,
         dest_path: &str,
+        options: aster_drive_storage::StorageCopyOptions,
     ) -> aster_drive_storage::Result<String> {
         let source_url = self.blob_url(
             &self.endpoint,
@@ -156,7 +157,10 @@ impl StorageDriver for AzureBlobDriver {
                 error = %Self::format_azure_error(error),
                 "Azure Blob server-side copy failed for loopback endpoint; falling back to local copy"
             );
-            self.copy_object_via_temp_file(src_path, dest_path).await?;
+            aster_drive_storage::traits::driver::copy_object_via_temp_file(
+                self, src_path, dest_path, options,
+            )
+            .await?;
         }
         Ok(dest_path.to_string())
     }
@@ -177,51 +181,5 @@ impl StorageDriver for AzureBlobDriver {
             multipart: Some(self),
             ..Default::default()
         }
-    }
-}
-
-impl AzureBlobDriver {
-    async fn copy_object_via_temp_file(&self, src_path: &str, dest_path: &str) -> Result<String> {
-        use tokio::io::AsyncWriteExt as _;
-
-        let temp_path = aster_forge_utils::raii::TempFileGuard::new(
-            std::env::temp_dir().join(format!(
-                "aster_azure_copy_{}_{}",
-                std::process::id(),
-                uuid::Uuid::new_v4()
-            )),
-            "Azure Blob copy fallback temp file",
-        );
-
-        let mut reader = self.get_stream(src_path).await?;
-        let mut file = tokio::fs::File::create(temp_path.path())
-            .await
-            .map_storage_err_ctx(
-                StorageErrorKind::Transient,
-                "create Azure Blob copy temp file",
-            )?;
-        tokio::io::copy(&mut reader, &mut file)
-            .await
-            .map_storage_err_ctx(
-                StorageErrorKind::Transient,
-                "write Azure Blob copy temp file",
-            )?;
-        file.flush().await.map_storage_err_ctx(
-            StorageErrorKind::Transient,
-            "flush Azure Blob copy temp file",
-        )?;
-        drop(file);
-
-        let temp_path_str = temp_path
-            .path()
-            .to_str()
-            .ok_or_else(|| {
-                storage_driver_error(
-                    StorageErrorKind::Misconfigured,
-                    "Azure Blob copy temp path is not valid UTF-8",
-                )
-            })?
-            .to_string();
-        self.put_file(dest_path, &temp_path_str).await
     }
 }

@@ -18,8 +18,10 @@ use crate::services::workspace::storage::{
 use aster_drive_model::entities::{file, storage_policy};
 use aster_drive_storage::StorageDriver;
 
+#[derive(Clone)]
 pub(super) struct PreparedStoreFromTemp {
     pub scope: WorkspaceStorageScope,
+    pub access_constraints: crate::services::workspace::scope::WorkspaceAccessConstraints,
     pub folder_id: Option<i64>,
     pub filename: String,
     pub temp_path: String,
@@ -65,6 +67,7 @@ pub(super) async fn prepare_store_from_temp(
 ) -> Result<PreparedStoreFromTemp> {
     let StoreFromTempParams {
         scope,
+        access_constraints,
         folder_id,
         filename,
         temp_path,
@@ -86,6 +89,21 @@ pub(super) async fn prepare_store_from_temp(
         task_publication,
     } = hints;
     operation_context.checkpoint()?;
+    // 暂存前也验证准入，避免已失权的延迟任务先触发 provider I/O；最终发布仍重新验证。
+    let access = crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &access_constraints,
+    )
+    .await?;
+    match existing_file_id {
+        Some(file_id) => {
+            let file = file_repo::find_by_id(state.writer_db(), file_id).await?;
+            access.file(&file).await?;
+        }
+        None => access.parent(folder_id).await?,
+    }
 
     tracing::debug!(
         scope = ?scope,
@@ -105,6 +123,21 @@ pub(super) async fn prepare_store_from_temp(
             .first_or_octet_stream()
             .to_string()
     });
+
+    if existing_file_id.is_some() {
+        crate::services::workspace::storage::ensure_blob_write_admission(
+            &state.policy_snapshot,
+            &BlobPolicyRequest {
+                scope,
+                folder_id,
+                folder_hint: None,
+                filename: &filename,
+                file_size: size,
+                mime_type: &mime_type,
+                existing_file_id,
+            },
+        )?;
+    }
 
     let policy = match resolved_policy {
         Some(policy) => policy,
@@ -195,6 +228,7 @@ pub(super) async fn prepare_store_from_temp(
 
     Ok(PreparedStoreFromTemp {
         scope,
+        access_constraints,
         folder_id,
         filename: filename.clone(),
         temp_path: temp_path.to_string(),
@@ -253,7 +287,9 @@ async fn compute_dedup_target(
     };
 
     Ok(DedupTarget {
-        storage_path: aster_forge_validation::filename::storage_path_from_blob_key(&file_hash)?,
+        // Logical hash deduplication is resolved by the metadata transaction.
+        // Every publisher owns distinct physical bytes until that transaction selects a winner.
+        storage_path: aster_drive_storage::object_path::new_local_blob().1,
         file_hash,
     })
 }

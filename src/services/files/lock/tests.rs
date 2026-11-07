@@ -265,6 +265,19 @@ async fn build_lock_test_fixture_with_pool_size(pool_size: u32) -> LockTestFixtu
     .await
     .expect("lock test team should insert");
 
+    // 该 fixture 的 team workspace 代表真实已授权成员，不能再仅凭 created_by
+    // 伪造访问资格；测试要验证锁/配额行为，而非绕过产品授权入口。
+    aster_drive_model::entities::team_member::ActiveModel {
+        team_id: Set(team.id),
+        user_id: Set(user.id),
+        role: Set(aster_drive_model::types::TeamMemberRole::Owner),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(&db)
+    .await
+    .expect("lock fixture owner membership should insert");
     let folder = folder::ActiveModel {
         name: Set("docs".to_string()),
         parent_id: Set(None),
@@ -286,7 +299,7 @@ async fn build_lock_test_fixture_with_pool_size(pool_size: u32) -> LockTestFixtu
         hash: Set(format!("lock-blob-{}", uuid::Uuid::new_v4())),
         size: Set(1),
         policy_id: Set(policy.id),
-        storage_path: Set(Some(format!("files/{}", uuid::Uuid::new_v4()))),
+        storage_path: Set(Some(aster_drive_storage::object_path::new_blob_path())),
         thumbnail_path: Set(None),
         thumbnail_processor: Set(None),
         thumbnail_version: Set(None),
@@ -326,11 +339,6 @@ async fn build_lock_test_fixture_with_pool_size(pool_size: u32) -> LockTestFixtu
     let storage_change_bus = crate::services::events::storage_change::StorageChangeBus::new(
         crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
     );
-    let share_download_rollback =
-        crate::services::share::spawn_detached_share_download_rollback_queue(
-            db.clone(),
-            crate::config::operations::share_download_rollback_queue_capacity(&runtime_config),
-        );
 
     let state = PrimaryAppState {
         audit_writer: crate::runtime::test_support::audit_writer(&db).await,
@@ -346,7 +354,7 @@ async fn build_lock_test_fixture_with_pool_size(pool_size: u32) -> LockTestFixtu
         metrics: aster_drive_metrics::NoopMetrics::arc(),
         mail_sender: sender::runtime_sender(runtime_config),
         storage_change_bus,
-        share_download_rollback,
+        storage_event_streams: Default::default(),
         background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
         remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
     };
@@ -565,6 +573,89 @@ async fn expired_cleanup_is_idempotent_and_empty_database_needs_no_namespace() {
     assert_eq!(
         namespace_generation(&fixture, LockWorkspaceType::Personal, fixture.user.id).await,
         2
+    );
+}
+
+#[tokio::test]
+async fn expiry_cleanup_rechecks_a_lock_renewed_after_the_candidate_snapshot() {
+    let fixture = build_lock_test_fixture_with_pool_size(4).await;
+    let acquired = lock(
+        &fixture.state,
+        EntityType::File,
+        fixture.file.id,
+        Some(fixture.user.id),
+        None,
+        Some(Duration::minutes(5)),
+    )
+    .await
+    .unwrap();
+    let cutoff = Utc::now();
+    let mut expired: resource_lock::ActiveModel = acquired.clone().into();
+    expired.timeout_at = Set(Some(cutoff - Duration::seconds(1)));
+    let snapshot = expired.update(fixture.state.writer_db()).await.unwrap();
+
+    // The old GET_LOCK expiry projection has already been selected. The real
+    // holder renews successfully before cleanup obtains the namespace lock.
+    let renewed = refresh_by_token_on(
+        fixture.state.writer_db(),
+        &acquired.token,
+        Some(cutoff + Duration::minutes(10)),
+    )
+    .await
+    .unwrap();
+    let generation =
+        namespace_generation(&fixture, LockWorkspaceType::Personal, fixture.user.id).await;
+    super::cleanup::cleanup_expired_entity_namespaces(
+        &fixture.state,
+        EntityType::File,
+        fixture.file.id,
+        cutoff,
+        [snapshot.namespace_id].into_iter().collect(),
+    )
+    .await
+    .unwrap();
+    let current = lock_repo::find_by_token(fixture.state.writer_db(), &renewed.token)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(current.timeout_at, renewed.timeout_at);
+    assert_eq!(
+        namespace_generation(&fixture, LockWorkspaceType::Personal, fixture.user.id).await,
+        generation
+    );
+}
+
+#[tokio::test]
+async fn active_entity_lock_projection_stays_one_query() {
+    let mut fixture = build_lock_test_fixture().await;
+    lock(
+        &fixture.state,
+        EntityType::File,
+        fixture.file.id,
+        Some(fixture.user.id),
+        None,
+        Some(Duration::minutes(5)),
+    )
+    .await
+    .unwrap();
+    let queries = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let observed = queries.clone();
+    let mut db = fixture.state.writer_db().clone();
+    db.set_metric_callback(move |info| observed.lock().unwrap().push(info.statement.sql.clone()));
+    fixture.state.db_handles = aster_forge_db::DbHandles::single(db);
+    let current = super::cleanup::load_after_expiry_cleanup(
+        &fixture.state,
+        EntityType::File,
+        fixture.file.id,
+        Utc::now(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(current.len(), 1);
+    assert_eq!(
+        queries.lock().unwrap().len(),
+        1,
+        "normal WOPI lock projection must not add per-lock queries or transactions"
     );
 }
 

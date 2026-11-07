@@ -11,7 +11,10 @@ import {
 } from "@/components/admin/remoteNodePageShared";
 import { getApiErrorMessage, handleApiError } from "@/hooks/useApiError";
 import { invalidateAdminRemoteNodeLookup } from "@/lib/adminRemoteNodeLookup";
-import { installStorageConnectorLocalizations } from "@/lib/adminStorageConnectorLocalizations";
+import {
+	installStorageConnectorLocalizations,
+	scopeRemoteStorageConnectorDescriptors,
+} from "@/lib/adminStorageConnectorLocalizations";
 import { writeTextToClipboard } from "@/lib/clipboard";
 import { logger } from "@/lib/logger";
 import { adminRemoteNodeService } from "@/services/adminService";
@@ -123,8 +126,14 @@ export function useAdminRemoteNodeDetailController(
 					catalog.localizations,
 					language,
 					i18n,
+					{ kind: "remote", nodeId: remoteNodeId },
 				);
-				setRemoteStorageTargetConnectorDescriptors(catalog.descriptors);
+				setRemoteStorageTargetConnectorDescriptors(
+					scopeRemoteStorageConnectorDescriptors(
+						catalog.descriptors,
+						remoteNodeId,
+					),
+				);
 			}
 		} catch (error) {
 			if (requestId === descriptorsRequestId.current) {

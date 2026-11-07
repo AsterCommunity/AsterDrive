@@ -853,7 +853,20 @@ pub async fn lock_blob_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<file
             .await
             .map_err(AsterError::from)?
             .ok_or_else(|| AsterError::record_not_found(format!("file_blob #{id}"))),
-        DbBackend::Sqlite => find_blob_by_id(db, id).await,
+        DbBackend::Sqlite => {
+            // SQLite has no SELECT FOR UPDATE. Acquire its write lock before
+            // reading reference truth, rather than upgrading a stale read snapshot.
+            FileBlob::update_many()
+                .col_expr(
+                    file_blob::Column::RefCount,
+                    Expr::col(file_blob::Column::RefCount),
+                )
+                .filter(file_blob::Column::Id.eq(id))
+                .exec(db)
+                .await
+                .map_err(AsterError::from)?;
+            find_blob_by_id(db, id).await
+        }
         _ => find_blob_by_id(db, id).await,
     }
 }

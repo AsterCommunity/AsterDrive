@@ -1,4 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	captureUploadOperation,
+	setAuthOperationOwner,
+} from "@/lib/authOperationOwner";
 import type { UploadTask } from "./uploadAreaManagerShared";
 import type { UploadTransportRunnerContext } from "./uploadAreaUploadRunnerShared";
 
@@ -27,6 +31,12 @@ vi.mock("@/services/uploadService", () => ({
 	UploadRequestError: class UploadRequestError extends Error {
 		isAborted = false;
 	},
+	createUploadService: vi.fn(() => ({
+		completeUpload,
+		presignedUpload,
+		streamUploadBody: (_id: string, data: Blob) =>
+			put("/files/upload/stream-session/body", data, { timeout: 0 }),
+	})),
 	uploadService: {
 		completeUpload,
 		presignedUpload,
@@ -55,6 +65,7 @@ describe("createSimpleUploadRunners", () => {
 		};
 		const task: UploadTask = {
 			id: "missing-stream",
+			binding: captureUploadOperation({ kind: "personal" }),
 			file: new File(["content"], "missing.bin"),
 			filename: "missing.bin",
 			relativePath: null,
@@ -97,6 +108,7 @@ describe("createSimpleUploadRunners", () => {
 		};
 		const task: UploadTask = {
 			id: "stream",
+			binding: captureUploadOperation({ kind: "personal" }),
 			file: new File(["content"], "stream.bin"),
 			filename: "stream.bin",
 			relativePath: null,
@@ -141,6 +153,7 @@ describe("createSimpleUploadRunners", () => {
 		};
 		const task: UploadTask = {
 			id: "missing-request",
+			binding: captureUploadOperation({ kind: "personal" }),
 			file: new File(["content"], "presigned.bin"),
 			filename: "presigned.bin",
 			relativePath: null,
@@ -191,6 +204,7 @@ describe("createSimpleUploadRunners", () => {
 		};
 		const task: UploadTask = {
 			id: "presigned",
+			binding: captureUploadOperation({ kind: "personal" }),
 			file: new File(["content"], "presigned.bin"),
 			filename: "presigned.bin",
 			relativePath: null,
@@ -217,3 +231,5 @@ describe("createSimpleUploadRunners", () => {
 		expect(completeUpload).not.toHaveBeenCalled();
 	});
 });
+
+beforeEach(() => setAuthOperationOwner(1, true));

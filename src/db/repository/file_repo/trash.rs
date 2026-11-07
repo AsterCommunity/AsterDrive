@@ -42,14 +42,25 @@ async fn find_top_level_deleted_paginated_in_scope<C: ConnectionTrait>(
     after: Option<(chrono::DateTime<Utc>, i64)>,
 ) -> Result<(Vec<file::Model>, u64)> {
     let base_cond = top_level_deleted_condition(scope);
-    let base = File::find().filter(base_cond.clone());
+    let base = File::find().filter(base_cond);
 
     let total = base.clone().count(db).await.map_err(AsterError::from)?;
     if total == 0 || limit == 0 {
         return Ok((vec![], total));
     }
 
-    let mut q = File::find().filter(base_cond);
+    let items = find_top_level_deleted_batch(db, scope, limit, after).await?;
+    Ok((items, total))
+}
+
+/// Cursor-only scan for workers; listing totals belong to the UI query.
+pub(crate) async fn find_top_level_deleted_batch<C: ConnectionTrait>(
+    db: &C,
+    scope: FileScope,
+    limit: u64,
+    after: Option<(chrono::DateTime<Utc>, i64)>,
+) -> Result<Vec<file::Model>> {
+    let mut q = File::find().filter(top_level_deleted_condition(scope));
     if let Some((after_deleted_at, after_id)) = after {
         q = q.filter(
             Condition::any()
@@ -70,7 +81,7 @@ async fn find_top_level_deleted_paginated_in_scope<C: ConnectionTrait>(
         .await
         .map_err(AsterError::from)?;
 
-    Ok((items, total))
+    Ok(items)
 }
 
 pub async fn find_top_level_deleted_paginated<C: ConnectionTrait>(
@@ -272,4 +283,109 @@ pub async fn find_all_by_team_paginated<C: ConnectionTrait>(
         query = query.filter(file::Column::Id.gt(after_id));
     }
     query.all(db).await.map_err(AsterError::from)
+}
+
+#[cfg(test)]
+mod cursor_budget_tests {
+    use super::*;
+    use aster_drive_model::entities::folder;
+    use sea_orm::{ActiveModelTrait, Database, DbBackend, Schema, Set};
+    use std::sync::{Arc, Mutex};
+
+    #[tokio::test]
+    async fn purge_cursors_handle_equal_timestamps_without_counting_remaining_trash() {
+        let mut db = Database::connect("sqlite::memory:").await.unwrap();
+        db.execute_unprepared("PRAGMA foreign_keys = OFF")
+            .await
+            .unwrap();
+        let schema = Schema::new(DbBackend::Sqlite);
+        db.execute(&schema.create_table_from_entity(file::Entity))
+            .await
+            .unwrap();
+        db.execute(&schema.create_table_from_entity(folder::Entity))
+            .await
+            .unwrap();
+        let now = Utc::now();
+        for id in 1..=5 {
+            file::ActiveModel {
+                id: Set(id),
+                name: Set(format!("file-{id}")),
+                blob_id: Set(1),
+                size: Set(0),
+                owner_user_id: Set(Some(7)),
+                created_by_user_id: Set(Some(7)),
+                created_by_username: Set("user".to_string()),
+                mime_type: Set("text/plain".to_string()),
+                created_at: Set(now),
+                updated_at: Set(now),
+                deleted_at: Set(Some(now)),
+                ..Default::default()
+            }
+            .insert(&db)
+            .await
+            .unwrap();
+            folder::ActiveModel {
+                id: Set(id),
+                name: Set(format!("folder-{id}")),
+                owner_user_id: Set(Some(7)),
+                created_by_user_id: Set(Some(7)),
+                created_by_username: Set("user".to_string()),
+                icon_kind: Set(aster_drive_model::types::FolderIconKind::Default),
+                created_at: Set(now),
+                updated_at: Set(now),
+                deleted_at: Set(Some(now)),
+                ..Default::default()
+            }
+            .insert(&db)
+            .await
+            .unwrap();
+        }
+        let queries = Arc::new(Mutex::new(Vec::new()));
+        let observed = queries.clone();
+        db.set_metric_callback(move |info| {
+            observed.lock().unwrap().push(info.statement.sql.clone());
+        });
+        let mut file_ids = Vec::new();
+        let mut folder_ids = Vec::new();
+        let mut after = None;
+        loop {
+            let batch =
+                find_top_level_deleted_batch(&db, FileScope::Personal { user_id: 7 }, 2, after)
+                    .await
+                    .unwrap();
+            if batch.is_empty() {
+                break;
+            }
+            after = batch.last().map(|file| (file.deleted_at.unwrap(), file.id));
+            file_ids.extend(batch.into_iter().map(|file| file.id));
+        }
+        let mut after = None;
+        loop {
+            let batch = crate::db::repository::folder_repo::find_top_level_deleted_batch(
+                &db,
+                crate::db::repository::folder_repo::FolderScope::Personal { user_id: 7 },
+                2,
+                after,
+            )
+            .await
+            .unwrap();
+            if batch.is_empty() {
+                break;
+            }
+            after = batch
+                .last()
+                .map(|folder| (folder.deleted_at.unwrap(), folder.id));
+            folder_ids.extend(batch.into_iter().map(|folder| folder.id));
+        }
+        assert_eq!(file_ids, vec![1, 2, 3, 4, 5]);
+        assert_eq!(folder_ids, vec![5, 4, 3, 2, 1]);
+        let queries = queries.lock().unwrap();
+        assert_eq!(queries.len(), 8);
+        assert!(
+            queries
+                .iter()
+                .all(|sql| !sql.to_ascii_lowercase().contains("count(")),
+            "{queries:?}"
+        );
+    }
 }

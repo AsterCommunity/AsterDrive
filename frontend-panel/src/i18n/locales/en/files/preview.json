@@ -24,5 +24,6 @@
 	"preview_mode_xml": "XML",
 	"table_parse_failed": "Failed to parse table",
 	"table_truncated": "This file is large. Only the first {{count}} rows are shown.",
-	"structured_parse_failed": "Failed to parse structured content. Try switching back to source view."
+	"structured_parse_failed": "Failed to parse structured content. Try switching back to source view.",
+	"structured_preview_limited": "Preview simplified or truncated; download to view the complete file"
 }

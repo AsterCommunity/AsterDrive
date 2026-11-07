@@ -2,6 +2,10 @@
 
 这组文档解释跨 route、service、repository、storage connector 和内部协议的领域边界。它们用于回答“为什么这样拆”和“多个实现必须共同遵守什么”，不是面向用户的配置操作手册。
 
+## 预览与内容安全
+
+- [预览内容与集成应用信任边界](./preview-content-trust.md)：上传内容的 origin 隔离、SVG/PDF 显示、WebDAV 与管理员 embed/WOPI 兼容边界。
+
 ## 身份与认证
 
 - [认证 flow 状态机契约](./auth-flow-state-machine.md)：登录、MFA、恢复、邀请、Passkey 和 session 的共享 lifecycle、transition、并发与前端投影边界。
@@ -25,3 +29,5 @@
 - [资源锁系统重构契约](./resource-lock-system.md)：统一 REST、WebDAV、WOPI 和管理员锁生命周期，删除持久化 `is_locked`，并定义 workspace namespace、权威事务与 generation-keyed 只读缓存。
 
 修改这些链路时，应同时检查对应 API、OpenAPI、前端生成类型和相关测试，不要在产品层重新硬编码 connector 能力。
+
+- [Workspace 与资源操作授权](workspace-authorization.md)

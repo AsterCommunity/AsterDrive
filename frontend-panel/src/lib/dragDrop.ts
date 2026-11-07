@@ -1,5 +1,12 @@
 import type { DragEvent } from "react";
+import {
+	type AuthOperationOwner,
+	captureAuthOperationOwner,
+	isCurrentAuthOperation,
+} from "@/lib/authOperationOwner";
 import { DRAG_MIME } from "@/lib/constants";
+import { type Workspace, workspaceEquals } from "@/lib/workspace";
+import { useWorkspaceStore } from "@/stores/workspaceStore";
 
 export interface InternalDragData {
 	fileIds: number[];
@@ -264,10 +271,34 @@ function sanitizeIds(value: unknown): number[] {
 	return value.filter((id): id is number => Number.isInteger(id) && id > 0);
 }
 
+// A MIME name is public. Only a live drag registered by this tab may supply a
+// mutation selection; the transfer contains an opaque marker, never authority.
+let activeDrag: {
+	token: string;
+	owner: AuthOperationOwner;
+	workspace: Workspace;
+	data: InternalDragData;
+	cleanup: () => void;
+} | null = null;
+
+export function clearInternalDragData() {
+	const drag = activeDrag;
+	activeDrag = null;
+	drag?.cleanup();
+}
+
 export function hasInternalDragData(
 	dataTransfer: DataTransfer | null,
 ): boolean {
-	return dataTransfer?.types.includes(DRAG_MIME) ?? false;
+	return (
+		activeDrag !== null &&
+		isCurrentAuthOperation(activeDrag.owner) &&
+		workspaceEquals(
+			activeDrag.workspace,
+			useWorkspaceStore.getState().workspace,
+		) &&
+		(dataTransfer?.types.includes(DRAG_MIME) ?? false)
+	);
 }
 
 export function readInternalDragData(
@@ -275,28 +306,47 @@ export function readInternalDragData(
 ): InternalDragData | null {
 	if (!dataTransfer || !hasInternalDragData(dataTransfer)) return null;
 
-	const raw = dataTransfer.getData(DRAG_MIME);
-	if (!raw) return null;
-
-	try {
-		const parsed = JSON.parse(raw) as Partial<InternalDragData>;
-		const data = {
-			fileIds: sanitizeIds(parsed.fileIds),
-			folderIds: sanitizeIds(parsed.folderIds),
-		};
-
-		if (data.fileIds.length === 0 && data.folderIds.length === 0) return null;
-		return data;
-	} catch {
+	if (!activeDrag || dataTransfer.getData(DRAG_MIME) !== activeDrag.token)
 		return null;
-	}
+	const data = activeDrag.data;
+	clearInternalDragData();
+	return { fileIds: [...data.fileIds], folderIds: [...data.folderIds] };
 }
 
 export function writeInternalDragData(
 	dataTransfer: DataTransfer,
 	data: InternalDragData,
 ) {
-	dataTransfer.setData(DRAG_MIME, JSON.stringify(data));
+	clearInternalDragData();
+	const owner = captureAuthOperationOwner();
+	const workspace = { ...useWorkspaceStore.getState().workspace };
+	const token = crypto.randomUUID();
+	const controller = new AbortController();
+	const unsubscribe = useWorkspaceStore.subscribe((state) => {
+		if (!workspaceEquals(workspace, state.workspace)) clearInternalDragData();
+	});
+	activeDrag = {
+		token,
+		owner,
+		workspace,
+		data: {
+			fileIds: sanitizeIds(data.fileIds),
+			folderIds: sanitizeIds(data.folderIds),
+		},
+		cleanup: () => {
+			controller.abort();
+			unsubscribe();
+		},
+	};
+	owner.signal.addEventListener("abort", clearInternalDragData, {
+		once: true,
+		signal: controller.signal,
+	});
+	document.addEventListener("dragend", clearInternalDragData, {
+		once: true,
+		signal: controller.signal,
+	});
+	dataTransfer.setData(DRAG_MIME, token);
 	dataTransfer.effectAllowed = "move";
 }
 

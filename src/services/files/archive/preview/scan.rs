@@ -13,7 +13,7 @@ use crate::services::files::archive::core::scan::{
     ArchiveRawScanEntry, ArchiveScanEntryKind, ArchiveScanLimits, ArchiveScanNamePolicy,
 };
 use crate::services::files::archive::core::zip_scan::{
-    build_zip_scan_result_from_raw_entries, scan_zip_archive_raw,
+    build_zip_scan_result_from_raw_entries, open_zip_archive, scan_zip_archive_raw,
 };
 use aster_drive_model::entities::{file, file_blob};
 use aster_drive_storage::StorageDriver;
@@ -108,7 +108,7 @@ where
         let scanned = match archive_format {
             ArchiveFormat::Zip => {
                 let mut archive =
-                    zip::ZipArchive::new(reader).map_err(map_zip_preview_open_error)?;
+                    open_zip_archive(reader, deadline).map_err(map_zip_preview_open_error)?;
                 scan_zip_archive_raw(&mut archive, scan_limits, deadline)
                     .map_err(map_archive_preview_scan_error)?
             }

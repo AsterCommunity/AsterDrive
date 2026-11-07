@@ -68,6 +68,13 @@ async fn cleanup_metrics_distinguish_failed_retry_and_retire_backing_bytes_once(
         1
     );
     driver.fail_delete_paths.lock().unwrap().remove(path);
+    let mut retry: file_blob::ActiveModel = file_repo::find_blob_by_id(state.writer_db(), blob.id)
+        .await
+        .unwrap()
+        .into();
+    retry.updated_at = Set(Utc::now() - chrono::Duration::minutes(11));
+    retry.update(state.writer_db()).await.unwrap();
+
     assert!(cleanup_unreferenced_blob(&state, &blob).await);
     assert_eq!(
         crate::db::repository::observability_repo::blob_backlog(state.writer_db())
@@ -111,17 +118,11 @@ async fn cleanup_pending_interval_survives_retries_and_resets_only_after_referen
         .cleanup_pending_since
         .unwrap();
     assert!(file_repo::claim_blob_cleanup(db, blob.id).await.unwrap());
-    assert!(
-        file_repo::restore_blob_cleanup_claim(db, blob.id)
-            .await
-            .unwrap()
-    );
+    assert!(file_repo::set_blob_ref_count(db, blob.id, 0).await.unwrap());
     file_repo::decrement_blob_ref_count(db, blob.id)
         .await
         .unwrap();
-    file_repo::reset_blob_ref_count_to_zero(db, blob.id)
-        .await
-        .unwrap();
+    file_repo::set_blob_ref_count(db, blob.id, 0).await.unwrap();
     file_repo::set_blob_ref_count(db, blob.id, 0).await.unwrap();
     assert_eq!(
         file_repo::find_blob_by_id(db, blob.id)
@@ -351,11 +352,7 @@ async fn build_deletion_test_state() -> (
     let storage_change_bus = crate::services::events::storage_change::StorageChangeBus::new(
         crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
     );
-    let share_download_rollback =
-        crate::services::share::spawn_detached_share_download_rollback_queue(
-            db.clone(),
-            crate::config::operations::share_download_rollback_queue_capacity(&runtime_config),
-        );
+
     let state = PrimaryAppState {
         audit_writer: crate::runtime::test_support::audit_writer(&db).await,
         db_handles: aster_forge_db::DbHandles::single(db),
@@ -368,7 +365,7 @@ async fn build_deletion_test_state() -> (
         metrics: aster_drive_metrics::NoopMetrics::arc(),
         mail_sender: sender::runtime_sender(runtime_config),
         storage_change_bus,
-        share_download_rollback,
+        storage_event_streams: Default::default(),
         background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
         remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
     };
@@ -436,6 +433,142 @@ async fn create_file(
     .await
     .expect("test file revision should insert");
     file
+}
+
+#[tokio::test]
+async fn cleanup_retires_only_its_metadata_when_legacy_policies_share_a_physical_key() {
+    for other_refs in [0, 1, file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT] {
+        let (state, _user, policy, driver) = build_deletion_test_state().await;
+        let other_policy = storage_policy::ActiveModel {
+            id: sea_orm::NotSet,
+            name: Set("Legacy shared root".to_string()),
+            is_default: Set(false),
+            ..policy.clone().into()
+        }
+        .insert(state.writer_db())
+        .await
+        .unwrap();
+        state
+            .driver_registry()
+            .insert_for_test(other_policy.id, Arc::new(driver.clone()));
+        let blob = create_blob(state.writer_db(), policy.id, "files/legacy-shared", 9, 0).await;
+        let other = create_blob(
+            state.writer_db(),
+            other_policy.id,
+            "files/legacy-shared",
+            9,
+            other_refs,
+        )
+        .await;
+        driver.insert_object("files/legacy-shared");
+
+        assert!(cleanup_unreferenced_blob(&state, &blob).await);
+        assert!(
+            file_repo::find_blob_by_id(state.writer_db(), blob.id)
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            file_repo::find_blob_by_id(state.writer_db(), other.id)
+                .await
+                .unwrap()
+                .ref_count,
+            other_refs
+        );
+        assert!(
+            driver.contains("files/legacy-shared"),
+            "another metadata owner keeps physical bytes even before acquiring a reference"
+        );
+        assert_eq!(driver.delete_calls(), 0);
+    }
+}
+
+#[tokio::test]
+async fn cleanup_resolves_local_aliases_without_retaining_unrelated_roots() {
+    for shared_root in [true, false] {
+        let (state, _user, policy, _tracking) = build_deletion_test_state().await;
+        let local = crate::storage::connectors::resolve_local_filesystem_projection(
+            state.driver_registry().connectors(),
+            &policy,
+        )
+        .unwrap()
+        .unwrap();
+        let first_driver =
+            Arc::new(crate::storage::drivers::local::LocalDriver::new(&local.base_path).unwrap());
+        state
+            .driver_registry()
+            .insert_for_test(policy.id, first_driver.clone());
+        let other_model = match shared_root {
+            true => policy.clone(),
+            false => crate::storage::connectors::test_support::local_policy(
+                std::path::Path::new(&local.base_path)
+                    .join("unrelated-root")
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+        };
+        let other_policy = storage_policy::ActiveModel {
+            id: sea_orm::NotSet,
+            name: Set("Other physical root".to_string()),
+            is_default: Set(false),
+            ..other_model.into()
+        }
+        .insert(state.writer_db())
+        .await
+        .unwrap();
+        let other_local = crate::storage::connectors::resolve_local_filesystem_projection(
+            state.driver_registry().connectors(),
+            &other_policy,
+        )
+        .unwrap()
+        .unwrap();
+        let other_driver = Arc::new(
+            crate::storage::drivers::local::LocalDriver::new(&other_local.base_path).unwrap(),
+        );
+        state
+            .driver_registry()
+            .insert_for_test(other_policy.id, other_driver.clone());
+        state
+            .driver_registry()
+            .reload_policy_snapshot(&state.policy_snapshot, state.writer_db())
+            .await
+            .unwrap();
+        let path = "files/legacy-shared-local";
+        first_driver.put(path, b"shared bytes").await.unwrap();
+        other_driver.put(path, b"shared bytes").await.unwrap();
+        let blob = create_blob(state.writer_db(), policy.id, path, 12, 0).await;
+        let other = create_blob(state.writer_db(), other_policy.id, path, 12, 1).await;
+        assert!(cleanup_unreferenced_blob(&state, &blob).await);
+        assert_eq!(first_driver.exists(path).await.unwrap(), shared_root);
+        assert_eq!(other_driver.get(path).await.unwrap(), b"shared bytes");
+        file_repo::set_blob_ref_count(state.writer_db(), other.id, 0)
+            .await
+            .unwrap();
+        assert!(cleanup_unreferenced_blob(&state, &other).await);
+        assert!(!other_driver.exists(path).await.unwrap());
+    }
+}
+
+#[tokio::test]
+async fn stale_cleanup_cannot_retire_a_different_physical_generation() {
+    let (state, _user, policy, _driver) = build_deletion_test_state().await;
+    let old = create_blob(state.writer_db(), policy.id, "files/old-generation", 9, -1).await;
+    let mut changed: file_blob::ActiveModel = old.clone().into();
+    changed.storage_path = Set(Some("files/new-generation".to_string()));
+    changed.update(state.writer_db()).await.unwrap();
+    assert!(
+        !file_repo::delete_claimed_blob_generation(state.writer_db(), &old)
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        file_repo::find_blob_by_id(state.writer_db(), old.id)
+            .await
+            .unwrap()
+            .storage_path
+            .as_deref(),
+        Some("files/new-generation")
+    );
 }
 
 async fn set_user_storage_used(
@@ -642,8 +775,9 @@ async fn cleanup_unreferenced_blob_keeps_row_and_primary_object_when_thumbnail_d
         .expect("blob lookup should succeed")
         .expect("blob row should remain for a later cleanup retry");
     assert_eq!(
-        reloaded_blob.ref_count, 0,
-        "failed cleanup should release the cleanup claim instead of leaving the blob stuck"
+        reloaded_blob.ref_count,
+        file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT,
+        "failed cleanup must retain its generation claim until a safe retry retires it"
     );
     assert_eq!(
         reloaded_blob.thumbnail_path.as_deref(),
@@ -761,4 +895,65 @@ async fn batch_purge_in_scope_keeps_blob_when_other_file_still_references_it() {
         reloaded_user.storage_used, 13,
         "only one file's bytes should be reclaimed"
     );
+}
+
+#[tokio::test]
+async fn batch_purge_aggregates_repeated_revision_blob_refs_and_logical_quota_once() {
+    use crate::db::repository::revision_repo::{self, NewRevision, RevisionReason};
+    let (state, user, policy, driver) = build_deletion_test_state().await;
+    let db = state.writer_db();
+    let mut files = Vec::new();
+    let mut logical_bytes = 0;
+    for index in 1..=16 {
+        let size = index * 3;
+        let path = format!("files/budget-{index}");
+        let blob = create_blob(db, policy.id, &path, size, 3).await;
+        driver.insert_object(&path);
+        let file = create_file(db, user.id, blob.id, size, &format!("file-{index}")).await;
+        for _ in 0..2 {
+            revision_repo::append(
+                db,
+                file.id,
+                None,
+                NewRevision {
+                    blob_id: blob.id,
+                    logical_size: size,
+                    mime_type: "application/octet-stream",
+                    content_sha256: None,
+                    creator_user_id: Some(user.id),
+                    creator_display_name: "tester",
+                    comment: None,
+                    reason: RevisionReason::Overwrite,
+                    created_at: Utc::now(),
+                    etag: None,
+                },
+            )
+            .await
+            .unwrap();
+        }
+        logical_bytes += size * 3;
+        files.push(file);
+    }
+    set_user_storage_used(db, &user, logical_bytes).await;
+    assert_eq!(
+        batch_purge_in_scope(
+            &state,
+            WorkspaceStorageScope::Personal { user_id: user.id },
+            files
+        )
+        .await
+        .unwrap(),
+        16
+    );
+    assert_eq!(driver.delete_calls(), 16);
+    assert_eq!(
+        user::Entity::find_by_id(user.id)
+            .one(db)
+            .await
+            .unwrap()
+            .unwrap()
+            .storage_used,
+        0
+    );
+    assert!(file_blob::Entity::find().all(db).await.unwrap().is_empty());
 }

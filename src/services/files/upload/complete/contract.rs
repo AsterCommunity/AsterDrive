@@ -7,13 +7,12 @@ use aster_drive_storage::StorageDriver;
 pub(super) enum UploadCleanupPlan {
     DeleteStorageObjectOnDbFailure,
     CleanupPreuploadedBlobOnDbFailure,
-    RetainForOrphanBlobGc,
     RetainCompletedMultipartObject,
 }
 
 #[derive(Debug, Clone)]
 pub(super) enum VerifiedUploadSource {
-    ContentAddressed {
+    DeduplicatedContent {
         file_hash: String,
     },
     OpaqueObject {
@@ -79,7 +78,7 @@ impl VerifiedUploadedBlob {
         )
     }
 
-    pub(super) fn deduplicated_content(
+    pub(super) fn deduplicated_candidate(
         size: i64,
         policy_id: i64,
         storage_path: String,
@@ -89,8 +88,8 @@ impl VerifiedUploadedBlob {
             size,
             policy_id,
             storage_path,
-            VerifiedUploadSource::ContentAddressed { file_hash },
-            UploadCleanupPlan::RetainForOrphanBlobGc,
+            VerifiedUploadSource::DeduplicatedContent { file_hash },
+            UploadCleanupPlan::DeleteStorageObjectOnDbFailure,
         )
     }
 
@@ -149,14 +148,14 @@ impl VerifiedUploadedBlob {
 
     pub(super) fn file_hash(&self) -> Option<&str> {
         match &self.source {
-            VerifiedUploadSource::ContentAddressed { file_hash }
+            VerifiedUploadSource::DeduplicatedContent { file_hash }
             | VerifiedUploadSource::OpaqueObject { file_hash } => Some(file_hash),
             VerifiedUploadSource::PreuploadedNonDedup { .. } => None,
         }
     }
 }
 
-pub(super) async fn cleanup_verified_upload_after_db_failure(
+pub(super) async fn cleanup_unpublished_upload_candidate(
     driver: &dyn StorageDriver,
     verified: &VerifiedUploadedBlob,
     reason: &str,
@@ -175,8 +174,7 @@ pub(super) async fn cleanup_verified_upload_after_db_failure(
                 storage::cleanup_preuploaded_blob_upload(driver, prepared, reason).await;
             }
         }
-        UploadCleanupPlan::RetainForOrphanBlobGc
-        | UploadCleanupPlan::RetainCompletedMultipartObject => {}
+        UploadCleanupPlan::RetainCompletedMultipartObject => {}
     }
 }
 
@@ -184,7 +182,7 @@ pub(super) async fn cleanup_verified_upload_after_db_failure(
 mod tests {
     use super::{
         UploadCleanupPlan, VerifiedUploadSource, VerifiedUploadedBlob,
-        cleanup_verified_upload_after_db_failure,
+        cleanup_unpublished_upload_candidate,
     };
     use crate::services::workspace::storage::PreparedNonDedupBlobUpload;
     use aster_drive_storage::{BlobMetadata, StorageDriver};
@@ -234,6 +232,7 @@ mod tests {
             &self,
             _src_path: &str,
             _dest_path: &str,
+            _options: aster_drive_storage::StorageCopyOptions,
         ) -> aster_drive_storage::Result<String> {
             unreachable!()
         }
@@ -303,7 +302,7 @@ mod tests {
 
     #[test]
     fn verified_blob_rejects_negative_size() {
-        let error = VerifiedUploadedBlob::deduplicated_content(
+        let error = VerifiedUploadedBlob::deduplicated_candidate(
             -1,
             1,
             "blobs/hash".to_string(),
@@ -325,7 +324,7 @@ mod tests {
         .expect("verified object should be accepted");
         let driver = RecordingDeleteDriver::default();
 
-        cleanup_verified_upload_after_db_failure(&driver, &verified, "test cleanup").await;
+        cleanup_unpublished_upload_candidate(&driver, &verified, "test cleanup").await;
 
         let deleted_paths = driver
             .deleted_paths
@@ -333,6 +332,23 @@ mod tests {
             .expect("deleted paths lock should not be poisoned")
             .clone();
         assert_eq!(deleted_paths, vec!["files/final"]);
+    }
+
+    #[tokio::test]
+    async fn cleanup_dedup_failure_deletes_only_its_private_candidate() {
+        let verified = VerifiedUploadedBlob::deduplicated_candidate(
+            12,
+            7,
+            "files/private-attempt".to_string(),
+            "same-logical-hash".to_string(),
+        )
+        .unwrap();
+        let driver = RecordingDeleteDriver::default();
+        cleanup_unpublished_upload_candidate(&driver, &verified, "failed dedup attempt").await;
+        assert_eq!(
+            *driver.deleted_paths.lock().unwrap(),
+            ["files/private-attempt"]
+        );
     }
 
     #[tokio::test]
@@ -346,7 +362,7 @@ mod tests {
         .expect("verified object should be accepted");
         let driver = RecordingDeleteDriver::default();
 
-        cleanup_verified_upload_after_db_failure(&driver, &verified, "test cleanup").await;
+        cleanup_unpublished_upload_candidate(&driver, &verified, "test cleanup").await;
 
         let deleted_paths = driver
             .deleted_paths

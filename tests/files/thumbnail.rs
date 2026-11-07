@@ -860,6 +860,59 @@ async fn test_thumbnail_mp4_uses_ffmpeg_cli_processor_when_extension_matches() {
 }
 
 #[actix_web::test]
+async fn test_ffmpeg_and_ffprobe_reject_uploaded_reference_manifests() {
+    let Some(ffmpeg) = ffmpeg_command_for_tests() else {
+        return;
+    };
+    if !aster_drive::config::media_processing::command_is_available("ffprobe") {
+        return;
+    }
+    let state = common::setup().await;
+    state.runtime_config.apply(common::system_config_model("media_processing_registry_json", &json!({
+        "version": 2, "processors": [
+            {"kind":"ffmpeg_cli","enabled":true,"uses":["thumbnail:video"],"extensions":["mp4"],"config":{"command":ffmpeg}},
+            {"kind":"ffprobe_cli","enabled":true,"uses":["metadata:video"],"extensions":["mp4"],"config":{"command":"ffprobe"}}
+        ]
+    }).to_string()));
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let payload = format!(
+        "#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXTINF:1,\nhttp://{}/canary.ts\n#EXT-X-ENDLIST\n",
+        listener.local_addr().unwrap()
+    );
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let file_id = upload_file_bytes!(
+        app,
+        token,
+        "disguised.mp4",
+        "video/mp4",
+        payload.into_bytes()
+    );
+    let response = request_thumbnail!(app, token, file_id);
+    assert_eq!(response.status(), 202);
+    aster_drive::services::task::drain(&state).await.unwrap();
+    let task =
+        latest_thumbnail_task_for_processor(&state, file_id, MediaProcessorKind::FfmpegCli).await;
+    assert_ne!(task.status, BackgroundTaskStatus::Succeeded);
+    let blob = blob_for_file(&state, file_id).await;
+    assert!(blob.thumbnail_path.is_none());
+    let metadata = aster_drive::services::media::metadata::extract_for_blob(
+        &state,
+        &blob,
+        "disguised.mp4",
+        "video/mp4",
+        aster_drive_model::types::MediaMetadataKind::Video,
+    )
+    .await;
+    assert!(metadata.is_err());
+    assert_eq!(
+        listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+}
+
+#[actix_web::test]
 async fn test_thumbnail_storage_native_processor_without_driver_capability_skips_to_images() {
     let state = common::setup().await;
     enable_default_policy_storage_native_thumbnail(&state).await;

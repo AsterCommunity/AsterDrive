@@ -2,8 +2,8 @@
 
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, ExprTrait,
-    QueryFilter, QueryOrder, sea_query::Expr,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait,
+    ExprTrait, QueryFilter, QueryOrder, QuerySelect, sea_query::Expr,
 };
 
 use crate::errors::{AsterError, Result};
@@ -34,6 +34,37 @@ pub async fn find_by_id_for_user<C: ConnectionTrait>(
         .one(db)
         .await
         .map_err(AsterError::from)
+}
+
+/// Lock the current session before a credential-changing transaction can use it.
+pub async fn lock_by_id_for_user<C: ConnectionTrait>(
+    db: &C,
+    user_id: i64,
+    id: &str,
+) -> Result<Option<auth_session::Model>> {
+    match db.get_database_backend() {
+        DbBackend::Postgres | DbBackend::MySql => AuthSession::find()
+            .filter(auth_session::Column::UserId.eq(user_id))
+            .filter(auth_session::Column::Id.eq(id))
+            .lock_exclusive()
+            .one(db)
+            .await
+            .map_err(AsterError::from),
+        DbBackend::Sqlite => {
+            AuthSession::update_many()
+                .col_expr(
+                    auth_session::Column::Id,
+                    Expr::col(auth_session::Column::Id),
+                )
+                .filter(auth_session::Column::UserId.eq(user_id))
+                .filter(auth_session::Column::Id.eq(id))
+                .exec(db)
+                .await
+                .map_err(AsterError::from)?;
+            find_by_id_for_user(db, user_id, id).await
+        }
+        _ => find_by_id_for_user(db, user_id, id).await,
+    }
 }
 
 pub async fn find_by_refresh_jti<C: ConnectionTrait>(
@@ -141,24 +172,6 @@ pub async fn rotate_refresh_fenced<C: ConnectionTrait>(
 
 pub async fn delete<C: ConnectionTrait>(db: &C, id: &str) -> Result<bool> {
     let result = AuthSession::delete_by_id(id.to_string())
-        .exec(db)
-        .await
-        .map_err(AsterError::from)?;
-    Ok(result.rows_affected == 1)
-}
-
-pub async fn revoke_by_refresh_jti(
-    db: &DatabaseConnection,
-    refresh_jti: &str,
-    revoked_at: chrono::DateTime<Utc>,
-) -> Result<bool> {
-    let result = AuthSession::update_many()
-        .col_expr(
-            auth_session::Column::RevokedAt,
-            Expr::value(Some(revoked_at)),
-        )
-        .filter(auth_session::Column::CurrentRefreshJti.eq(refresh_jti))
-        .filter(auth_session::Column::RevokedAt.is_null())
         .exec(db)
         .await
         .map_err(AsterError::from)?;

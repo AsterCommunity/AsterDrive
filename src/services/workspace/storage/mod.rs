@@ -24,14 +24,13 @@ pub(crate) use crate::services::workspace::scope::{
     ensure_folder_resource_scope, ensure_folder_scope, ensure_personal_file_scope,
     invalidate_team_access_cache_for_member, invalidate_team_access_cache_for_team,
     list_files_in_folder, load_scope_actor_username, load_team_member_role, lock_folder_access_on,
-    require_scope_access, require_scope_access_with_db, require_team_access,
-    require_team_access_with_db, require_team_management_access, verify_file_access,
-    verify_file_access_for_read, verify_folder_access, verify_folder_access_for_read,
+    verify_file_access, verify_file_access_for_read, verify_folder_access,
+    verify_folder_access_for_read,
 };
 pub(crate) use crate::services::workspace::storage_core::{
-    BlobPolicyRequest, CreateFileFromBlobWithMimeParams, FinalizeUploadSessionFileParams,
-    ParsedUploadPath, VerifiedFolderPolicyHint, check_quota, create_file_from_blob_with_mime,
-    create_nondedup_blob_with_key, create_opaque_nondedup_blob,
+    BlobPolicyRequest, CreateFileFromBlobParams, FinalizeUploadSessionFileParams, NewFileNameMode,
+    ParsedUploadPath, VerifiedFolderPolicyHint, check_quota, create_file_from_blob,
+    create_nondedup_blob_with_key, create_opaque_nondedup_blob, ensure_blob_write_admission,
     ensure_policy_available_for_folder_binding, ensure_upload_parent_path_on,
     ensure_upload_parent_path_with_created, finalize_upload_session_blob_with_actor_username,
     finalize_upload_session_file, load_storage_limits, local_content_dedup_enabled,
@@ -64,8 +63,9 @@ pub(crate) fn resolve_policy_upload_transport_for_execution(
 
 pub(crate) use blob_upload::{
     PreparedNonDedupBlobUpload, cleanup_preuploaded_blob_upload, nondedup_storage_path_for_policy,
-    persist_preuploaded_blob, prepare_non_dedup_blob_upload, upload_reader_to_prepared_blob,
-    upload_temp_file_to_prepared_blob, upload_temp_file_to_prepared_blob_cancellable,
+    persist_preuploaded_blob, prepare_non_dedup_blob_upload, try_adopt_existing_dedup_blob_on,
+    upload_reader_to_prepared_blob, upload_temp_file_to_prepared_blob,
+    upload_temp_file_to_prepared_blob_cancellable,
 };
 pub(crate) use follower_stream::{
     FollowerObjectWriteRequest, FollowerUploadBody, compose_follower_objects, write_follower_object,

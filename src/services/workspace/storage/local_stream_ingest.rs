@@ -34,7 +34,7 @@ pub(crate) async fn ingest_local_stream(
     )?
     .ok_or_else(|| AsterError::internal_error("local stream plan has no local projection"))?;
     let filename = aster_forge_validation::filename::normalize_validate_name(params.filename)?;
-    let staging_token = format!("{}.upload", aster_forge_utils::id::new_uuid());
+    let staging_token = aster_drive_storage::object_path::new_upload_staging_name();
     let staging_path =
         crate::storage::drivers::local::upload_staging_path(&local.base_path, &staging_token)
             .map_aster_err_ctx(

@@ -887,7 +887,7 @@ impl LocalPathStorageDriver for CancelAfterLocalPathDriver {
     }
 }
 
-struct StorageTestState {
+pub(super) struct StorageTestState {
     // Field order drops runtime/database handles before directory cleanup.
     app_state: PrimaryAppState,
     _temp_dir_guard: aster_forge_utils::raii::TempDirGuard,
@@ -901,7 +901,7 @@ impl std::ops::Deref for StorageTestState {
     }
 }
 
-async fn build_test_state() -> (
+pub(super) async fn build_test_state() -> (
     StorageTestState,
     PathBuf,
     storage_policy::Model,
@@ -976,11 +976,6 @@ async fn build_test_state() -> (
     let storage_change_bus = crate::services::events::storage_change::StorageChangeBus::new(
         crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
     );
-    let share_download_rollback =
-        crate::services::share::spawn_detached_share_download_rollback_queue(
-            db.clone(),
-            crate::config::operations::share_download_rollback_queue_capacity(&runtime_config),
-        );
 
     let state = PrimaryAppState {
         audit_writer: crate::runtime::test_support::audit_writer(&db).await,
@@ -996,7 +991,7 @@ async fn build_test_state() -> (
         metrics: aster_drive_metrics::NoopMetrics::arc(),
         mail_sender: sender::runtime_sender(runtime_config),
         storage_change_bus,
-        share_download_rollback,
+        storage_event_streams: Default::default(),
         background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
         remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
     };
@@ -1012,7 +1007,7 @@ async fn build_test_state() -> (
     )
 }
 
-async fn replace_test_policy(
+pub(super) async fn replace_test_policy(
     state: &PrimaryAppState,
     current: &storage_policy::Model,
     replacement: storage_policy::Model,
@@ -1245,7 +1240,7 @@ async fn empty_file_idempotency_replays_same_result_and_rejects_request_drift() 
 }
 
 #[tokio::test]
-async fn empty_file_idempotency_replays_before_revalidating_changed_folder_state() {
+async fn empty_file_idempotency_rechecks_visibility_and_retains_committed_identity() {
     let (state, _temp_root, policy, user) = build_test_state().await;
     replace_test_policy(&state, &policy, policy.clone()).await;
     let now = Utc::now();
@@ -1287,6 +1282,24 @@ async fn empty_file_idempotency_replays_before_revalidating_changed_folder_state
         .await
         .expect("virtual-empty blob should exist");
 
+    let denied = create_empty_with_idempotency(
+        &state,
+        scope,
+        Some(folder.id),
+        "folder-replay.txt",
+        EmptyFileNameMode::Exact,
+        Some(("folder-replay-key", "folder-replay-fingerprint")),
+    )
+    .await
+    .expect_err("replay cannot disclose a result under an unavailable parent");
+    assert!(matches!(
+        denied,
+        crate::errors::AsterError::FolderNotFound(_)
+    ));
+    // 恢复可见性后仍返回同一已提交结果，不重新创建文件或消耗 blob 引用。
+    folder_repo::restore_many(state.writer_db(), &[folder.id])
+        .await
+        .unwrap();
     let replay = create_empty_with_idempotency(
         &state,
         scope,
@@ -1296,8 +1309,7 @@ async fn empty_file_idempotency_replays_before_revalidating_changed_folder_state
         Some(("folder-replay-key", "folder-replay-fingerprint")),
     )
     .await
-    .expect("replay should return the committed result before folder revalidation");
-
+    .expect("visible idempotent result should remain replayable");
     assert!(replay.replayed);
     assert_eq!(replay.file.id, first.file.id);
     assert_eq!(replay.file.blob_id, first.file.blob_id);
@@ -2067,6 +2079,7 @@ async fn preuploaded_quota_failure_cleans_local_blob() {
     let err = store_preuploaded_nondedup(
         &state,
         StorePreuploadedNondedupParams {
+            access_constraints: Default::default(),
             activity_source: crate::services::workspace::activity::ActivitySource::Rest,
             scope,
             folder_id: None,
@@ -2159,6 +2172,7 @@ async fn slow_nondedup_preupload_does_not_block_task_listing() {
 #[tokio::test]
 async fn conditional_overwrite_rejects_file_changed_while_body_is_staged() {
     let (state, temp_root, policy, user) = build_test_state().await;
+    let policy = replace_test_policy(&state, &policy, policy.clone()).await;
     let scope = WorkspaceStorageScope::Personal { user_id: user.id };
 
     let initial_temp = temp_root.join("conditional-existing-initial.bin");
@@ -2356,6 +2370,127 @@ async fn conditional_create_rejects_file_appearing_while_body_is_staged() {
 }
 
 #[tokio::test]
+async fn team_publication_rechecks_membership_revoked_during_provider_staging() {
+    let (state, temp_root, policy, user) = build_test_state().await;
+    let now = Utc::now();
+    let team = team::ActiveModel {
+        name: Set("Conditional Storage Team".to_string()),
+        description: Set("Team conditional write test".to_string()),
+        created_by: Set(user.id),
+        storage_used: Set(0),
+        storage_quota: Set(0),
+        policy_group_id: Set(None),
+        created_at: Set(now),
+        updated_at: Set(now),
+        archived_at: Set(None),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .unwrap();
+    aster_drive_model::entities::team_member::ActiveModel {
+        team_id: Set(team.id),
+        user_id: Set(user.id),
+        role: Set(aster_drive_model::types::TeamMemberRole::Owner),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .unwrap();
+    let scope = WorkspaceStorageScope::Team {
+        team_id: team.id,
+        actor_user_id: user.id,
+    };
+    let local = crate::storage::connectors::resolve_local_filesystem_projection(
+        state.driver_registry.connectors(),
+        &policy,
+    )
+    .unwrap()
+    .expect("conditional team policy should use the local connector");
+    let uploads_root = PathBuf::from(local.base_path);
+    let before = snapshot_dir_tree(&uploads_root).unwrap();
+    let (blocking_driver, entered_rx, release_put_file) = BlockingPutFileDriver::new(&policy);
+    state
+        .driver_registry
+        .insert_for_test(policy.id, Arc::new(blocking_driver));
+
+    let conditional_temp = temp_root.join("conditional-team-missing.bin");
+    let conditional_payload = b"conditional team payload";
+    tokio::fs::write(&conditional_temp, conditional_payload)
+        .await
+        .unwrap();
+    let state_for_store = state.clone();
+    let policy_for_store = policy.clone();
+    let conditional_path = conditional_temp.to_string_lossy().into_owned();
+    let store_task = tokio::spawn(async move {
+        let mut params = StoreFromTempParams::new(
+            scope,
+            None,
+            "revoked-team-publication.txt",
+            &conditional_path,
+            conditional_payload.len() as i64,
+        );
+        params.file_precondition = Some(FileWritePrecondition::Missing);
+        store_from_temp_exact_name_with_hints(
+            &state_for_store,
+            params,
+            StoreFromTempHints {
+                resolved_policy: Some(policy_for_store),
+                ..Default::default()
+            },
+        )
+        .await
+    });
+
+    tokio::time::timeout(Duration::from_secs(1), entered_rx)
+        .await
+        .expect("conditional team create should stage its blob")
+        .expect("staging entry signal should be sent");
+
+    // Provider 已完成准入，但最终 DB 发布还未开始。撤权先提交后，释放 staging
+    // barrier，证明发布不沿用之前的资格，也不插入 file/blob 或消耗团队配额。
+    aster_drive_model::entities::team_member::Entity::delete_many()
+        .filter(aster_drive_model::entities::team_member::Column::TeamId.eq(team.id))
+        .filter(aster_drive_model::entities::team_member::Column::UserId.eq(user.id))
+        .exec(state.writer_db())
+        .await
+        .unwrap();
+    release_put_file.notify_one();
+    let error = tokio::time::timeout(Duration::from_secs(2), store_task)
+        .await
+        .unwrap()
+        .unwrap()
+        .err()
+        .unwrap();
+    assert_eq!(error.api_error_code(), ApiErrorCode::TeamNotMember);
+    assert!(
+        file_repo::find_by_name_in_team_folder(
+            state.writer_db(),
+            team.id,
+            None,
+            "revoked-team-publication.txt"
+        )
+        .await
+        .unwrap()
+        .is_none()
+    );
+    assert_eq!(
+        crate::db::repository::team_repo::find_by_id(state.writer_db(), team.id)
+            .await
+            .unwrap()
+            .storage_used,
+        0
+    );
+    assert_eq!(
+        snapshot_dir_tree(&uploads_root).unwrap(),
+        before,
+        "staged provider content is cleaned after denied publication"
+    );
+}
+
+#[tokio::test]
 async fn conditional_team_create_rejects_file_appearing_while_body_is_staged() {
     let (state, temp_root, policy, user) = build_test_state().await;
     let now = Utc::now();
@@ -2369,6 +2504,17 @@ async fn conditional_team_create_rejects_file_appearing_while_body_is_staged() {
         created_at: Set(now),
         updated_at: Set(now),
         archived_at: Set(None),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .unwrap();
+    aster_drive_model::entities::team_member::ActiveModel {
+        team_id: Set(team.id),
+        user_id: Set(user.id),
+        role: Set(aster_drive_model::types::TeamMemberRole::Owner),
+        created_at: Set(now),
+        updated_at: Set(now),
         ..Default::default()
     }
     .insert(state.writer_db())
@@ -2504,6 +2650,7 @@ async fn conditional_team_create_rejects_file_appearing_while_body_is_staged() {
 #[tokio::test]
 async fn missing_precondition_rejects_overwrite_context() {
     let (state, temp_root, policy, user) = build_test_state().await;
+    let policy = replace_test_policy(&state, &policy, policy.clone()).await;
     let scope = WorkspaceStorageScope::Personal { user_id: user.id };
     let initial_temp = temp_root.join("missing-overwrite-initial.bin");
     let payload = b"initial missing overwrite payload";
@@ -2591,6 +2738,101 @@ async fn missing_precondition_rejects_overwrite_context() {
         before,
         "failed contradictory write must clean its staged object"
     );
+}
+
+#[tokio::test]
+async fn dedup_hits_publish_without_connector_io_and_keep_query_work_constant() {
+    let mut previous_hit_queries = None;
+    for size in [1024, 1024 * 1024] {
+        let (mut state, root, original_policy, user) = build_test_state().await;
+        let replacement = enable_content_dedup(&original_policy);
+        let policy = replace_test_policy(&state, &original_policy, replacement).await;
+        let original_driver = state.driver_registry.get_driver(&policy).unwrap();
+        let queries = Arc::new(Mutex::new(Vec::new()));
+        let observed = queries.clone();
+        let mut connection = state.writer_db().clone();
+        connection.set_metric_callback(move |info| {
+            observed.lock().unwrap().push(info.statement.sql.clone());
+        });
+        state.app_state.db_handles = aster_forge_db::DbHandles::single(connection);
+        let payload = vec![b'M'; size];
+        let cold_source = root.join("cold.bin");
+        tokio::fs::write(&cold_source, &payload).await.unwrap();
+        let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+        let cold = store_from_temp_with_hints(
+            &state,
+            StoreFromTempParams::new(
+                scope,
+                None,
+                "cold.bin",
+                cold_source.to_str().unwrap(),
+                size as i64,
+            ),
+            StoreFromTempHints {
+                resolved_policy: Some(policy.clone()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        let cold_queries = queries.lock().unwrap().len();
+        assert!(
+            cold_queries > 0,
+            "SQL metrics must observe the publication transaction"
+        );
+        queries.lock().unwrap().clear();
+
+        // This driver has no local-path/upload support. A hit must adopt the
+        // locked blob in the metadata Tx and never attempt a cross-device copy.
+        let no_io = Arc::new(RecordingEmptyDriver::default());
+        state
+            .driver_registry
+            .insert_for_test(policy.id, no_io.clone());
+        let hit_source = root.join("hit.bin");
+        tokio::fs::write(&hit_source, &payload).await.unwrap();
+        let hit = store_from_temp_with_hints(
+            &state,
+            StoreFromTempParams::new(
+                scope,
+                None,
+                "hit.bin",
+                hit_source.to_str().unwrap(),
+                size as i64,
+            ),
+            StoreFromTempHints {
+                resolved_policy: Some(policy),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        let hit_queries = queries.lock().unwrap().len();
+        no_io.assert_no_object_api_calls();
+        assert_eq!(hit.blob_id, cold.blob_id);
+        assert!(hit_source.exists());
+        let blob = file_repo::find_blob_by_id(state.writer_db(), hit.blob_id)
+            .await
+            .unwrap();
+        assert_eq!(blob.ref_count, 2);
+        assert_eq!(
+            original_driver
+                .get(blob.storage_path_for_connector().unwrap())
+                .await
+                .unwrap(),
+            payload
+        );
+        assert!(hit_queries <= cold_queries);
+        if let Some(previous) = previous_hit_queries {
+            assert_eq!(
+                hit_queries, previous,
+                "metadata work must not grow with source bytes"
+            );
+        }
+        previous_hit_queries = Some(hit_queries);
+        println!(
+            "source_bytes={size} cold_queries={cold_queries} dedup_hit_queries={hit_queries} dedup_connector_calls=0 copied_bytes=0"
+        );
+    }
 }
 
 #[tokio::test]

@@ -311,10 +311,11 @@ where
 
 pub(crate) async fn handle_proppatch(
     request_head: &DavRequestHead,
-    dav_fs: &dyn DavFileSystem,
+    dav_fs: &AsterDavFs,
     lock_system: &dyn DavLockSystem,
     prefix: &str,
     body: &[u8],
+    http_headers: &http::HeaderMap,
 ) -> HttpResponse {
     let path = request_head.target.clone();
     if path.as_str() == "/" {
@@ -356,7 +357,19 @@ pub(crate) async fn handle_proppatch(
             return responses::empty(StatusCode::INTERNAL_SERVER_ERROR);
         }
     };
-    let results = match dav_fs.patch_props(&path, patches).await {
+    let conditions = crate::webdav::backend::DavMutationConditions {
+        prefix,
+        if_header: request_head.if_header.as_ref(),
+        request_scheme: &request_head.origin.scheme,
+        request_host: &request_head.origin.host,
+        http_headers,
+        http_method: request_head.method,
+        http_target: &path,
+    };
+    let results = match dav_fs
+        .patch_properties(&path, patches, Some(conditions))
+        .await
+    {
         Ok(results) => results,
         Err(error) => return fs_error_response(error),
     };

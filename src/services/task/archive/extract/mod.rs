@@ -48,7 +48,13 @@ pub(crate) async fn create_archive_extract_task_in_scope(
     file_id: i64,
     params: CreateArchiveExtractTaskParams,
 ) -> Result<TaskInfo> {
-    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let source_file = storage::verify_file_access(state, scope, file_id).await?;
     storage::ensure_active_file_scope(&source_file, scope)?;
     ensure_extract_source_supported(&source_file)?;

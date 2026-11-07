@@ -14,7 +14,6 @@ use super::aria2::{
     Aria2RpcCallError, Aria2RpcClient, Aria2RpcMethod, Aria2RpcParam, Aria2TellStatus,
     Aria2TellStatusKey, aria2_rpc_error_is_missing_download, aria2_rpc_error_is_unauthorized,
     classify_aria2_download_failure, parse_aria2_length, parse_aria2_rpc_error_response,
-    prepare_aria2_output_dir,
 };
 use super::naming::{
     filename_from_content_disposition, offline_download_task_display_name_with_engine,
@@ -427,7 +426,7 @@ fn aria2_add_uri_params_match_json_rpc_shape() {
     let options = Aria2AddUriOptions {
         dir: "/tmp/task".to_string(),
         out: "source".to_string(),
-        allow_overwrite: "true".to_string(),
+        allow_overwrite: "false".to_string(),
         auto_file_renaming: "false".to_string(),
         follow_torrent: "false".to_string(),
         follow_metalink: "false".to_string(),
@@ -453,7 +452,7 @@ fn aria2_add_uri_params_match_json_rpc_shape() {
             {
                 "dir": "/tmp/task",
                 "out": "source",
-                "allow-overwrite": "true",
+                "allow-overwrite": "false",
                 "auto-file-renaming": "false",
                 "follow-torrent": "false",
                 "follow-metalink": "false",
@@ -651,54 +650,6 @@ fn aria2_rpc_missing_download_detection_is_method_and_status_specific() {
         "wrong type",
         Some(reqwest::StatusCode::BAD_REQUEST),
     ));
-}
-
-#[cfg(unix)]
-#[tokio::test]
-async fn aria2_output_dir_is_writable_by_external_process_user() {
-    use std::os::unix::fs::PermissionsExt;
-
-    let root = std::env::temp_dir().join(format!(
-        "aster-drive-aria2-output-dir-{}",
-        aster_forge_utils::id::new_uuid()
-    ));
-    let temp_path = root.join("tasks/42/7/source");
-
-    prepare_aria2_output_dir(&temp_path).await.unwrap();
-
-    let token_dir = temp_path.parent().unwrap();
-    let task_dir = token_dir.parent().unwrap();
-    let tasks_dir = task_dir.parent().unwrap();
-    let modes = [tasks_dir, task_dir, token_dir]
-        .map(|dir| std::fs::metadata(dir).unwrap().permissions().mode() & 0o777);
-    let _ = std::fs::remove_dir_all(root);
-
-    assert_eq!(modes, [0o711, 0o777, 0o777]);
-}
-
-#[cfg(unix)]
-#[tokio::test]
-async fn aria2_output_dir_repairs_existing_parent_permissions() {
-    use std::os::unix::fs::PermissionsExt;
-
-    let root = std::env::temp_dir().join(format!(
-        "aster-drive-aria2-existing-parent-{}",
-        aster_forge_utils::id::new_uuid()
-    ));
-    let tasks_dir = root.join("tasks");
-    std::fs::create_dir_all(&tasks_dir).unwrap();
-    std::fs::set_permissions(&tasks_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
-
-    let temp_path = tasks_dir.join("42/7/source");
-    prepare_aria2_output_dir(&temp_path).await.unwrap();
-
-    let token_dir = temp_path.parent().unwrap();
-    let task_dir = token_dir.parent().unwrap();
-    let modes = [&tasks_dir, task_dir, token_dir]
-        .map(|dir| std::fs::metadata(dir).unwrap().permissions().mode() & 0o777);
-    let _ = std::fs::remove_dir_all(root);
-
-    assert_eq!(modes, [0o711, 0o777, 0o777]);
 }
 
 #[test]

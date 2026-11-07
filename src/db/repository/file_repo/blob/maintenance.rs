@@ -8,6 +8,22 @@ use std::collections::HashMap;
 use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::file_blob::{self, Entity as FileBlob};
 
+/// All metadata owners of one relative key, including zero-ref/claimed rows.
+/// Backed by idx_file_blobs_storage_path; callers resolve provider identity.
+pub(crate) async fn find_other_blobs_at_storage_path<C: ConnectionTrait>(
+    db: &C,
+    storage_path: &str,
+    exclude_blob_id: i64,
+) -> Result<Vec<file_blob::Model>> {
+    FileBlob::find()
+        .filter(file_blob::Column::StoragePath.eq(storage_path))
+        .filter(file_blob::Column::Id.ne(exclude_blob_id))
+        .limit(129)
+        .all(db)
+        .await
+        .map_err(AsterError::from)
+}
+
 /// 统计单个 blob 当前被文件记录引用的次数。
 pub async fn count_blob_refs_from_files_for_blob<C: ConnectionTrait>(
     db: &C,

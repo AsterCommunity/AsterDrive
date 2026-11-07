@@ -2,7 +2,7 @@
 
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, TaskRuntimeState};
-use crate::services::workspace::storage::{self, WorkspaceStorageScope};
+use crate::services::workspace::storage::WorkspaceStorageScope;
 use aster_drive_model::entities::background_task;
 use aster_forge_tasks::TaskExecutionContext;
 use aster_forge_tasks::{set_task_step_active, set_task_step_succeeded};
@@ -18,7 +18,13 @@ pub(crate) async fn create_trash_purge_all_task_in_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
 ) -> Result<TaskInfo> {
-    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let payload = TrashPurgeAllTaskPayload {};
     let task = aster_forge_db::transaction::with_transaction(state.writer_db(), async |txn| {
         crate::services::files::trash::coordination::lock_scope_on(txn, scope.into()).await?;

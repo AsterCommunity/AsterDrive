@@ -30,7 +30,7 @@ pub(super) struct ResolvedExternalAuthUser {
     pub(super) auto_provisioned: bool,
 }
 
-fn require_email_if_configured(
+pub(super) fn require_email_if_configured(
     provider: &external_auth_provider::Model,
     claims: &ExternalAuthUserClaims,
 ) -> Result<()> {
@@ -418,47 +418,21 @@ pub(super) async fn resolve_external_auth_user_with_verified_email<C: sea_orm::C
         ));
     }
 
-    if let Some(identity) = external_auth_identity_repo::find_by_identity_namespace_subject(
+    // Existing-account associations take the pending/MFA path in the caller. If another
+    // request created the account or identity after that preflight, restart recovery rather
+    // than turning this new-account transaction into an unchecked existing-account link.
+    if external_auth_identity_repo::find_by_identity_namespace_subject(
         db,
         &claims.identity_namespace,
         &claims.subject,
     )
     .await?
+    .is_some()
+        || user_repo::find_by_email(db, email).await?.is_some()
     {
-        external_auth_identity_repo::touch_login(
-            db,
-            identity.id,
-            claims.email.as_deref(),
-            claims.display_name.as_deref(),
-            now,
-        )
-        .await?;
-        let user = user_repo::find_by_id(db, identity.user_id).await?;
-        if !user.status.is_active() {
-            return Err(AsterError::auth_forbidden("account is disabled"));
-        }
-        return Ok(ResolvedExternalAuthUser {
-            user,
-            linked: false,
-            auto_provisioned: false,
-        });
-    }
-
-    if let Some(user) = user_repo::find_by_email(db, email).await? {
-        if !user.status.is_active() {
-            return Err(AsterError::auth_forbidden("account is disabled"));
-        }
-        if user.email_verified_at.is_none() {
-            return Err(AsterError::auth_forbidden(
-                "local account email is not verified",
-            ));
-        }
-        create_identity_for_claims(db, user.id, provider, claims, now).await?;
-        return Ok(ResolvedExternalAuthUser {
-            user,
-            linked: true,
-            auto_provisioned: false,
-        });
+        return Err(AsterError::contact_verification_invalid(
+            "external recovery account state changed; start a fresh login",
+        ));
     }
 
     let user = create_external_auth_user_and_identity_in_connection(
@@ -482,6 +456,18 @@ pub(super) async fn resolve_external_auth_user(
     provider: &external_auth_provider::Model,
     claims: &ExternalAuthUserClaims,
 ) -> Result<Option<ResolvedExternalAuthUser>> {
+    require_email_if_configured(provider, claims)?;
+    if let Some(email) = claims.email.as_deref()
+        && !external_auth_normalize::email_domain_allowed(
+            provider.allowed_domains.as_deref(),
+            email,
+        )?
+    {
+        return Err(AsterError::auth_forbidden(
+            "external auth email domain is not allowed for this provider",
+        ));
+    }
+
     let now = Utc::now();
     if let Some(identity) = external_auth_identity_repo::find_by_identity_namespace_subject(
         state.writer_db(),
@@ -509,18 +495,6 @@ pub(super) async fn resolve_external_auth_user(
         }));
     }
 
-    require_email_if_configured(provider, claims)?;
-    if let Some(email) = claims.email.as_deref()
-        && !external_auth_normalize::email_domain_allowed(
-            provider.allowed_domains.as_deref(),
-            email,
-        )?
-    {
-        return Err(AsterError::auth_forbidden(
-            "external auth email domain is not allowed for this provider",
-        ));
-    }
-
     if provider.auto_link_verified_email_enabled
         && claims.email_verified
         && let Some(email) = claims.email.as_deref()
@@ -529,7 +503,7 @@ pub(super) async fn resolve_external_auth_user(
         if !user.status.is_active() {
             return Err(AsterError::auth_forbidden("account is disabled"));
         }
-        create_identity_for_claims(state.writer_db(), user.id, provider, claims, now).await?;
+        // Existing-account association is deferred through full authentication by the callback.
         return Ok(Some(ResolvedExternalAuthUser {
             user,
             linked: true,
@@ -570,6 +544,7 @@ pub(super) fn external_auth_claims_missing_email(claims: &ExternalAuthUserClaims
 
 pub(super) async fn resolve_existing_external_auth_identity<C: sea_orm::ConnectionTrait>(
     db: &C,
+    provider: &external_auth_provider::Model,
     claims: &ExternalAuthUserClaims,
     now: chrono::DateTime<Utc>,
 ) -> Result<Option<ResolvedExternalAuthUser>> {
@@ -583,6 +558,17 @@ pub(super) async fn resolve_existing_external_auth_identity<C: sea_orm::Connecti
         return Ok(None);
     };
 
+    // Only an existing binding can use this shortcut. Missing-email recovery for a new
+    // identity remains available, but existing identities must obey the current provider rule.
+    require_email_if_configured(provider, claims)?;
+    if !external_auth_normalize::parse_allowed_domains(provider.allowed_domains.as_deref())?
+        .is_empty()
+        && claims.email.as_deref().is_none_or(str::is_empty)
+    {
+        return Err(AsterError::auth_forbidden(
+            "external auth email is required by the domain policy",
+        ));
+    }
     external_auth_identity_repo::touch_login(
         db,
         identity.id,

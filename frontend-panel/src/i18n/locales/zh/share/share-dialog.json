@@ -20,6 +20,7 @@
 	"share_expiry_30d": "30 天后",
 	"share_download_limit": "下载次数限制（可选）",
 	"share_download_limit_placeholder": "0 = 不限次数",
+	"share_download_limit_hint": "成功发起下载、打包或播放会话即计一次，中断或失败不退还；在线预览不计次",
 	"share_create_button": "创建链接",
 	"share_creating": "创建中...",
 	"share_done": "完成"

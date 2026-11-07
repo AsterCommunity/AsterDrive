@@ -1,4 +1,5 @@
 use super::*;
+use crate::errors::AsterError;
 use crate::storage::remote_protocol::{
     PRESIGNED_AUTH_ACCESS_KEY_QUERY, PRESIGNED_AUTH_SIGNATURE_QUERY,
     PRESIGNED_RESPONSE_CACHE_CONTROL_QUERY, PRESIGNED_RESPONSE_CONTENT_DISPOSITION_QUERY,
@@ -521,7 +522,7 @@ async fn put_reader_rejects_negative_size_before_network_io() {
         .await
         .expect_err("negative size should be rejected locally");
 
-    assert_eq!(error.kind(), StorageErrorKind::Precondition);
+    assert_eq!(error.kind(), StorageErrorKind::Precondition, "{error}");
     assert!(error.message().contains("must be non-negative"));
 }
 
@@ -586,8 +587,8 @@ async fn v7_remote_driver_rejects_v2_node_without_capacity_support() {
 
 #[test]
 fn multipart_part_key_rejects_non_positive_part_numbers() {
-    let err =
-        RemoteDriver::multipart_part_key("upload-1", 0).expect_err("zero part number should fail");
+    let err = aster_drive_storage::object_path::multipart_part_path("upload-1", 0)
+        .expect_err("zero part number should fail");
 
     assert!(err.message().contains("part_number must be positive"));
 }
@@ -598,6 +599,9 @@ async fn list_uploaded_parts_sorts_and_deduplicates_numeric_part_keys() {
     let server = spawn_list_server(
         vec![
             "base/uploads/upload-1/parts/2".to_string(),
+            "base/files/private/1".to_string(),
+            "base/uploads/upload-other/parts/1".to_string(),
+            "base/uploads/upload-1/parts/01".to_string(),
             "base/uploads/upload-1/parts/not-a-number".to_string(),
             "base/uploads/upload-1/parts/1".to_string(),
             "base/uploads/upload-1/parts/2".to_string(),
@@ -632,4 +636,50 @@ async fn list_uploaded_parts_sorts_and_deduplicates_numeric_part_keys() {
     );
 
     server.stop().await;
+}
+
+#[actix_web::test]
+async fn abort_multipart_rejects_foreign_listing_before_deleting_any_part() {
+    let deletes = Arc::new(Mutex::new(Vec::<String>::new()));
+    let requests = deletes.clone();
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = HttpServer::new(move || {
+        let requests = requests.clone();
+        App::new()
+            .route(
+                "/api/v1/internal/storage/objects",
+                web::get().to(|| async {
+                    HttpResponse::Ok().json(
+                        serde_json::json!({"code":"success","msg":"","data":{"items":[
+                            "base/uploads/upload-1/parts/1", "base/files/private/2"
+                        ]}}),
+                    )
+                }),
+            )
+            .route(
+                "/api/v1/internal/storage/objects/{path:.*}",
+                web::delete().to(move |path: web::Path<String>| {
+                    requests.lock().unwrap().push(path.into_inner());
+                    async {
+                        HttpResponse::Ok()
+                            .json(serde_json::json!({"code":"success","msg":"","data":null}))
+                    }
+                }),
+            )
+    })
+    .listen(listener)
+    .unwrap()
+    .run();
+    let handle = server.handle();
+    let task = tokio::spawn(server);
+    let driver = build_driver(&format!("http://{address}"), "base");
+    let error = driver
+        .abort_multipart_upload("ignored", "upload-1")
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind(), StorageErrorKind::Precondition, "{error}");
+    assert!(deletes.lock().unwrap().is_empty());
+    handle.stop(true).await;
+    task.await.unwrap().unwrap();
 }

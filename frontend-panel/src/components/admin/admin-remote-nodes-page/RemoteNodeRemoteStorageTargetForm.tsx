@@ -59,7 +59,7 @@ export function RemoteNodeRemoteStorageTargetForm({
 	const options = connectorDescriptors.map((descriptor) => ({
 		label: translateStorageConnectorMessage(
 			t,
-			descriptor.connector_id,
+			descriptor,
 			descriptor.ui.label_key,
 		),
 		value: descriptor.connector_id,

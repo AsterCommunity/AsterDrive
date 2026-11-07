@@ -21,8 +21,13 @@ pub async fn get_current_auth_snapshot(
     state: &impl SharedRuntimeState,
     user_id: i64,
 ) -> Result<AuthSnapshot> {
-    let user = user_repo::find_by_id(state.writer_db(), user_id).await?;
-    Ok(AuthSnapshot::from_user(&user))
+    let fields = user_repo::find_authorization_fields(state.writer_db(), user_id).await?;
+    Ok(AuthSnapshot {
+        status: fields.status,
+        role: fields.role,
+        session_version: fields.session_version,
+        must_change_password: fields.must_change_password,
+    })
 }
 
 /// Lists the account's active refresh sessions from the writer. The optional current JTI only
@@ -55,7 +60,7 @@ pub async fn list_auth_sessions(
 }
 
 /// Revokes a refresh session in a writer transaction and reports whether it was the caller's
-/// current session. Existing access JWTs keep their expiry window; account generation is unchanged.
+/// current session. Access and refresh are rejected immediately; account generation is unchanged.
 ///
 /// # Errors
 /// Returns missing-session, database or commit errors; failed transactions do not revoke the row.

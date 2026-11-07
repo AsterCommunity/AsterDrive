@@ -222,6 +222,10 @@ impl SeekableStream for AzureSizedReaderStream {
 
 #[async_trait]
 impl MultipartStorageDriver for AzureBlobDriver {
+    fn completed_object_remains_client_writable(&self) -> bool {
+        true
+    }
+
     async fn browser_part_request(
         &self,
         path: &str,

@@ -1,4 +1,3 @@
-use std::io::Read;
 use std::path::PathBuf;
 
 use crate::errors::{AsterError, Result};
@@ -21,7 +20,6 @@ pub(super) fn map_zip_entry_error(error: zip::result::ZipError) -> AsterError {
 }
 
 pub(super) fn build_scan_entry(
-    index: usize,
     relative_path: PathBuf,
     kind: ArchiveScanEntryKind,
     size: i64,
@@ -29,7 +27,6 @@ pub(super) fn build_scan_entry(
     modified_at: Option<zip::DateTime>,
 ) -> Result<ArchiveScanEntry> {
     build_scan_entry_from_parts(
-        index,
         relative_path,
         kind,
         size,
@@ -39,7 +36,6 @@ pub(super) fn build_scan_entry(
 }
 
 pub(super) fn build_scan_entry_from_parts(
-    index: usize,
     relative_path: PathBuf,
     kind: ArchiveScanEntryKind,
     size: i64,
@@ -57,7 +53,6 @@ pub(super) fn build_scan_entry_from_parts(
     });
 
     Ok(ArchiveScanEntry {
-        index,
         relative_path,
         path,
         name,
@@ -83,8 +78,8 @@ pub(super) fn format_zip_datetime(datetime: zip::DateTime) -> Option<String> {
     })
 }
 
-pub(super) fn validate_zip_entry_supported<R: Read>(
-    entry: &zip::read::ZipFile<'_, R>,
+pub(super) fn validate_zip_entry_supported(
+    entry: &zip::read::ZipFileEntry<'_>,
     entry_name: &str,
 ) -> Result<()> {
     if entry.encrypted() {

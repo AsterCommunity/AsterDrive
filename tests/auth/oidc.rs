@@ -1930,6 +1930,16 @@ async fn finish_callback_allows_existing_identity_without_email_claim() {
     .await
     .expect("identity should create");
 
+    // This positive compatibility case explicitly opts out of provider email restrictions.
+    // Existing subject bindings can sign in without a fresh email where the product allows it.
+    let mut policy = external_auth_provider_repo::find_by_id(state.writer_db(), provider_id)
+        .await
+        .unwrap()
+        .into_active_model();
+    policy.require_email_verified = Set(false);
+    policy.allowed_domains = Set(None);
+    policy.update(state.writer_db()).await.unwrap();
+
     let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/files").await;
     let resp = finish_oidc_callback(&app, &provider_key, &state_value).await;
     assert_eq!(resp.status(), 302);

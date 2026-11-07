@@ -5,7 +5,7 @@ use tokio::io::AsyncWriteExt;
 
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::files::archive::core::range_reader::StorageRangeReader;
+use crate::services::files::archive::core::range_reader::{RangeReadBudget, StorageRangeReader};
 use aster_drive_model::entities::file_blob;
 use aster_drive_storage::StorageDriver;
 use aster_forge_utils::raii::TempFileGuard;
@@ -58,16 +58,6 @@ pub(super) enum PreparedMediaMetadataSource {
     Range(PreparedRangeMediaMetadataSource),
 }
 
-impl PreparedMediaMetadataSource {
-    pub(super) fn path(&self) -> Option<&Path> {
-        match self {
-            Self::Local(path) => Some(path.as_path()),
-            Self::Temp(guard) => Some(guard.path()),
-            Self::Range(_) => None,
-        }
-    }
-}
-
 pub(super) struct PreparedRangeMediaMetadataSource {
     driver: Arc<dyn StorageDriver>,
     storage_path: String,
@@ -75,6 +65,7 @@ pub(super) struct PreparedRangeMediaMetadataSource {
     source_file_name: String,
     source_mime_type: String,
     handle: tokio::runtime::Handle,
+    range_budget: RangeReadBudget,
 }
 
 impl PreparedRangeMediaMetadataSource {
@@ -99,6 +90,7 @@ impl PreparedRangeMediaMetadataSource {
             source_file_name: source_file_name.to_string(),
             source_mime_type: source_mime_type.to_string(),
             handle,
+            range_budget: RangeReadBudget::default(),
         })
     }
 
@@ -109,6 +101,7 @@ impl PreparedRangeMediaMetadataSource {
             self.size,
             self.handle.clone(),
         )
+        .with_budget(self.range_budget.clone())
     }
 
     pub(super) fn file_type(&self) -> Option<lofty::file::FileType> {

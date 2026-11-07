@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::branding;
 use crate::db::repository::{
-    mfa_email_code_repo, mfa_factor_repo, mfa_login_flow_repo, mfa_recovery_code_repo,
-    mfa_totp_setup_flow_repo, mfa_totp_used_step_repo, user_repo,
+    mfa_attempt_budget_repo, mfa_email_code_repo, mfa_factor_repo, mfa_login_flow_repo,
+    mfa_recovery_code_repo, mfa_totp_setup_flow_repo, mfa_totp_used_step_repo, user_repo,
 };
 use crate::errors::{AsterError, Result, auth_forbidden_with_code, auth_mfa_failed_with_code};
 use crate::runtime::SharedRuntimeState;
@@ -19,7 +19,8 @@ use aster_drive_model::types::MfaPersistentFactorMethod;
 use aster_forge_utils::numbers::u64_to_i64;
 
 use super::{
-    MFA_SETUP_FLOW_TTL_SECS, crypto, now_utc, persistent_factor_method_label, recovery_codes, totp,
+    MFA_SETUP_FLOW_TTL_SECS, budget, crypto, now_utc, persistent_factor_method_label,
+    recovery_codes, totp,
 };
 
 #[derive(Debug, Clone, Serialize)]
@@ -80,6 +81,7 @@ struct PreparedTotpSetup {
 }
 
 enum PreparedSensitiveMfaCode {
+    Invalid,
     Totp { code: String },
     Recovery(recovery_codes::VerifiedRecoveryCode),
 }
@@ -249,12 +251,19 @@ pub async fn delete_factor(
     input: MfaSensitiveActionRequest,
     audit_ctx: &audit::AuditContext,
 ) -> Result<bool> {
+    budget::ensure_available(
+        state.writer_db(),
+        user_id,
+        budget::Purpose::Sensitive,
+        now_utc(),
+    )
+    .await?;
     let prepared_code =
         prepare_sensitive_mfa_code(state.writer_db(), state, user_id, input.code.as_deref())
             .await?;
     let txn = transaction::begin(state.writer_db()).await?;
     let result = async {
-        let user = user_repo::find_by_id(&txn, user_id).await?;
+        let user = mfa_attempt_budget_repo::lock_account(&txn, user_id).await?;
         ensure_user_can_manage_mfa(&user)?;
         verify_prepared_sensitive_mfa_code(&txn, state, user_id, &prepared_code).await?;
         let factor = mfa_factor_repo::find_by_id_for_user(&txn, factor_id, user_id)
@@ -295,7 +304,12 @@ pub async fn delete_factor(
             Ok(deleted)
         }
         Err(error) => {
-            transaction::rollback(txn).await?;
+            match error.api_error_code_override() {
+                Some(ApiErrorCode::AuthMfaCodeInvalid | ApiErrorCode::AuthMfaAttemptsExceeded) => {
+                    transaction::commit(txn).await?
+                }
+                _ => transaction::rollback(txn).await?,
+            }
             Err(error)
         }
     }
@@ -307,16 +321,35 @@ pub async fn regenerate_recovery_codes(
     input: MfaSensitiveActionRequest,
     audit_ctx: &audit::AuditContext,
 ) -> Result<Vec<String>> {
+    budget::ensure_available(
+        state.writer_db(),
+        user_id,
+        budget::Purpose::Sensitive,
+        now_utc(),
+    )
+    .await?;
     let prepared_code =
         prepare_sensitive_mfa_code(state.writer_db(), state, user_id, input.code.as_deref())
             .await?;
-    let generated_recovery_codes = recovery_codes::generate_for_user(state, user_id).await?;
+    let generated_recovery_codes = match &prepared_code {
+        PreparedSensitiveMfaCode::Invalid => None,
+        _ => Some(recovery_codes::generate_for_user(state, user_id).await?),
+    };
     let txn = transaction::begin(state.writer_db()).await?;
     let result = async {
-        let user = user_repo::find_by_id(&txn, user_id).await?;
+        let user = mfa_attempt_budget_repo::lock_account(&txn, user_id).await?;
         ensure_user_can_manage_mfa(&user)?;
         verify_prepared_sensitive_mfa_code(&txn, state, user_id, &prepared_code).await?;
-        recovery_codes::replace_for_user(&txn, user_id, generated_recovery_codes).await
+        recovery_codes::replace_for_user(
+            &txn,
+            user_id,
+            generated_recovery_codes.ok_or_else(|| {
+                AsterError::internal_error(
+                    "verified MFA confirmation has no generated recovery codes",
+                )
+            })?,
+        )
+        .await
     }
     .await;
     match result {
@@ -341,7 +374,12 @@ pub async fn regenerate_recovery_codes(
             Ok(codes)
         }
         Err(error) => {
-            transaction::rollback(txn).await?;
+            match error.api_error_code_override() {
+                Some(ApiErrorCode::AuthMfaCodeInvalid | ApiErrorCode::AuthMfaAttemptsExceeded) => {
+                    transaction::commit(txn).await?
+                }
+                _ => transaction::rollback(txn).await?,
+            }
             Err(error)
         }
     }
@@ -354,7 +392,7 @@ pub async fn reset_user_mfa(
 ) -> Result<()> {
     let txn = transaction::begin(state.writer_db()).await?;
     let result = async {
-        let user = user_repo::find_by_id(&txn, user_id).await?;
+        let user = mfa_attempt_budget_repo::lock_account(&txn, user_id).await?;
         user_repo::bump_session_version(&txn, user_id).await?;
         let factors = mfa_factor_repo::list_for_user(&txn, user_id).await?;
         let factor_count = factors.len();
@@ -366,6 +404,7 @@ pub async fn reset_user_mfa(
             factors.iter().map(|factor| factor.id).collect(),
         )
         .await?;
+        mfa_attempt_budget_repo::delete_for_user(&txn, user_id).await?;
         mfa_factor_repo::delete_all_for_user(&txn, user_id).await?;
         mfa_recovery_code_repo::delete_all_for_user(&txn, user_id).await?;
         mfa_email_code_repo::delete_all_for_user(&txn, user_id).await?;
@@ -469,10 +508,7 @@ async fn prepare_sensitive_mfa_code<C: sea_orm::ConnectionTrait>(
     let user = user_repo::find_by_id(db, user_id).await?;
     ensure_user_can_manage_mfa(&user)?;
     let Some(code) = code.map(str::trim).filter(|value| !value.is_empty()) else {
-        return Err(auth_mfa_failed_with_code(
-            ApiErrorCode::AuthMfaCodeInvalid,
-            "MFA code is required",
-        ));
+        return Ok(PreparedSensitiveMfaCode::Invalid);
     };
     if looks_like_totp_code(code)
         && let Some(factor) = mfa_factor_repo::find_totp_for_user(db, user_id).await?
@@ -494,10 +530,7 @@ async fn prepare_sensitive_mfa_code<C: sea_orm::ConnectionTrait>(
     {
         return Ok(PreparedSensitiveMfaCode::Recovery(verified));
     }
-    Err(auth_mfa_failed_with_code(
-        ApiErrorCode::AuthMfaCodeInvalid,
-        "invalid MFA code",
-    ))
+    Ok(PreparedSensitiveMfaCode::Invalid)
 }
 
 async fn verify_prepared_sensitive_mfa_code<C: sea_orm::ConnectionTrait>(
@@ -506,7 +539,10 @@ async fn verify_prepared_sensitive_mfa_code<C: sea_orm::ConnectionTrait>(
     user_id: i64,
     prepared: &PreparedSensitiveMfaCode,
 ) -> Result<()> {
+    let now = now_utc();
+    budget::ensure_available(db, user_id, budget::Purpose::Sensitive, now).await?;
     let verified = match prepared {
+        PreparedSensitiveMfaCode::Invalid => false,
         PreparedSensitiveMfaCode::Totp { code } => {
             if let Some(factor) = mfa_factor_repo::find_totp_for_user(db, user_id).await? {
                 let aad =
@@ -546,11 +582,16 @@ async fn verify_prepared_sensitive_mfa_code<C: sea_orm::ConnectionTrait>(
         }
     };
     if verified {
+        budget::reset(db, user_id, budget::Purpose::Sensitive, now).await?;
         Ok(())
     } else {
+        let blocked = budget::record_failure(db, user_id, budget::Purpose::Sensitive, now).await?;
         Err(auth_mfa_failed_with_code(
-            ApiErrorCode::AuthMfaCodeInvalid,
-            "invalid MFA code",
+            match blocked {
+                true => ApiErrorCode::AuthMfaAttemptsExceeded,
+                false => ApiErrorCode::AuthMfaCodeInvalid,
+            },
+            "invalid MFA confirmation or account attempt budget exhausted",
         ))
     }
 }

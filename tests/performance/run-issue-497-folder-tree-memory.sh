@@ -10,13 +10,36 @@ temporary_root="${temporary_root%/}"
 if [[ -z "${temporary_root}" ]]; then
   temporary_root="/"
 fi
-result_directory="${ASTER_ISSUE497_RESULT_DIR:-${temporary_root}/asterdrive-issue-497-${revision}}"
-database_directory="${temporary_root}/asterdrive-issue-497-${revision}-databases"
+umask 077
+# Explicit output roots are parents too: never reuse their existing files.
+result_parent="${ASTER_ISSUE497_RESULT_DIR:-${temporary_root}}"
+if [[ ! -d "${result_parent}" ]]; then
+  mkdir -m 700 -p "${result_parent}"
+fi
+python3 - "${result_parent}" <<'PY'
+import os
+import pathlib
+import stat
+import sys
+
+root = pathlib.Path(sys.argv[1]).absolute()
+for path in [root, *root.parents]:
+    info = path.lstat()
+    if stat.S_ISLNK(info.st_mode):
+        # Permit only root-owned OS aliases such as macOS /tmp.
+        if info.st_uid != 0:
+            raise SystemExit(f"unsafe result directory ancestor: {path}")
+        info = path.stat()
+    sticky_system_parent = info.st_uid == 0 and bool(info.st_mode & stat.S_ISVTX)
+    if info.st_uid not in (0, os.geteuid()) or (info.st_mode & 0o022 and not sticky_system_parent):
+        raise SystemExit(f"unsafe result directory ancestor: {path}")
+PY
+result_directory="$(mktemp -d "${result_parent%/}/asterdrive-issue-497-${revision}.XXXXXXXX")"
+database_directory="${result_directory}/databases"
 
 IFS=',' read -r -a resource_counts <<< "${resource_counts_csv}"
 IFS=',' read -r -a scenarios <<< "${scenarios_csv}"
-mkdir -p "${result_directory}"
-mkdir -p "${database_directory}"
+mkdir -m 700 "${database_directory}"
 
 node --test \
   "${repository_root}/tests/performance/summarize-issue-497-folder-tree-memory.test.mjs"

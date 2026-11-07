@@ -838,3 +838,75 @@ async fn deltav_requests_still_require_webdav_authentication() {
         );
     }
 }
+
+#[actix_web::test]
+async fn deltav_active_revision_keeps_browser_isolation_for_full_range_head_and_cached_reads() {
+    let app = setup_with_webdav!();
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_auth(&app, &token).await;
+    let body = "<svg xmlns='http://www.w3.org/2000/svg'><script>unsafe()</script></svg>";
+    let request = test::TestRequest::put()
+        .uri("/webdav/active.svg")
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "image/svg+xml"))
+        .set_payload(body)
+        .to_request();
+    assert_eq!(test::call_service(&app, request).await.status(), 201);
+    let request = test::TestRequest::default()
+        .method(actix_web::http::Method::from_bytes(b"VERSION-CONTROL").unwrap())
+        .uri("/webdav/active.svg")
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .set_payload("<D:version-control xmlns:D='DAV:'/>")
+        .to_request();
+    assert_eq!(test::call_service(&app, request).await.status(), 200);
+    let report = version_tree_report(&app, &auth, "/webdav/active.svg").await;
+    let version = common::deltav_version_href_by_name(&report, "1").unwrap();
+    let response = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&version)
+            .insert_header(("Authorization", auth.clone()))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.headers().get("Content-Security-Policy").unwrap(),
+        "sandbox"
+    );
+    let etag = response
+        .headers()
+        .get("ETag")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(test::read_body(response).await.as_ref(), body.as_bytes());
+    for (method, range, cached, status) in [
+        ("HEAD", None, false, 200),
+        ("GET", Some("bytes=0-7"), false, 206),
+        ("GET", None, true, 304),
+    ] {
+        let mut request = test::TestRequest::default()
+            .method(actix_web::http::Method::from_bytes(method.as_bytes()).unwrap())
+            .uri(&version)
+            .insert_header(("Authorization", auth.clone()));
+        if let Some(range) = range {
+            request = request.insert_header(("Range", range));
+        }
+        if cached {
+            request = request.insert_header(("If-None-Match", etag.clone()));
+        }
+        let response = test::call_service(&app, request.to_request()).await;
+        assert_eq!(response.status(), status);
+        assert_eq!(
+            response.headers().get("Content-Security-Policy").unwrap(),
+            "sandbox"
+        );
+        assert_eq!(
+            response.headers().get("X-Content-Type-Options").unwrap(),
+            "nosniff"
+        );
+    }
+}

@@ -2,6 +2,10 @@
 
 These documents explain domain boundaries that cross routes, services, repositories, storage connectors, and internal protocols. They answer why the implementation is split this way and which contracts multiple implementations must share; they are not deployment-facing configuration guides.
 
+## Previews and content security
+
+- [Preview content and integration trust](./preview-content-trust.md): uploaded-content origin isolation, SVG/PDF display, WebDAV and configured embed/WOPI compatibility.
+
 ## Identity and authentication
 
 - [Authentication flow state-machine contract](./auth-flow-state-machine.md): shared lifecycle, transition, concurrency, and frontend projection boundaries for login, MFA, recovery, invitations, Passkeys, and sessions.
@@ -23,3 +27,5 @@ These documents explain domain boundaries that cross routes, services, repositor
 - [Resource lock system refactor contract](./resource-lock-system.md): the shared REST, WebDAV, WOPI, and administrative lifecycle; removal of persisted `is_locked`; workspace namespaces; authoritative transactions; and generation-keyed read caching.
 
 When changing these paths, review the corresponding API, OpenAPI schema, generated frontend types, and focused tests. Do not recreate connector capability matrices in the product layer.
+
+- [Workspace and resource authorization](workspace-authorization.md)

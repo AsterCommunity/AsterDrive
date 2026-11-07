@@ -623,7 +623,13 @@ async fn setup_with_custom_webdav_config(
                 aster_drive::webdav::configure(cfg, &webdav_config, &db);
                 cfg.service(
                     web::scope("/api/v1")
-                        .service(aster_drive::api::routes::auth::routes(&rl, &network_trust))
+                        .service(aster_drive::api::routes::auth::routes(
+                            &rl,
+                            &aster_drive::api::middleware::rate_limit::AuthRouteLimiters::new(
+                                &rl,
+                                &network_trust,
+                            ),
+                        ))
                         .service(aster_drive::api::routes::webdav_accounts::routes(
                             &rl,
                             &network_trust,
@@ -794,7 +800,12 @@ async fn setup_webdav_with_runtime_config(
             .app_data(web::Data::new(state))
             .configure(move |cfg| {
                 aster_drive::webdav::configure(cfg, &webdav_config, &db2);
-                aster_drive::api::configure_primary(cfg, &db1, &Default::default());
+                aster_drive::api::configure_primary(
+                    cfg,
+                    &db1,
+                    &Default::default(),
+                    &Default::default(),
+                );
             }),
     )
     .await
@@ -1601,7 +1612,12 @@ async fn test_webdav_virtual_empty_download_is_audited_without_storage_object() 
             .app_data(web::Data::new(state.clone()))
             .configure(move |cfg| {
                 aster_drive::webdav::configure(cfg, &webdav_config, &db2);
-                aster_drive::api::configure_primary(cfg, &db1, &Default::default());
+                aster_drive::api::configure_primary(
+                    cfg,
+                    &db1,
+                    &Default::default(),
+                    &Default::default(),
+                );
             }),
     )
     .await;
@@ -1665,7 +1681,12 @@ async fn test_webdav_range_download_audit_is_coalesced_by_default() {
             .app_data(web::Data::new(state.clone()))
             .configure(move |cfg| {
                 aster_drive::webdav::configure(cfg, &webdav_config, &db2);
-                aster_drive::api::configure_primary(cfg, &db1, &Default::default());
+                aster_drive::api::configure_primary(
+                    cfg,
+                    &db1,
+                    &Default::default(),
+                    &Default::default(),
+                );
             }),
     )
     .await;
@@ -1777,7 +1798,12 @@ async fn test_webdav_propfind_lockdiscovery_chunks_large_depth_one_directories()
             .app_data(web::Data::new(state.clone()))
             .configure(move |cfg| {
                 aster_drive::webdav::configure(cfg, &webdav_config, &db2);
-                aster_drive::api::configure_primary(cfg, &db1, &Default::default());
+                aster_drive::api::configure_primary(
+                    cfg,
+                    &db1,
+                    &Default::default(),
+                    &Default::default(),
+                );
             }),
     )
     .await;
@@ -2627,7 +2653,12 @@ async fn test_webdav_get_and_head_do_not_create_runtime_temp_files() {
             .app_data(web::Data::new(state))
             .configure(move |cfg| {
                 aster_drive::webdav::configure(cfg, &webdav_config, &db2);
-                aster_drive::api::configure_primary(cfg, &db1, &Default::default());
+                aster_drive::api::configure_primary(
+                    cfg,
+                    &db1,
+                    &Default::default(),
+                    &Default::default(),
+                );
             }),
     )
     .await;
@@ -2692,7 +2723,12 @@ async fn test_webdav_put_local_fast_path_avoids_runtime_temp_files() {
             .app_data(web::Data::new(state))
             .configure(move |cfg| {
                 aster_drive::webdav::configure(cfg, &webdav_config, &db2);
-                aster_drive::api::configure_primary(cfg, &db1, &Default::default());
+                aster_drive::api::configure_primary(
+                    cfg,
+                    &db1,
+                    &Default::default(),
+                    &Default::default(),
+                );
             }),
     )
     .await;
@@ -2752,7 +2788,12 @@ async fn test_webdav_put_without_content_length_avoids_runtime_temp_files() {
             .app_data(web::Data::new(state))
             .configure(move |cfg| {
                 aster_drive::webdav::configure(cfg, &webdav_config, &db2);
-                aster_drive::api::configure_primary(cfg, &db1, &Default::default());
+                aster_drive::api::configure_primary(
+                    cfg,
+                    &db1,
+                    &Default::default(),
+                    &Default::default(),
+                );
             }),
     )
     .await;
@@ -2819,7 +2860,12 @@ async fn test_webdav_runtime_toggle_takes_effect_immediately() {
             .app_data(web::Data::new(state))
             .configure(move |cfg| {
                 aster_drive::webdav::configure(cfg, &webdav_config, &db2);
-                aster_drive::api::configure_primary(cfg, &db1, &Default::default());
+                aster_drive::api::configure_primary(
+                    cfg,
+                    &db1,
+                    &Default::default(),
+                    &Default::default(),
+                );
             }),
     )
     .await;
@@ -4857,7 +4903,12 @@ async fn test_webdav_quota_live_properties_follow_rfc_4331_boundaries() {
             .app_data(web::Data::new(state.clone()))
             .configure(move |cfg| {
                 aster_drive::webdav::configure(cfg, &WebDavConfig::default(), &db2);
-                aster_drive::api::configure_primary(cfg, &db1, &Default::default());
+                aster_drive::api::configure_primary(
+                    cfg,
+                    &db1,
+                    &Default::default(),
+                    &Default::default(),
+                );
             }),
     )
     .await;
@@ -5644,7 +5695,12 @@ async fn test_webdav_hides_and_rejects_system_property_namespace() {
             .app_data(web::Data::new(state.clone()))
             .configure(move |cfg| {
                 aster_drive::webdav::configure(cfg, &webdav_config, &db2);
-                aster_drive::api::configure_primary(cfg, &db1, &Default::default());
+                aster_drive::api::configure_primary(
+                    cfg,
+                    &db1,
+                    &Default::default(),
+                    &Default::default(),
+                );
             }),
     )
     .await;
@@ -10012,4 +10068,82 @@ async fn test_personal_trash_purge_blocks_webdav_delete() {
 #[actix_web::test]
 async fn test_team_trash_purge_blocks_webdav_delete() {
     trash_purge_blocks_webdav_deletion(true).await;
+}
+
+/// Browser isolation is a response policy, not a file rewrite: WebDAV clients retain bytes,
+/// metadata and conditional/range semantics for active documents and ordinary binary files.
+#[actix_web::test]
+async fn test_webdav_active_content_isolation_preserves_bytes_and_protocol_semantics() {
+    let app = setup_with_webdav!();
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+    for (name, mime) in [
+        ("unsafe.html", "text/html"),
+        ("unsafe.xhtml", "application/xhtml+xml"),
+        ("unsafe.svg", "image/svg+xml"),
+        ("plain.txt", "text/plain"),
+    ] {
+        let path = format!("/webdav/{name}");
+        let bytes = b"<script>parent.document.title='unsafe'</script>";
+        let request = test::TestRequest::put()
+            .uri(&path)
+            .insert_header(("Authorization", auth.clone()))
+            .insert_header(("Content-Type", mime))
+            .set_payload(bytes.to_vec())
+            .to_request();
+        assert_eq!(test::call_service(&app, request).await.status(), 201);
+        let request = test::TestRequest::get()
+            .uri(&path)
+            .insert_header(("Authorization", auth.clone()))
+            .to_request();
+        let response = test::call_service(&app, request).await;
+        assert_eq!(response.status(), 200);
+        let etag = response
+            .headers()
+            .get("ETag")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(
+            response.headers().get("X-Content-Type-Options").unwrap(),
+            "nosniff"
+        );
+        match mime {
+            "text/plain" => assert!(!response.headers().contains_key("Content-Security-Policy")),
+            _ => assert_eq!(
+                response.headers().get("Content-Security-Policy").unwrap(),
+                "sandbox"
+            ),
+        }
+        assert_eq!(test::read_body(response).await.as_ref(), bytes);
+        for (method, range, cached, status) in [
+            ("HEAD", None, false, 200),
+            ("GET", Some("bytes=0-7"), false, 206),
+            ("GET", None, true, 304),
+        ] {
+            let mut request = test::TestRequest::default()
+                .method(actix_web::http::Method::from_bytes(method.as_bytes()).unwrap())
+                .uri(&path)
+                .insert_header(("Authorization", auth.clone()));
+            if let Some(range) = range {
+                request = request.insert_header(("Range", range));
+            }
+            if cached {
+                request = request.insert_header(("If-None-Match", etag.clone()));
+            }
+            let response = test::call_service(&app, request.to_request()).await;
+            assert_eq!(response.status(), status);
+            match mime {
+                "text/plain" => {}
+                _ => assert_eq!(
+                    response.headers().get("Content-Security-Policy").unwrap(),
+                    "sandbox"
+                ),
+            }
+            if range.is_some() {
+                assert_eq!(test::read_body(response).await.as_ref(), &bytes[..8]);
+            }
+        }
+    }
 }

@@ -54,7 +54,7 @@ export function useStoragePolicyActionController({
 	const connectorT = (key: string, values?: Record<string, number | string>) =>
 		translateStorageConnectorMessage(
 			t,
-			currentStorageDriverDescriptor?.connector_id,
+			currentStorageDriverDescriptor,
 			key,
 			values,
 		);
@@ -104,8 +104,7 @@ export function useStoragePolicyActionController({
 		}
 		const currentEndpointValidationMessage = getEndpointValidationMessage(
 			currentForm,
-			(key) =>
-				translateStorageConnectorMessage(t, descriptor.connector_id, key),
+			(key) => translateStorageConnectorMessage(t, descriptor, key),
 			descriptor,
 		);
 		if (currentEndpointValidationMessage) {
@@ -255,8 +254,7 @@ export function useStoragePolicyActionController({
 			if (executionMode === "draft") {
 				const currentEndpointValidationMessage = getEndpointValidationMessage(
 					currentForm,
-					(key) =>
-						translateStorageConnectorMessage(t, descriptor.connector_id, key),
+					(key) => translateStorageConnectorMessage(t, descriptor, key),
 					descriptor,
 				);
 				if (currentEndpointValidationMessage) {

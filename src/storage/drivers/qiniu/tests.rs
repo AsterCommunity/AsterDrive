@@ -546,7 +546,10 @@ async fn native_object_io_range_copy_list_and_form_streaming() {
     let mut bytes = Vec::new();
     range.read_to_end(&mut bytes).await.unwrap();
     assert_eq!(bytes, b"Kodo");
-    driver.copy_object("hello.txt", "copy.txt").await.unwrap();
+    driver
+        .copy_object("hello.txt", "copy.txt", Default::default())
+        .await
+        .unwrap();
     assert_eq!(
         driver
             .extensions()

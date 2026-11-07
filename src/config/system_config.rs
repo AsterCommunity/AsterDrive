@@ -51,11 +51,10 @@ mod tests {
         MAIL_TEMPLATE_USER_INVITATION_HTML_KEY, MAIL_TEMPLATE_USER_INVITATION_SUBJECT_KEY,
     };
     use crate::config::operations::{
-        ARCHIVE_COMPRESS_ENABLED_KEY, BACKGROUND_TASK_MAX_CONCURRENCY_KEY,
-        DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY, IMAGE_PREVIEW_MAX_DIMENSION_KEY,
+        ARCHIVE_COMPRESS_ENABLED_KEY, IMAGE_PREVIEW_MAX_DIMENSION_KEY,
         MAX_DERIVATIVE_MAX_DIMENSION, MAX_SHARE_STREAM_SESSION_TTL_SECS,
-        MIN_SHARE_STREAM_SESSION_TTL_SECS, SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY,
-        SHARE_STREAM_SESSION_TTL_SECS_KEY, THUMBNAIL_MAX_DIMENSION_KEY,
+        MIN_SHARE_STREAM_SESSION_TTL_SECS, SHARE_STREAM_SESSION_TTL_SECS_KEY,
+        THUMBNAIL_MAX_DIMENSION_KEY,
     };
     use aster_forge_config::{ConfigSource, ConfigValueType};
     use aster_forge_db::system_config;
@@ -150,26 +149,6 @@ mod tests {
                 )
                 .unwrap(),
             "[]"
-        );
-    }
-
-    #[test]
-    fn normalize_system_value_uses_capacity_limit_for_share_download_rollback_queue() {
-        let lookup = HashMap::new();
-        assert_eq!(
-            CONFIG_REGISTRY
-                .normalize_value(
-                    &lookup,
-                    SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY,
-                    &DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY.to_string(),
-                )
-                .unwrap(),
-            DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY.to_string()
-        );
-        assert!(
-            CONFIG_REGISTRY
-                .normalize_value(&lookup, BACKGROUND_TASK_MAX_CONCURRENCY_KEY, "1024")
-                .is_err()
         );
     }
 

@@ -108,6 +108,7 @@ impl StorageDriver for LocalDriver {
         &self,
         src_path: &str,
         dest_path: &str,
+        _options: aster_drive_storage::StorageCopyOptions,
     ) -> aster_drive_storage::Result<String> {
         let src_full = self.full_path(src_path)?;
         let dest_full = self.full_path(dest_path)?;
@@ -120,10 +121,9 @@ impl StorageDriver for LocalDriver {
         tokio::fs::create_dir_all(parent)
             .await
             .map_storage_err(StorageErrorKind::Transient)?;
-        let temp = parent.join(format!(
-            ".aster-copy-{}.tmp",
-            aster_forge_utils::id::new_uuid()
-        ));
+        let temp = self.full_path(&aster_drive_storage::object_path::new_copy_staging_path(
+            dest_path,
+        ))?;
         let result = async {
             tokio::fs::copy(&src_full, &temp)
                 .await

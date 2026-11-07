@@ -6,10 +6,8 @@ use std::time::Duration;
 use actix_web::web;
 use chrono::Utc;
 use tokio_util::sync::CancellationToken;
-use tracing::Instrument;
 
 use super::{FollowerAppState, PrimaryAppState};
-use crate::services::share::ShareDownloadRollbackWorker;
 use crate::services::task::SystemRuntimeTaskKind;
 use aster_forge_tasks::BackgroundTasks;
 
@@ -72,7 +70,6 @@ fn build_background_tasks_base(
 /// Spawn maintenance for resources owned by this Primary process, independently of its role.
 pub fn spawn_primary_background_tasks(
     state: web::Data<PrimaryAppState>,
-    share_download_rollback_worker: ShareDownloadRollbackWorker,
     shutdown_token: CancellationToken,
 ) -> BackgroundTasks {
     let grace = state.config.worker.consumer_config();
@@ -123,17 +120,6 @@ pub fn spawn_primary_background_tasks(
             state.clone(),
         ));
     }
-
-    tasks.push(
-        crate::services::share::share_download_rollback_worker_task(
-            shutdown_token.clone(),
-            share_download_rollback_worker,
-        )
-        .instrument(tracing::info_span!(
-            "bg_task",
-            task.name = "share-download-rollback"
-        )),
-    );
 
     tasks
 }
@@ -697,12 +683,6 @@ pub(crate) mod test_support {
         let storage_change_bus = crate::services::events::storage_change::StorageChangeBus::new(
             crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
-        let (share_download_rollback, _worker) =
-            crate::services::share::build_share_download_rollback_queue(
-                db.clone(),
-                1,
-                aster_drive_metrics::NoopMetrics::arc(),
-            );
 
         web::Data::new(PrimaryAppState {
             audit_writer: crate::runtime::test_support::audit_writer(&db).await,
@@ -719,7 +699,7 @@ pub(crate) mod test_support {
             metrics: aster_drive_metrics::NoopMetrics::arc(),
             mail_sender: aster_forge_mail::memory_sender(),
             storage_change_bus,
-            share_download_rollback,
+            storage_event_streams: Default::default(),
             background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
             remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
         })

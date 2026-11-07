@@ -176,7 +176,7 @@ WebDAV 不走 `src/api/routes/**`，而是：
 | `src/runtime/assembly.rs` | 组装 primary / follower 的完整 Forge component graph；直接使用 Forge factory，不为单个 component 增加改名转发层 |
 | `src/runtime/components.rs` | 构造 Drive 自有资源适配所需的 primary / follower HTTP 和 mail outbox component |
 | `src/runtime/startup/common.rs` | 连接数据库、跑 migration、准备默认策略和运行时配置、加载 policy snapshot / driver registry / cache |
-| `src/runtime/startup/primary.rs` | 构造 primary 运行时：`RuntimeConfig`、邮件发送器、SSE 广播、分享下载回滚队列和远端协议运行时 |
+| `src/runtime/startup/primary.rs` | 构造 primary 运行时：`RuntimeConfig`、邮件发送器、SSE 广播和远端协议运行时 |
 | `src/runtime/startup/follower.rs` | 构造 follower 运行时：只保留 follower 需要的共享状态 |
 | `src/runtime/tasks.rs` | 声明 Drive 的 primary/follower worker 与周期任务执行体；生命周期、lease、scheduled claim 和关闭由 Forge 管理 |
 | `crates/aster_drive_metrics/` | Drive 产品指标 trait、`NoopMetrics` 和 `aster_forge_metrics` 适配；根包不提供旧 metrics 路径兼容导出 |
@@ -322,7 +322,6 @@ Prometheus 指标不在 `main.rs` 直接初始化，而是在 `prepare_common()`
 - `RuntimeConfig`
 - 运行时邮件发送器
 - 存储变更广播通道
-- 分享下载回滚队列
 - `RemoteProtocolRuntime`，包括 reverse tunnel registry，并注入到 `DriverRegistry`
 
 随后 `src/api/primary.rs` 注册主路由，并在 `src/runtime/tasks.rs` 启动 primary 周期任务。
@@ -350,7 +349,7 @@ primary 后台工作由 `src/runtime/tasks.rs` 声明，通用运行机制使用
 
 任务分成常驻 worker 和周期任务：
 
-- 常驻 worker：`share-download-rollback`、`background-task-dispatch`（每条 lane 独立消费，不参与 singleton scheduler lease）
+- 常驻 worker：`background-task-dispatch`（每条 lane 独立消费，不参与 singleton scheduler lease）
 - 周期任务：
   - `mail-outbox-dispatch`
   - `upload-cleanup`
@@ -455,7 +454,6 @@ CLI 的入口、共享能力、命令分层和测试入口见[CLI 架构](./cli.
 - `background_task_thumbnail_max_concurrency`
 - `background_task_storage_migration_max_concurrency`
 - `background_task_max_attempts`
-- `share_download_rollback_queue_capacity`
 - `share_stream_session_ttl_secs`
 - `maintenance_cleanup_interval_secs`
 - `blob_reconcile_interval_secs`

@@ -7,12 +7,8 @@ use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::auth::flow::{AuthFlowState, external_recovery_snapshot};
 use crate::services::auth::local;
-use aster_forge_db::transaction;
 use aster_forge_external_auth::normalize as external_auth_normalize;
 
-use super::resolution::{
-    claims_without_provider_email, link_external_auth_identity_to_authenticated_user,
-};
 use super::{
     ExternalAuthPasswordLinkRequest, ExternalAuthPasswordLinkResult, ExternalAuthPrimaryLogin,
 };
@@ -20,6 +16,7 @@ use super::{
 pub async fn link_with_password(
     state: &impl SharedRuntimeState,
     input: ExternalAuthPasswordLinkRequest,
+    browser_proof: Option<&str>,
     _ip_address: Option<&str>,
     _user_agent: Option<&str>,
 ) -> Result<ExternalAuthPasswordLinkResult> {
@@ -43,6 +40,7 @@ pub async fn link_with_password(
     .ok_or_else(|| {
         AsterError::contact_verification_invalid("external auth email verification flow is invalid")
     })?;
+    super::verification::ensure_recovery_browser(&flow, browser_proof)?;
     if external_recovery_snapshot(&flow, Utc::now()).state != AuthFlowState::RecoveryPending {
         return Err(AsterError::contact_verification_invalid(
             "external auth recovery flow is no longer active",
@@ -77,37 +75,21 @@ pub async fn link_with_password(
         ));
     }
 
-    let claims = claims_without_provider_email(&flow);
-    let txn = transaction::begin(state.writer_db()).await?;
-    let result = async {
-        let consumed =
-            external_auth_email_verification_flow_repo::mark_consumed_if_unused(&txn, flow.id)
-                .await?;
-        if !consumed {
-            return Err(AsterError::contact_verification_invalid(
-                "external auth login flow has already been used",
-            ));
-        }
-        link_external_auth_identity_to_authenticated_user(&txn, &provider, &claims, user, now).await
-    }
-    .await;
-
-    let resolved = match result {
-        Ok(resolved) => {
-            transaction::commit(txn).await?;
-            resolved
-        }
-        Err(error) => return Err(error),
-    };
+    // Password possession is only the first factor. Keep this unconsumed intent until the
+    // account's required MFA succeeds; creating an identity here would bypass account security.
     Ok(ExternalAuthPasswordLinkResult {
         primary_login: ExternalAuthPrimaryLogin {
-            user: resolved.user,
+            user,
             return_path: flow.return_path.unwrap_or_else(|| "/".to_string()),
             provider_key: provider.key,
-            issuer: claims.identity_namespace,
-            subject: claims.subject,
-            linked: resolved.linked,
-            auto_provisioned: resolved.auto_provisioned,
+            issuer: flow.identity_namespace,
+            subject: flow.subject,
+            linked: false,
+            auto_provisioned: false,
+            pending_link: Some(super::PendingExternalLink {
+                flow_id: flow.id,
+                browser_pfoxum: browser_proof.unwrap_or_default().to_string(),
+            }),
         },
     })
 }

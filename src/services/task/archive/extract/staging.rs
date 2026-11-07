@@ -18,7 +18,7 @@ use crate::services::{
             ArchiveScanEntry, ArchiveScanLimits, ArchiveScanNamePolicy,
             ensure_archive_scan_deadline,
         },
-        zip_scan::scan_zip_archive,
+        zip_scan::{open_zip_archive, scan_zip_archive},
     },
     task::{
         archive::common::copy_reader_to_writer_with_execution_and_expected_size,
@@ -285,9 +285,10 @@ pub(super) fn stage_zip_archive_for_extract(
     } = params;
     let file = std::fs::File::open(archive_path)
         .map_aster_err_ctx("open source archive", AsterError::storage_driver_error)?;
-    let mut archive = zip::ZipArchive::new(file)
-        .map_aster_err_with(|| AsterError::validation_error("invalid zip archive"))?;
     let deadline = options.limits.deadline();
+    let mut archive = open_zip_archive(file, deadline).map_aster_err_with(|| {
+        AsterError::validation_error("invalid zip archive or metadata budget exceeded")
+    })?;
     set_archive_staging_reading_step(handle, db, context, steps, None, 0)?;
     let preflight = scan_zip_archive(
         &mut archive,
@@ -337,11 +338,23 @@ pub(super) fn stage_zip_archive_for_extract(
             max_files: options.limits.max_files,
         };
 
+        let entries = archive
+            .files()
+            .map_aster_err_with(|| AsterError::validation_error("invalid zip archive"))?;
+        // The complete bounded metadata preflight has succeeded. Entry payloads
+        // have their own exact-size, ratio, deadline and cancellation checks.
+        entries.reader_mut().finish_metadata();
         for manifest_entry in &preflight.entries {
             context.ensure_active()?;
             ensure_archive_scan_deadline(deadline)?;
-            let mut entry = archive
-                .by_index(manifest_entry.index)
+            let descriptor = entries
+                .next()
+                .ok_or_else(|| {
+                    AsterError::validation_error("archive entry disappeared after preflight")
+                })?
+                .map_aster_err_with(|| AsterError::validation_error("invalid zip archive entry"))?;
+            let mut entry = descriptor
+                .with_reader(entries.reader_mut(), zip::ZipReadOptions::default())
                 .map_aster_err_with(|| AsterError::validation_error("invalid zip archive entry"))?;
             ensure_archive_entry_matches_preflight(&entry, manifest_entry)?;
             let relative_path = &manifest_entry.relative_path;

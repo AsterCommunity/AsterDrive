@@ -6,6 +6,7 @@ use super::paths::{
 use super::schema::Config;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use config::{Config as RawConfig, Environment, File, FileFormat};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use toml_edit::{DocumentMut, Item, Table, value};
 
@@ -96,6 +97,39 @@ fn map_static_config_error(error: config::ConfigError) -> AsterError {
     }
 }
 
+/// config::Environment folds case and replaces `__` with `.` before merging.
+/// Reject colliding spellings instead of allowing process-environment iteration
+/// order to choose authentication or deployment authority. Values are never read.
+fn validate_environment_key_collisions(keys: impl IntoIterator<Item = String>) -> Result<()> {
+    let mut seen = HashSet::new();
+    for key in keys {
+        let folded = key.to_lowercase();
+        let Some(key) = folded.strip_prefix("aster__") else {
+            continue;
+        };
+        let key = key.replace("__", ".");
+        if !seen.insert(key.clone()) {
+            let diagnostic_key = key
+                .chars()
+                .take(96)
+                .filter(|character| {
+                    character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-')
+                })
+                .collect::<String>();
+            return Err(AsterError::config_error(format!(
+                "multiple environment variables normalize to configuration key '{diagnostic_key}' (values redacted)"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_process_environment_keys() -> Result<()> {
+    validate_environment_key_collisions(
+        std::env::vars_os().filter_map(|(key, _)| key.into_string().ok()),
+    )
+}
+
 pub fn load() -> Result<LoadedConfig> {
     let base_dir = std::env::current_dir()
         .map_aster_err_ctx("failed to resolve current dir", AsterError::config_error)?;
@@ -114,6 +148,9 @@ fn load_from_path(
     env_database_url: Option<&str>,
     include_env: bool,
 ) -> Result<LoadedConfig> {
+    if include_env {
+        validate_process_environment_keys()?;
+    }
     let default_created = ensure_default_config_exists(config_path, &Config::default())?;
     let stable_defaults_config = ensure_stable_default_config_keys(config_path, None)?;
     let stable_defaults_added = stable_defaults_config.is_some();
@@ -163,6 +200,9 @@ fn load_read_only_from_path(
     config_path: &Path,
     include_env: bool,
 ) -> Result<Config> {
+    if include_env {
+        validate_process_environment_keys()?;
+    }
     let mut builder = RawConfig::builder().add_source(File::from(config_path).required(false));
     if include_env {
         builder = builder.add_source(
@@ -192,6 +232,45 @@ fn ensure_default_config_exists(config_path: &Path, default: &Config) -> Result<
     Ok(true)
 }
 
+/// Never truncate through a link, or expose generated keys before tightening permissions.
+fn write_private_config(path: &Path, content: &str, create: bool) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(create);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600).custom_flags(
+            (rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::NONBLOCK).bits() as i32,
+        );
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.custom_flags(0x0020_0000); // FILE_FLAG_OPEN_REPARSE_POINT
+    }
+    let mut file = options.open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Err(std::io::Error::other(
+            "configuration must be a regular file",
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        if metadata.nlink() != 1 {
+            return Err(std::io::Error::other(
+                "configuration must not have hard-link aliases",
+            ));
+        }
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
+    file.set_len(0)?;
+    file.write_all(content.as_bytes())?;
+    file.sync_all()
+}
+
 fn create_default_config(config_path: &Path, default: &Config) -> Result<()> {
     let toml_str = toml::to_string_pretty(default)
         .map_err(|_| AsterError::config_error("failed to serialize static configuration"))?;
@@ -211,7 +290,7 @@ fn create_default_config(config_path: &Path, default: &Config) -> Result<()> {
         )?;
     }
 
-    std::fs::write(config_path, &content).map_aster_err_ctx(
+    write_private_config(config_path, &content, true).map_aster_err_ctx(
         &format!("failed to write {}", config_path.display()),
         AsterError::config_error,
     )?;
@@ -275,7 +354,7 @@ fn ensure_stable_default_config_keys(
     }
 
     let updated = doc.to_string();
-    if let Err(error) = std::fs::write(config_path, &updated) {
+    if let Err(error) = write_private_config(config_path, &updated, false) {
         return Err(AsterError::config_error(format!(
             "failed to persist generated stable configuration keys to {}: {error}. Fix config file permissions before starting",
             config_path.display()
@@ -400,11 +479,51 @@ impl ConfigLocation {
 
 #[cfg(test)]
 mod tests {
-    use super::{ensure_default_config_exists, load_from_path, load_read_only_from_path};
+    use super::{
+        ensure_default_config_exists, load_from_path, load_read_only_from_path,
+        validate_environment_key_collisions,
+    };
     use crate::config::paths::{
         DEFAULT_CONFIG_PATH, DEFAULT_SQLITE_DATABASE_PATH, DEFAULT_SQLITE_DATABASE_URL,
         DEFAULT_TEMP_DIR, DEFAULT_UPLOAD_TEMP_DIR,
     };
+
+    #[cfg(unix)]
+    #[test]
+    fn generated_config_is_private_and_backfill_rejects_link_aliases() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let dir = make_temp_dir("private-config");
+        let path = dir.join("config.toml");
+        super::write_private_config(&path, "first", true).unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        super::write_private_config(&path, "generated keys", false).unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let alias = dir.join("link.toml");
+        symlink(&path, &alias).unwrap();
+        assert!(super::write_private_config(&alias, "overwrite", false).is_err());
+        std::fs::remove_file(&alias).unwrap();
+        std::fs::hard_link(&path, &alias).unwrap();
+        assert!(super::write_private_config(&alias, "overwrite", false).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "generated keys");
+        assert!(super::write_private_config(&path, "overwrite", true).is_err());
+        let fifo = dir.join("config.fifo");
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(super::write_private_config(&fifo, "overwrite", false).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
     use crate::config::{Config, DeploymentProfile, node_mode::NodeRuntimeMode};
     use std::path::{Path, PathBuf};
     use std::process::Command;
@@ -461,6 +580,86 @@ mod tests {
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+
+    #[test]
+    fn environment_paths_follow_parser_case_and_dot_normalization() {
+        for alias in [
+            "aster__auth__jwt_secret",
+            "ASTER__AUTH.JWT_SECRET",
+            "AsTeR__AuTh.Jwt_SeCrEt",
+        ] {
+            let source = config::Environment::with_prefix("ASTER")
+                .separator("__")
+                .source(Some(
+                    [(alias.to_string(), "alias-value".to_string())]
+                        .into_iter()
+                        .collect(),
+                ));
+            let parsed = config::Config::builder()
+                .add_source(source)
+                .build()
+                .unwrap();
+            assert_eq!(parsed.get_string("auth.jwt_secret").unwrap(), "alias-value");
+            let error = validate_environment_key_collisions([
+                "ASTER__AUTH__JWT_SECRET".into(),
+                alias.into(),
+            ])
+            .unwrap_err();
+            assert!(error.to_string().contains("auth.jwt_secret"));
+        }
+        validate_environment_key_collisions([
+            "ASTER__AUTH__JWT_SECRET".into(),
+            "ASTER__SERVER__PORT".into(),
+            "UNRELATED_ENVIRONMENT".into(),
+            "ASTER_CONFIG_FILE".into(),
+        ])
+        .unwrap();
+    }
+
+    #[test]
+    fn conflicting_environment_aliases_fail_closed_before_config_writes() {
+        if !is_isolated_environment_child() {
+            for alias in [
+                "aster__auth__jwt_secret",
+                "ASTER__AUTH.JWT_SECRET",
+                "AsTeR__AuTh.Jwt_SeCrEt",
+            ] {
+                if cfg!(windows) && alias.eq_ignore_ascii_case("ASTER__AUTH__JWT_SECRET") {
+                    // Windows already collapses case-only environment names.
+                    continue;
+                }
+                run_in_isolated_environment(
+                    "config::loader::tests::conflicting_environment_aliases_fail_closed_before_config_writes",
+                    &AUTH_SECRET_ENV_NAMES,
+                    &[
+                        (
+                            "ASTER__AUTH__JWT_SECRET",
+                            "canonical-secret-0123456789-0123456789",
+                        ),
+                        (alias, "attacker-secret-0123456789-0123456789"),
+                    ],
+                );
+            }
+            return;
+        }
+        let dir = make_temp_dir("conflicting-env-alias");
+        let path = dir.join(DEFAULT_CONFIG_PATH);
+        for result in [
+            load_from_path(&dir, &path, None, true).map(|loaded| loaded.config),
+            load_read_only_from_path(&dir, &path, true),
+        ] {
+            let error = result.unwrap_err().to_string();
+            assert!(error.contains("multiple environment variables normalize"));
+            assert!(error.contains("auth.jwt_secret"));
+            assert!(!error.contains("canonical-secret"));
+            assert!(!error.contains("attacker-secret"));
+        }
+        assert!(
+            !path.exists(),
+            "rejected environment must not persist generated credentials"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

@@ -65,7 +65,8 @@ fn ensure_password_change_scope(claims: &Claims, password_change_required: bool)
 }
 
 /// Verifies an access JWT and current writer-side account state, generation and login restriction.
-/// Drive retains the access-expiry window for individual session revocation.
+/// Individual session revocation is immediate: signed access credentials still require the
+/// writer's live session row. A delayed refresh response cannot reinstall usable credentials.
 ///
 /// # Errors
 /// Returns the product authentication rejection or original writer query failure.
@@ -100,6 +101,15 @@ pub async fn authenticate_access_token(
         return Err(AsterError::auth_forbidden("account is disabled"));
     }
     ensure_session_current(&claims, snapshot)?;
+    let session_id = claims.sid.as_str();
+    let session =
+        auth_session_repo::find_by_id_for_user(state.writer_db(), claims.user_id, session_id)
+            .await?
+            .ok_or_else(|| AsterError::auth_token_invalid("session unavailable"))?;
+    match session.revoked_at.is_none() && session.refresh_expires_at > Utc::now() {
+        true => {}
+        false => return Err(AsterError::auth_token_invalid("session revoked or expired")),
+    }
     ensure_password_change_scope(
         &claims,
         super::password_change_required_for_snapshot(state, snapshot),
@@ -246,8 +256,10 @@ pub async fn issue_tokens_for_session(
     Ok((tokens.access_token, tokens.refresh_token))
 }
 
-/// Revokes the current persisted refresh identity. Invalid/expired or already rotated credentials
-/// return `false`; this operation does not change the account generation or revoke access early.
+/// Revoke the signed session identity, not its rotating JTI. Logout may carry the previous cookie
+/// while refresh has committed but its response is still in flight. The stable subject + sid
+/// fences this update to one device, and the refresh CAS rejects a session revoked in either order.
+/// Invalid/expired or non-refresh credentials return false; no account-wide generation is changed.
 ///
 /// # Errors
 /// Returns product signing-policy or writer persistence errors.
@@ -263,10 +275,14 @@ pub async fn revoke_refresh_token(state: &impl SharedRuntimeState, token: &str) 
         }
         return Err(error);
     }
-    let Some(jti) = claims.jti else {
-        return Ok(false);
-    };
-    auth_session_repo::revoke_by_refresh_jti(state.writer_db(), &jti, Utc::now()).await
+    let session_id = claims.sid;
+    auth_session_repo::revoke_by_id_for_user(
+        state.writer_db(),
+        claims.user_id,
+        &session_id,
+        Utc::now(),
+    )
+    .await
 }
 
 /// Uses the product's current runtime TTLs for both login and refresh issuance.

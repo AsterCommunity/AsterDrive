@@ -24,5 +24,6 @@
 	"preview_mode_xml": "XML",
 	"table_parse_failed": "表格解析失败",
 	"table_truncated": "文件较大，仅显示前 {{count}} 行",
-	"structured_parse_failed": "结构化解析失败，建议切回源码视图"
+	"structured_parse_failed": "结构化解析失败，建议切回源码视图",
+	"structured_preview_limited": "内容较大，已简化或截取预览；可下载查看完整文件"
 }

@@ -14,10 +14,7 @@ use crate::db::repository::{file_repo, folder_repo, share_repo};
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
-    files::batch,
-    user::account,
-    user::profile,
-    workspace::storage::{self, WorkspaceStorageScope},
+    files::batch, user::account, user::profile, workspace::storage::WorkspaceStorageScope,
 };
 use aster_drive_model::entities::share;
 use aster_forge_api::{OffsetPage, SortOrder};
@@ -54,7 +51,13 @@ pub(crate) async fn create_share_in_scope(
         max_downloads,
         "creating share"
     );
-    storage::require_scope_access_with_db(state, db, scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        db,
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
 
     validate_max_downloads(max_downloads)?;
 
@@ -152,7 +155,13 @@ pub(crate) async fn list_shares_paginated_in_scope(
         offset,
         "listing paginated shares"
     );
-    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let page = load_offset_page(limit, offset, 100, |limit, offset| async move {
         let (shares, total) = match scope {
             WorkspaceStorageScope::Personal { user_id } => {
@@ -267,7 +276,13 @@ pub(crate) async fn batch_delete_shares_in_scope(
         share_count = share_ids.len(),
         "batch deleting shares"
     );
-    storage::require_scope_access(state, scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let mut result = batch::BatchResult {
         succeeded: 0,
         failed: 0,

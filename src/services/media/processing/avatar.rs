@@ -94,7 +94,7 @@ pub async fn probe_vips_cli_command(command: &str) -> Result<String> {
 
     let probe_command = command.clone();
     let output = tokio::task::spawn_blocking(move || {
-        run_cli_command_with_timeout(&probe_command, &["--version"], |message| {
+        run_cli_command_with_timeout(&probe_command, &["--version"], None, |message| {
             AsterError::validation_error(format!("vips_cli probe failed: {message}"))
         })
     })
@@ -539,6 +539,7 @@ fn run_avatar_vips_variant(
             "--crop",
             "centre",
         ],
+        None,
         |message| file_upload_error_with_code(ApiErrorCode::AvatarRenderFailed, message),
     )?;
     if !output.status.success() {

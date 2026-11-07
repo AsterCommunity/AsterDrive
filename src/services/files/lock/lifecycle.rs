@@ -174,7 +174,7 @@ pub(crate) async fn acquire_after_namespace_lock_on<C: sea_orm::ConnectionTrait>
             continue;
         }
 
-        if locks_overlap(&existing, target, presentation_path.as_deref())
+        if super::enforcement::lock_overlaps_target_on(db, &existing, target).await?
             && (mode == LockMode::Exclusive || existing.mode == LockMode::Exclusive)
         {
             return Err(AsterError::resource_locked("resource is already locked"));
@@ -327,6 +327,52 @@ pub async fn force_unlock_with_audit(
 enum LockSelector<'a> {
     Token(&'a str),
     Id(i64),
+}
+
+pub(crate) enum AuthorizedLockMutation {
+    Release,
+    Refresh {
+        timeout_at: Option<chrono::DateTime<Utc>>,
+    },
+}
+
+/// 本函数使用授权凭证绑定的 transaction；不另开事务，避免“先校验 scope，后按
+/// token 全局改锁”的 TOCTOU。WOPI/协议适配只负责产生目标范围，锁域拥有实际写入。
+pub(crate) async fn mutate_authorized_lock_on<C: sea_orm::ConnectionTrait>(
+    grant: crate::services::workspace::scope::AuthorizedResourceLock<'_, C>,
+    mutation: AuthorizedLockMutation,
+) -> Result<resource_lock::Model> {
+    let db = grant.db();
+    let expected = grant.snapshot();
+    let namespace = lock_namespace_repo::lock_by_id(db, expected.namespace_id).await?;
+    let current = lock_repo::find_by_token_for_update(db, &expected.token)
+        .await?
+        .ok_or_else(|| AsterError::record_not_found("lock not found"))?;
+    match current.namespace_id == expected.namespace_id
+        && current.root_kind == expected.root_kind
+        && current.root_folder_id == expected.root_folder_id
+        && current.root_file_id == expected.root_file_id
+    {
+        true => {}
+        false => {
+            return Err(AsterError::resource_locked(
+                "lock target changed after authorization",
+            ));
+        }
+    }
+    let updated = match mutation {
+        AuthorizedLockMutation::Release => {
+            lock_repo::delete_by_id(db, current.id).await?;
+            current
+        }
+        AuthorizedLockMutation::Refresh { timeout_at } => {
+            let mut active = current.into_active_model();
+            active.timeout_at = Set(timeout_at);
+            active.update(db).await?
+        }
+    };
+    increment_generation(db, namespace).await?;
+    Ok(updated)
 }
 
 async fn release_snapshot_on(
@@ -542,49 +588,6 @@ fn origin_for_owner_info(owner_info: Option<&ResourceLockOwnerInfo>) -> LockOrig
         Some(ResourceLockOwnerInfo::Wopi(_)) => LockOrigin::Wopi,
         Some(ResourceLockOwnerInfo::Text(_)) | None => LockOrigin::Product,
     }
-}
-
-fn locks_overlap(
-    existing: &resource_lock::Model,
-    requested: LockTarget,
-    requested_path: Option<&str>,
-) -> bool {
-    if existing.root_kind == requested.root.persistence_parts().0
-        && existing.root_folder_id == requested.root.persistence_parts().1
-        && existing.root_file_id == requested.root.persistence_parts().2
-    {
-        return true;
-    }
-    if matches!(
-        existing.root_kind,
-        aster_drive_model::types::LockRootKind::WorkspaceRoot
-    ) && existing.depth == LockDepth::Infinity
-    {
-        return true;
-    }
-    if matches!(requested.root, LockRoot::WorkspaceRoot) && requested.depth == LockDepth::Infinity {
-        return true;
-    }
-
-    let (Some(existing_path), Some(requested_path)) =
-        (existing.lockroot_path.as_deref(), requested_path)
-    else {
-        return false;
-    };
-    path_is_ancestor(existing_path, requested_path) && existing.depth == LockDepth::Infinity
-        || path_is_ancestor(requested_path, existing_path) && requested.depth == LockDepth::Infinity
-}
-
-fn path_is_ancestor(ancestor: &str, descendant: &str) -> bool {
-    if ancestor == descendant {
-        return true;
-    }
-    let prefix = if ancestor.ends_with('/') {
-        ancestor.to_string()
-    } else {
-        format!("{ancestor}/")
-    };
-    descendant.starts_with(&prefix)
 }
 
 fn usize_to_u64(value: usize, label: &str) -> Result<u64> {

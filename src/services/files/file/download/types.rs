@@ -16,10 +16,6 @@ pub struct StreamedFile {
     /// HTTP Range 响应元数据。None 表示完整文件 200 响应。
     pub(crate) range: Option<ResolvedDownloadRange>,
     pub body: ReaderStream<Box<dyn tokio::io::AsyncRead + Unpin + Send>>,
-    /// 流未走到 EOF 就被 drop 时触发的 hook（客户端中途断连、actix 丢弃 response 等）。
-    /// 分享下载用它在断连时回滚 `download_count`，避免"发起一次就计一次、哪怕没发完"的
-    /// 虚增和提前触碰 `max_downloads`。
-    pub on_abort: Option<Box<dyn FnOnce() + Send + 'static>>,
 }
 
 /// 服务层下载结果。路由层根据变体组装 HttpResponse，服务层不接触 actix_web::HttpResponse。

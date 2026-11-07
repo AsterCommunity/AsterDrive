@@ -211,6 +211,33 @@ describe("FolderTree", () => {
 		expect(screen.getByText("skeleton:4")).toBeInTheDocument();
 	});
 
+	it("does not install an earlier account's delayed folder list", async () => {
+		mockState.pathname = "/folder/99";
+		let finishOldList!: (value: {
+			folders: ReturnType<typeof createFolder>[];
+		}) => void;
+		const oldList = new Promise<{ folders: ReturnType<typeof createFolder>[] }>(
+			(resolve) => {
+				finishOldList = resolve;
+			},
+		);
+		mockState.listRoot
+			.mockReturnValueOnce(oldList)
+			.mockResolvedValue({ folders: [createFolder(2, "New account folder")] });
+		const { FolderTree } = await import("@/components/folders/FolderTree");
+		const view = render(<FolderTree />);
+		await waitFor(() => expect(mockState.listRoot).toHaveBeenCalledTimes(1));
+		mockState.auth.user = { id: 9 };
+		view.rerender(<FolderTree />);
+		await screen.findByText("New account folder");
+		finishOldList({ folders: [createFolder(1, "Old account secret")] });
+		await oldList;
+		await waitFor(() =>
+			expect(screen.queryByText("Old account secret")).not.toBeInTheDocument(),
+		);
+		expect(screen.getByText("New account folder")).toBeInTheDocument();
+	});
+
 	it("loads root folders and reuses the cached snapshot on remount", async () => {
 		mockState.pathname = "/folder/99";
 		mockState.fileStore.folders = [

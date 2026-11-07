@@ -92,7 +92,13 @@ pub(crate) async fn preview_file_in_scope(
     filename_encoding: ArchiveFilenameEncoding,
 ) -> Result<ArchivePreviewManifestLookup> {
     ensure_user_preview_enabled(state)?;
-    storage::require_scope_access(state, scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let source_file = storage::verify_file_access_for_read(state, scope, file_id).await?;
     storage::ensure_active_file_scope(&source_file, scope)?;
     preview_verified_file(state, &source_file, filename_encoding).await

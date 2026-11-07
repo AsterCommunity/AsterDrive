@@ -6,9 +6,11 @@ use async_trait::async_trait;
 use url::Url;
 
 use crate::config::operations;
-use crate::errors::{AsterError, Result};
+use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
 use aster_forge_tasks::{TaskStepInfo, set_task_step_active};
+use sha2::Digest;
+use tokio::io::AsyncReadExt;
 
 use super::super::steps::TASK_STEP_DOWNLOAD_SOURCE;
 use super::super::{mark_task_progress, set_task_display_name, set_task_runtime_json};
@@ -35,9 +37,17 @@ pub(in crate::services::task) struct OfflineDownloadComplete {
     pub(super) sha256: String,
     pub(super) engine: Option<operations::OfflineDownloadEngine>,
     declared_content_length: Option<i64>,
+    pub(super) source: Option<super::staging::SealedDownload>,
 }
 
 impl OfflineDownloadComplete {
+    pub(super) fn source_path(&self) -> Result<&std::path::Path> {
+        self.source
+            .as_ref()
+            .map(|source| source.path())
+            .ok_or_else(|| AsterError::internal_error("offline source was not sealed"))
+    }
+
     pub(super) fn new(
         final_url: Url,
         response_filename: Option<String>,
@@ -52,6 +62,7 @@ impl OfflineDownloadComplete {
             sha256,
             engine: None,
             declared_content_length,
+            source: None,
         }
     }
 
@@ -95,6 +106,11 @@ pub(super) async fn download_with_enabled_engines(
 ) -> Result<OfflineDownloadComplete> {
     let mut last_error = None;
     let mut request = request;
+    let task_dir = request
+        .temp_path
+        .parent()
+        .ok_or_else(|| AsterError::internal_error("offline staging has no task directory"))?
+        .to_owned();
     for (index, engine_kind) in selection.engine_kinds.iter().copied().enumerate() {
         context.ensure_active()?;
         let lease_guard = context.lease_guard();
@@ -121,11 +137,67 @@ pub(super) async fn download_with_enabled_engines(
             selection.max_bytes,
             selection.timeout,
         )?;
+        let attempt = super::staging::prepare_attempt(
+            &task_dir,
+            matches!(engine_kind, operations::OfflineDownloadEngine::Aria2),
+        )
+        .await?;
+        request.temp_path = attempt.source_path().to_owned();
         match engine
             .download(state, context, request.clone(), steps)
             .await
         {
-            Ok(downloaded) => return Ok(downloaded.with_engine(engine_kind)),
+            Ok(mut downloaded) => {
+                context.ensure_active()?;
+                let mut sealed = attempt.seal().await?;
+                let size = aster_forge_utils::numbers::u64_to_i64(
+                    sealed
+                        .file_mut()
+                        .metadata()
+                        .await
+                        .map_aster_err_ctx(
+                            "stat sealed offline source",
+                            AsterError::storage_driver_error,
+                        )?
+                        .len(),
+                    "sealed offline source size",
+                )?;
+                super::ensure_download_size_allowed(size, selection.max_bytes)?;
+                if size <= 0 || downloaded.bytes_written != size {
+                    return Err(AsterError::validation_error(
+                        "offline source size changed before import",
+                    ));
+                }
+                // Builtin hashes during its exclusive stream write; aria2 is
+                // hashed once from this protected handle after completion.
+                if downloaded.sha256.is_empty() {
+                    let mut hasher = aster_forge_crypto::new_sha256();
+                    let mut buffer = vec![0u8; 64 * 1024];
+                    loop {
+                        context.ensure_active()?;
+                        let read = sealed
+                            .file_mut()
+                            .read(&mut buffer)
+                            .await
+                            .map_aster_err_ctx(
+                                "hash sealed offline source",
+                                AsterError::storage_driver_error,
+                            )?;
+                        if read == 0 {
+                            break;
+                        }
+                        hasher.update(&buffer[..read]);
+                    }
+                    downloaded.sha256 =
+                        aster_forge_crypto::sha256_digest_to_hex(&hasher.finalize());
+                }
+                super::verify_expected_sha256(
+                    request.expected_sha256.as_deref(),
+                    &downloaded.sha256,
+                )?;
+                downloaded.source = Some(sealed);
+                return Ok(downloaded.with_engine(engine_kind));
+            }
             Err(error) => {
                 if !should_try_next_offline_download_engine(&error)
                     || index + 1 >= selection.engine_kinds.len()

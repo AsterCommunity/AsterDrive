@@ -24,7 +24,6 @@ use crate::services::files::upload::session::scope::{
     load_upload_session, personal_scope, team_scope,
 };
 use crate::services::files::upload::session::shared::expected_chunk_size_for_upload;
-use crate::services::workspace::storage;
 use aster_drive_model::entities::upload_session;
 use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
 use aster_drive_storage::BrowserUploadRequest;
@@ -48,6 +47,24 @@ async fn get_progress_impl(
     );
 
     let kind = resolve_upload_session_kind(&session)?;
+    if session.status == UploadSessionStatus::Completed
+        && matches!(
+            kind,
+            UploadSessionKind::ProviderDirectResumable | UploadSessionKind::ProviderRelayResumable
+        )
+    {
+        return Ok(UploadProgressResponse {
+            upload_id: session.id,
+            status: session.status,
+            received_count: session.total_chunks,
+            chunks_on_disk: Vec::new(),
+            chunk_size: session.chunk_size,
+            total_chunks: session.total_chunks,
+            filename: session.filename,
+            provider_resumable: None,
+            upload_scheduling: scheduling_for_kind(kind),
+        });
+    }
     let (chunks_on_disk, provider_resumable) = match kind {
         UploadSessionKind::Stream => (Vec::new(), None),
         UploadSessionKind::ProviderPresignedMultipart
@@ -317,7 +334,16 @@ pub async fn list_recoverable_sessions_for_team(
     user_id: i64,
     frontend_client_id: Option<&str>,
 ) -> Result<Vec<RecoverableUploadSessionResponse>> {
-    storage::require_team_access(state, team_id, user_id).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        crate::services::workspace::scope::WorkspaceStorageScope::Team {
+            team_id,
+            actor_user_id: user_id,
+        },
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     list_recoverable_sessions_impl(state, user_id, Some(team_id), frontend_client_id).await
 }
 

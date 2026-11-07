@@ -225,12 +225,31 @@ pub async fn finish_callback(
         )
         .await?;
 
+    // Provider exchange is external I/O. Re-read its current settings afterwards instead of
+    // authorizing a returned identity with an enabled/domain/verified-email snapshot from before
+    // the exchange. Any concurrent settings change requires a fresh login rather than mixing configurations.
+    let current_provider =
+        external_auth_provider_repo::find_by_id(state.writer_db(), provider.id).await?;
+    match current_provider.enabled && current_provider == provider {
+        true => {}
+        false => {
+            return Err(AsterError::auth_forbidden(
+                "external auth provider changed during login",
+            ));
+        }
+    }
+    let provider = current_provider;
+
     if external_auth_claims_missing_email(&user_claims) {
-        // Existing bindings are keyed by issuer + subject, so they may sign in
-        // even when the current callback cannot provide an email snapshot.
-        if let Some(resolved) =
-            resolve_existing_external_auth_identity(state.writer_db(), &user_claims, Utc::now())
-                .await?
+        // Issuer + subject remains the identity. A missing email is allowed only where the
+        // provider's current verified-email/domain policy permits that login explicitly.
+        if let Some(resolved) = resolve_existing_external_auth_identity(
+            state.writer_db(),
+            &provider,
+            &user_claims,
+            Utc::now(),
+        )
+        .await?
         {
             return Ok(ExternalAuthCallbackOutcome::Login(
                 ExternalAuthCallbackResult {
@@ -242,6 +261,7 @@ pub async fn finish_callback(
                         subject: user_claims.subject,
                         linked: resolved.linked,
                         auto_provisioned: resolved.auto_provisioned,
+                        pending_link: None,
                     },
                 },
             ));
@@ -258,6 +278,8 @@ pub async fn finish_callback(
             &provider,
             &user_claims,
             flow.return_path.clone(),
+            browser_binding_secret,
+            None,
         )
         .await?;
         return Ok(ExternalAuthCallbackOutcome::EmailVerificationRequired(
@@ -273,6 +295,8 @@ pub async fn finish_callback(
                 &provider,
                 &user_claims,
                 flow.return_path.clone(),
+                browser_binding_secret,
+                None,
             )
             .await?;
             return Ok(ExternalAuthCallbackOutcome::EmailVerificationRequired(
@@ -281,6 +305,24 @@ pub async fn finish_callback(
         }
     };
 
+    let pending_link = if resolved.linked && !resolved.auto_provisioned {
+        // Even verified-email automatic association must wait for this account's MFA.
+        let pending = create_pending_email_verification_flow(
+            state,
+            &provider,
+            &user_claims,
+            flow.return_path.clone(),
+            browser_binding_secret,
+            user_claims.email.as_deref(),
+        )
+        .await?;
+        Some(super::PendingExternalLink {
+            flow_id: pending.flow_id,
+            browser_pfoxum: browser_binding_secret.to_string(),
+        })
+    } else {
+        None
+    };
     Ok(ExternalAuthCallbackOutcome::Login(
         ExternalAuthCallbackResult {
             primary_login: ExternalAuthPrimaryLogin {
@@ -289,8 +331,9 @@ pub async fn finish_callback(
                 provider_key: provider.key,
                 issuer: user_claims.identity_namespace,
                 subject: user_claims.subject,
-                linked: resolved.linked,
+                linked: resolved.linked && pending_link.is_none(),
                 auto_provisioned: resolved.auto_provisioned,
+                pending_link,
             },
         },
     ))

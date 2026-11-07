@@ -5,10 +5,12 @@
 mod common;
 
 mod archive_preview;
+mod authorization_contract;
 mod batch;
 mod directory_upload;
 mod edit;
 mod files;
+mod folder_depth;
 mod folders;
 mod media_metadata;
 mod pagination;
@@ -21,6 +23,7 @@ mod thumbnail;
 mod trash;
 mod trash_coordination;
 mod upload;
+mod write_admission;
 
 mod activities;
 

@@ -666,7 +666,7 @@ pub async fn finish_storage_authorization(
         Err(error) => {
             let reason = error.reason().as_str();
             tracing::warn!(
-                error = %error,
+                error = ?error.to_string(),
                 reason,
                 "storage authorization callback failed"
             );

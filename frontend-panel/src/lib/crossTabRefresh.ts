@@ -1,6 +1,25 @@
 const REFRESH_LOCK_KEY = "aster-auth-refresh-lock";
 const REFRESH_EVENT_KEY = "aster-auth-refresh-event";
 const REFRESH_CHANNEL_NAME = "aster-auth-refresh";
+const LOGOUT_EVENT_KEY = "aster-auth-logout";
+
+/** An opaque lifecycle marker, containing no account data or credential. Comparing it also
+ * fences a response before the browser dispatches the other tab's storage event. */
+export function getLogoutEpoch(): string | null {
+	return localStorage.getItem(LOGOUT_EVENT_KEY);
+}
+
+export function broadcastLogout() {
+	localStorage.setItem(LOGOUT_EVENT_KEY, crypto.randomUUID());
+}
+
+export function subscribeLogout(listener: () => void) {
+	const onStorage = (event: StorageEvent) => {
+		if (event.key === LOGOUT_EVENT_KEY && event.newValue !== null) listener();
+	};
+	window.addEventListener("storage", onStorage);
+	return () => window.removeEventListener("storage", onStorage);
+}
 // Keep this below the backend same-client stale-refresh grace window. If a tab
 // dies after the server rotates the refresh JTI but before it broadcasts the
 // result, a waiter may take over with the old cookie when the lease expires.
@@ -36,6 +55,9 @@ type PeerWaitResult =
 
 type RunWithCrossTabRefreshLockOptions = {
 	classifyError?: (error: unknown) => RefreshFailureKind;
+	/** Logout must execute its own request after a peer completes, even if that peer failed.
+	 * A peer refresh success is only a reusable result for another refresh. */
+	operation?: "refresh" | "logout";
 };
 
 class PeerRefreshFailedError extends Error {
@@ -473,7 +495,7 @@ async function refreshWithoutConfirmedLock(
 	}
 }
 
-export async function runWithCrossTabRefreshLock(
+async function runWithRefreshLease(
 	refresh: () => Promise<void>,
 	options: RunWithCrossTabRefreshLockOptions = {},
 ): Promise<boolean> {
@@ -508,6 +530,7 @@ export async function runWithCrossTabRefreshLock(
 			deadline,
 			waitStartedAt,
 		);
+		if (options.operation === "logout" && peerResult !== "timeout") continue;
 		if (peerResult === "success") {
 			return false;
 		}
@@ -523,4 +546,19 @@ export async function runWithCrossTabRefreshLock(
 	}
 
 	throw new PeerRefreshTimedOutError();
+}
+
+/** Web Locks provide a real origin-wide mutex where available, including suspended tabs.
+ * The existing heartbeat lease remains the fallback for older clients. Server-side stable
+ * session revocation is the security boundary if a fallback lease expires before HTTP settles. */
+export async function runWithCrossTabRefreshLock(
+	operation: () => Promise<void>,
+	options: RunWithCrossTabRefreshLockOptions = {},
+): Promise<boolean> {
+	if (typeof navigator !== "undefined" && navigator.locks) {
+		return navigator.locks.request(REFRESH_LOCK_KEY, () =>
+			runWithRefreshLease(operation, options),
+		);
+	}
+	return runWithRefreshLease(operation, options);
 }

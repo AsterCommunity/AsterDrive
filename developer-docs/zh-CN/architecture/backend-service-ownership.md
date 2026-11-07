@@ -462,7 +462,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 
 必须显式的副作用：
 
-- nonce cache 写入
+- writer 数据库一次性 nonce 预留（失败拒绝，不降级为独立缓存）
 - driver registry reload
 - disabled binding / missing ingress target 的 precondition 错误
 
@@ -578,3 +578,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 - 给被移动的规则补 focused tests
 - 避免为了“架构纯净”引入框架式新层
 - 避免把清楚的 AsterDrive 业务名改成空泛的 manager/helper/object
+
+## Workspace 与资源授权
+
+文件、协议、任务、公开能力及受控管理员查看的授权入口、提交凭证、事务顺序和回归矩阵见 [Workspace 与资源操作授权契约](../design/workspace-authorization.md)。`WorkspaceStorageScope` 是待校验的目标输入；授权结果不持久化，延迟发布重新检查当前资格。认证来源、资源归属和锁凭据分别保留各自语义。

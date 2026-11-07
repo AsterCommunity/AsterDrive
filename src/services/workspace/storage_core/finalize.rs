@@ -10,11 +10,12 @@ use crate::services::events::storage_change;
 use crate::services::workspace::scope::WorkspaceStorageScope;
 use aster_drive_model::entities::{file, file_blob, upload_session};
 
-use super::file_record::{
-    create_new_file_from_blob, create_new_file_from_blob_with_actor_username,
-};
+use super::file_record::{CreateFileFromBlobParams, NewFileNameMode, create_file_from_blob};
 use super::quota::update_storage_used;
 use crate::services::files::upload::upload_status_conflict;
+use crate::services::workspace::scope::{
+    WorkspaceAccessConstraints, WorkspaceOperation, authorize_workspace_on,
+};
 
 pub(crate) async fn finalize_upload_session_blob_with_actor_username<C: ConnectionTrait>(
     db: &C,
@@ -28,32 +29,33 @@ pub(crate) async fn finalize_upload_session_blob_with_actor_username<C: Connecti
     // 这样调用方只要看到 completed，就能推定文件记录已经可见且额度已落账。
     let scope = scope_from_session(session);
     let started_at = Instant::now();
-    let created = match actor_username {
-        Some(username) => {
-            create_new_file_from_blob_with_actor_username(
-                db,
-                scope,
-                session.folder_id,
-                &session.filename,
-                blob,
-                now,
-                username,
-            )
-            .await?
-        }
-        None => {
-            create_new_file_from_blob(
-                db,
-                scope,
-                session.folder_id,
-                &session.filename,
-                blob,
-                now,
-                aster_drive_model::types::AuditAction::FileUpload,
-            )
-            .await?
-        }
-    };
+    // Session 归属只定位上传意图，不是永久授权。成员离开团队后，旧 session
+    // 不能继续发布；父集合锁也必须在最终写入事务中满足。
+    let access = authorize_workspace_on(
+        db,
+        scope,
+        WorkspaceOperation::CreateFile,
+        &WorkspaceAccessConstraints::default(),
+    )
+    .await?;
+    let creation = access
+        .for_file_creation(
+            session.folder_id,
+            &crate::services::files::lock::SubmittedLockCredentials::none(),
+        )
+        .await?;
+    let created = create_file_from_blob(CreateFileFromBlobParams {
+        creation: &creation,
+        activity_source: crate::services::workspace::activity::ActivitySource::Rest,
+        creation_action: aster_drive_model::types::AuditAction::FileUpload,
+        filename: &session.filename,
+        blob,
+        now,
+        name_mode: NewFileNameMode::ResolveUnique,
+        actor_username,
+        mime_type: None,
+    })
+    .await?;
     let create_elapsed_ms = started_at.elapsed().as_millis();
 
     let quota_started_at = Instant::now();
@@ -130,6 +132,14 @@ async fn finalize_upload_session_file_impl(
             let actor_username = transaction_actor_username.clone();
             let now = transaction_now;
             Box::pin(async move {
+                // Namespace/权限 guard 必须先于 quota/blob 行，所有发布入口顺序一致。
+                authorize_workspace_on(
+                    txn,
+                    scope,
+                    WorkspaceOperation::CreateFile,
+                    &WorkspaceAccessConstraints::default(),
+                )
+                .await?;
                 super::quota::lock_storage_usage(txn, scope).await?;
                 let blob =
                     file_repo::find_or_create_blob(txn, &file_hash, size, policy_id, &storage_path)

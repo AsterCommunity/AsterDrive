@@ -15,6 +15,58 @@ fn write_temp_fixture(name: &str, contents: &str) -> String {
 }
 
 #[actix_web::test]
+async fn lock_discovery_bounds_materialized_wide_owner_trees_before_page_clones() {
+    use aster_drive::services::files::folder;
+    use aster_drive::webdav::backend::lock::DbLockSystem;
+    use aster_forge_webdav::{DavBackendErrorKind, DavLockSystem, DavPath, DavXmlElement};
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "owner-budget",
+        "owner-budget@example.com",
+        "pass1234",
+    )
+    .await
+    .unwrap();
+    folder::create(&state, user.id, "locked", None)
+        .await
+        .unwrap();
+    let locks = DbLockSystem::new(state, user.id, None);
+    let root = DavPath::new("/locked/").unwrap();
+    let xml = format!(
+        "<D:owner xmlns:D=\"DAV:\">{}</D:owner>",
+        "<x/>".repeat(2_000)
+    );
+    assert!(xml.len() < 10_000);
+    let owner = DavXmlElement::parse(xml.as_bytes()).unwrap();
+    let acquired = locks
+        .lock(DavLockAcquireRequest {
+            path: &root,
+            principal: None,
+            owner: Some(&owner),
+            timeout: Some(Duration::from_secs(120)),
+            shared: false,
+            deep: true,
+            credentials: DavMutationCredentials::default(),
+        })
+        .await
+        .unwrap();
+    let few = [
+        DavPath::new("/locked/a").unwrap(),
+        DavPath::new("/locked/b").unwrap(),
+    ];
+    let normal = locks.discover_many(&few).await.unwrap();
+    assert_eq!(normal[&few[0]][0].token, acquired.lock.token);
+    assert_eq!(normal[&few[1]][0].owner, Some(Box::new(owner)));
+    let page = (0..256)
+        .map(|i| DavPath::new(&format!("/locked/item-{i}")).unwrap())
+        .collect::<Vec<_>>();
+    let error = locks.discover_many(&page).await.unwrap_err();
+    assert_eq!(error.kind, DavBackendErrorKind::InsufficientStorage);
+}
+
+#[actix_web::test]
 async fn test_db_lock_system_deep_lock_supports_check_refresh_discover_and_delete() {
     use aster_drive::db::repository::lock_repo;
     use aster_drive::services::{files::file, files::folder};
@@ -967,4 +1019,90 @@ async fn test_db_lock_system_scopes_same_path_to_workspace_namespace() {
         .expect("same URI in another workspace should be independently lockable")
         .lock;
     assert_ne!(first_lock.token, second_lock.token);
+    // 同路径跨 namespace 的 token 不能通过另一账号释放或续期，且拒绝无副作用。
+    assert!(
+        second_system
+            .unlock(&path, &first_lock.token)
+            .await
+            .is_err()
+    );
+    assert!(
+        second_system
+            .refresh(&path, &first_lock.token, Some(Duration::from_secs(300)))
+            .await
+            .is_err()
+    );
+    let retained =
+        aster_drive::db::repository::lock_repo::find_by_token(state.writer_db(), &first_lock.token)
+            .await
+            .unwrap()
+            .expect("foreign lock must survive rejected lifecycle requests");
+    assert!(retained.timeout_at.unwrap() < chrono::Utc::now() + chrono::Duration::seconds(120));
+}
+
+/// 同 workspace 的两个受限挂载都能有 `/same.txt`，呈现路径相等不代表同一资源。
+#[actix_web::test]
+async fn restricted_roots_do_not_discover_or_mutate_each_others_lock_tokens() {
+    use aster_drive::services::files::{file, folder};
+    use aster_drive::webdav::backend::lock::DbLockSystem;
+    use aster_forge_webdav::{DavLockSystem, DavPath};
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "root-locks",
+        "root-locks@example.test",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let left = folder::create(&state, user.id, "left", None).await.unwrap();
+    let right = folder::create(&state, user.id, "right", None)
+        .await
+        .unwrap();
+    for root in [left.id, right.id] {
+        let temp = write_temp_fixture("same.txt", "fixture");
+        file::store_from_temp(
+            &state,
+            user.id,
+            file::StoreFromTempRequest::new(Some(root), "same.txt", &temp, 7),
+        )
+        .await
+        .unwrap();
+    }
+    let left_system = DbLockSystem::new(state.clone(), user.id, Some(left.id));
+    let right_system = DbLockSystem::new(state.clone(), user.id, Some(right.id));
+    let path = DavPath::new("/same.txt").unwrap();
+    let locked = left_system
+        .lock(DavLockAcquireRequest {
+            path: &path,
+            principal: None,
+            owner: None,
+            timeout: Some(Duration::from_secs(60)),
+            shared: false,
+            deep: false,
+            credentials: DavMutationCredentials::default(),
+        })
+        .await
+        .unwrap()
+        .lock;
+    assert!(right_system.discover(&path).await.unwrap().is_empty());
+    assert!(
+        right_system
+            .discover_many(std::slice::from_ref(&path))
+            .await
+            .unwrap()[&path]
+            .is_empty()
+    );
+    assert!(right_system.unlock(&path, &locked.token).await.is_err());
+    assert!(
+        right_system
+            .refresh(&path, &locked.token, Some(Duration::from_secs(300)))
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        left_system.discover(&path).await.unwrap()[0].token,
+        locked.token
+    );
+    left_system.unlock(&path, &locked.token).await.unwrap();
 }

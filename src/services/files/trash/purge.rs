@@ -9,9 +9,7 @@ use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{
-    events::storage_change,
-    files::file,
-    workspace::storage::{self, WorkspaceStorageScope},
+    events::storage_change, files::file, workspace::storage::WorkspaceStorageScope,
 };
 
 /// 永久删除单个文件
@@ -101,31 +99,32 @@ pub(crate) async fn purge_all_in_scope_silent(
     lease: Option<aster_forge_tasks::TaskLease>,
 ) -> Result<PurgeAllSummary> {
     tracing::debug!(scope = ?scope, "purging all trash contents");
-    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let mut summary = PurgeAllSummary::default();
 
     let mut folder_cursor: Option<(chrono::DateTime<chrono::Utc>, i64)> = None;
     loop {
-        let (top_folders, _) = match scope {
+        let folder_scope = match scope {
             WorkspaceStorageScope::Personal { user_id } => {
-                folder_repo::find_top_level_deleted_cursor(
-                    state.writer_db(),
-                    user_id,
-                    PURGE_ALL_BATCH_SIZE,
-                    folder_cursor,
-                )
-                .await?
+                folder_repo::FolderScope::Personal { user_id }
             }
             WorkspaceStorageScope::Team { team_id, .. } => {
-                folder_repo::find_top_level_deleted_by_team_cursor(
-                    state.writer_db(),
-                    team_id,
-                    PURGE_ALL_BATCH_SIZE,
-                    folder_cursor,
-                )
-                .await?
+                folder_repo::FolderScope::Team { team_id }
             }
         };
+        let top_folders = folder_repo::find_top_level_deleted_batch(
+            state.writer_db(),
+            folder_scope,
+            PURGE_ALL_BATCH_SIZE,
+            folder_cursor,
+        )
+        .await?;
         if top_folders.is_empty() {
             break;
         }
@@ -162,26 +161,19 @@ pub(crate) async fn purge_all_in_scope_silent(
 
     let mut file_cursor = None;
     loop {
-        let (top_files, _) = match scope {
+        let file_scope = match scope {
             WorkspaceStorageScope::Personal { user_id } => {
-                file_repo::find_top_level_deleted_paginated(
-                    state.writer_db(),
-                    user_id,
-                    PURGE_ALL_BATCH_SIZE,
-                    file_cursor,
-                )
-                .await?
+                file_repo::FileScope::Personal { user_id }
             }
-            WorkspaceStorageScope::Team { team_id, .. } => {
-                file_repo::find_top_level_deleted_by_team_paginated(
-                    state.writer_db(),
-                    team_id,
-                    PURGE_ALL_BATCH_SIZE,
-                    file_cursor,
-                )
-                .await?
-            }
+            WorkspaceStorageScope::Team { team_id, .. } => file_repo::FileScope::Team { team_id },
         };
+        let top_files = file_repo::find_top_level_deleted_batch(
+            state.writer_db(),
+            file_scope,
+            PURGE_ALL_BATCH_SIZE,
+            file_cursor,
+        )
+        .await?;
         if top_files.is_empty() {
             break;
         }

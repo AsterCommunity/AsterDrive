@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use image::ImageFormat;
 use image::imageops::FilterType;
-use image::{ImageReader, Limits};
+use image::{ImageDecoder, ImageReader, Limits};
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::operations;
@@ -18,13 +18,12 @@ use aster_drive_storage::StorageDriver;
 use aster_forge_utils::raii::TempFileGuard;
 use tokio::io::AsyncWriteExt;
 
-const THUMB_PREFIX: &str = "_thumb";
-const PREVIEW_PREFIX: &str = "_preview";
 pub(crate) const CURRENT_THUMBNAIL_VERSION: &str = "1";
 pub(crate) const CURRENT_IMAGE_PREVIEW_VERSION: &str = "1";
 pub(crate) const IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE: &str = "images";
 /// 单次解码最大内存分配（防止恶意/超大图 OOM）
 const MAX_DECODE_ALLOC: u64 = 128 * 1024 * 1024;
+const MAX_RENDER_ALLOC: u64 = 256 * 1024 * 1024;
 
 fn thumbnail_format_guess_failed(message: String) -> AsterError {
     thumbnail_generation_error_with_code(ApiErrorCode::ThumbnailFormatGuessFailed, message)
@@ -50,22 +49,6 @@ fn thumbnail_task_panicked(message: String) -> AsterError {
     thumbnail_generation_error_with_code(ApiErrorCode::ThumbnailTaskPanicked, message)
 }
 
-pub(crate) fn thumb_path_for(
-    blob_hash: &str,
-    thumbnail_processor: &str,
-    thumbnail_version: &str,
-) -> String {
-    format!(
-        "{}/{}/{}/{}/{}/{}.webp",
-        THUMB_PREFIX,
-        thumbnail_processor,
-        thumbnail_version,
-        &blob_hash[..2],
-        &blob_hash[2..4],
-        blob_hash
-    )
-}
-
 pub(crate) fn thumbnail_etag_value_for(
     blob_hash: &str,
     thumbnail_processor: Option<&str>,
@@ -75,22 +58,6 @@ pub(crate) fn thumbnail_etag_value_for(
         "thumb-{}-{}-{blob_hash}",
         thumbnail_processor.unwrap_or(IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE),
         thumbnail_version.unwrap_or(CURRENT_THUMBNAIL_VERSION)
-    )
-}
-
-pub(crate) fn image_preview_path_for(
-    blob_hash: &str,
-    image_preview_processor: &str,
-    image_preview_version: &str,
-) -> String {
-    format!(
-        "{}/{}/{}/{}/{}/{}.webp",
-        PREVIEW_PREFIX,
-        image_preview_processor,
-        image_preview_version,
-        &blob_hash[..2],
-        &blob_hash[2..4],
-        blob_hash
     )
 }
 
@@ -126,16 +93,6 @@ fn derivative_version_for_dimension(base_version: &str, max_dim: u32, default_di
     }
 }
 
-pub fn is_thumbnail_path(path: &str) -> bool {
-    path.trim_start_matches('/')
-        .starts_with(&format!("{THUMB_PREFIX}/"))
-}
-
-pub fn is_image_preview_path(path: &str) -> bool {
-    path.trim_start_matches('/')
-        .starts_with(&format!("{PREVIEW_PREFIX}/"))
-}
-
 /// 解码图片 → 缩放 → 编码为 WebP（CPU 密集，应在 spawn_blocking 中调用）
 fn generate_thumbnail_from_reader<R>(reader: ImageReader<R>, max_dim: u32) -> Result<Vec<u8>>
 where
@@ -162,8 +119,30 @@ where
     limits.max_alloc = Some(MAX_DECODE_ALLOC);
     reader.limits(limits);
 
-    let img = reader
-        .decode()
+    let decoder = reader
+        .into_decoder()
+        .map_aster_err_ctx("open image decoder", thumbnail_decode_failed)?;
+    let (width, height) = decoder.dimensions();
+    // Triangle resizing first allocates a source-width x target-height RGBA32F
+    // intermediate. Decoder limits do not include that buffer or WebP's RGBA
+    // conversion/output. Conservatively reserve all of them before decoding.
+    let pixels = u64::from(width) * u64::from(height);
+    let target_pixels = pixels.min(u64::from(max_dim) * u64::from(max_dim));
+    let resize_bytes = if width > max_dim || height > max_dim {
+        u64::from(width) * u64::from(height.min(max_dim)) * 16
+    } else {
+        0
+    };
+    let render_bytes = decoder
+        .total_bytes()
+        .saturating_add(resize_bytes)
+        .saturating_add(target_pixels.saturating_mul(32));
+    if render_bytes > MAX_RENDER_ALLOC {
+        return Err(thumbnail_decode_failed(
+            "image rendering exceeds memory budget".to_string(),
+        ));
+    }
+    let img = image::DynamicImage::from_decoder(decoder)
         .map_aster_err_ctx("decode", thumbnail_decode_failed)?;
 
     if img.width() <= max_dim && img.height() <= max_dim {
@@ -328,14 +307,14 @@ mod tests {
     use super::{
         CURRENT_IMAGE_PREVIEW_VERSION, CURRENT_THUMBNAIL_VERSION,
         IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE, ensure_source_size_supported,
-        image_preview_etag_value_for, image_preview_path_for, image_preview_version_for_dimension,
-        render_thumbnail_bytes, render_webp_derivative_bytes,
-        render_webp_derivative_from_image_bytes, thumb_path_for, thumbnail_etag_value_for,
-        thumbnail_version_for_dimension,
+        image_preview_etag_value_for, image_preview_version_for_dimension, render_thumbnail_bytes,
+        render_webp_derivative_bytes, render_webp_derivative_from_image_bytes,
+        thumbnail_etag_value_for, thumbnail_version_for_dimension,
     };
     use crate::api::api_error_code::ApiErrorCode;
     use crate::config::operations::DEFAULT_THUMBNAIL_MAX_SOURCE_BYTES;
     use aster_drive_model::entities::file_blob;
+    use aster_drive_storage::object_path::{image_preview_path, thumbnail_path};
     use aster_drive_storage::{BlobMetadata, LocalPathStorageDriver, StorageDriver};
     use async_trait::async_trait;
     use chrono::Utc;
@@ -623,6 +602,16 @@ mod tests {
     }
 
     #[test]
+    fn render_derivative_rejects_extreme_aspect_ratio_before_resizing() {
+        // The compressed source and decoded pixels fit the decode budget, but
+        // Triangle's source-width float intermediate would exceed the render budget.
+        let error =
+            render_webp_derivative_from_image_bytes(Cursor::new(sample_png(2_000_000, 10)), 400)
+                .expect_err("extremely wide input must not allocate the resize intermediate");
+        assert!(error.message().contains("memory budget"));
+    }
+
+    #[test]
     fn accepts_thumbnail_source_within_size_limit() {
         let max_source_bytes = aster_forge_utils::numbers::u64_to_i64(
             DEFAULT_THUMBNAIL_MAX_SOURCE_BYTES,
@@ -655,7 +644,7 @@ mod tests {
     fn thumbnail_paths_are_versioned() {
         let hash = "abc".repeat(21) + "a";
         assert_eq!(
-            thumb_path_for(
+            thumbnail_path(
                 &hash,
                 IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE,
                 CURRENT_THUMBNAIL_VERSION
@@ -716,7 +705,7 @@ mod tests {
     fn image_preview_paths_are_versioned() {
         let hash = "abc".repeat(21) + "a";
         assert_eq!(
-            image_preview_path_for(&hash, "images", CURRENT_IMAGE_PREVIEW_VERSION),
+            image_preview_path(&hash, "images", CURRENT_IMAGE_PREVIEW_VERSION),
             format!("_preview/images/1/ab/ca/{hash}.webp")
         );
     }

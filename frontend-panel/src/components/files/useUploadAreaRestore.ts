@@ -5,6 +5,11 @@ import {
 	getResumePlan,
 	type UploadTransport,
 } from "@/components/files/uploadResume";
+import {
+	assertCurrentAuthOperation,
+	captureUploadOperation,
+	isCurrentAuthOperation,
+} from "@/lib/authOperationOwner";
 import { logger } from "@/lib/logger";
 import {
 	loadPendingEmptyFiles,
@@ -19,7 +24,8 @@ import type {
 	RecoverableUploadSession,
 	UploadProgressResponse,
 } from "@/services/uploadService";
-import { uploadService } from "@/services/uploadService";
+import { createUploadService } from "@/services/uploadService";
+import { useAuthStore } from "@/stores/authStore";
 import {
 	createTaskId,
 	mapAllSettledWithConcurrency,
@@ -39,6 +45,7 @@ interface UseUploadAreaRestoreOptions {
 	setUploadPanelOpen: Dispatch<SetStateAction<boolean>>;
 	t: UploadAreaManagerTranslationFn;
 	workspace: Workspace;
+	ownerLifetimeRef: MutableRefObject<AbortController>;
 }
 
 interface RestoreCandidate {
@@ -107,7 +114,9 @@ function serverSessionToLocalSession({
 	serverSession,
 	t,
 	workspace,
+	accountId,
 }: {
+	accountId: number;
 	localSession?: ResumableSession;
 	serverSession: RecoverableUploadSession;
 	t: UploadAreaManagerTranslationFn;
@@ -129,6 +138,7 @@ function serverSessionToLocalSession({
 		relativePath: localSession?.relativePath ?? null,
 		savedAt: localSession?.savedAt ?? parseTimestamp(serverSession.updated_at),
 		workspace,
+		accountId,
 		mode,
 		completedParts: mergeCompletedParts(
 			serverSession.completed_parts,
@@ -170,194 +180,233 @@ export function useUploadAreaRestore({
 	setUploadPanelOpen,
 	t,
 	workspace,
+	ownerLifetimeRef,
 }: UseUploadAreaRestoreOptions) {
-	const restorePendingSessions = useCallback(async () => {
-		const currentWorkspaceKey = workspaceKey(workspace);
-		if (restoredWorkspaceKeysRef.current.has(currentWorkspaceKey)) {
-			return;
-		}
-		restoredWorkspaceKeysRef.current.add(currentWorkspaceKey);
+	const currentAccountId = useAuthStore((state) =>
+		state.isAuthenticated ? (state.user?.id ?? null) : null,
+	);
+	const restorePendingSessions = useCallback(
+		async (lifetimeSignal: AbortSignal) => {
+			if (currentAccountId === null) return;
+			const binding = captureUploadOperation(
+				workspace,
+				ownerLifetimeRef.current.signal,
+			);
+			const service = createUploadService(
+				binding.workspace,
+				AbortSignal.any([binding.signal, lifetimeSignal]),
+			);
+			const currentWorkspaceKey = `${binding.accountId}:${binding.generation}:${workspaceKey(binding.workspace)}`;
+			if (restoredWorkspaceKeysRef.current.has(currentWorkspaceKey)) {
+				return;
+			}
 
-		const localSessions = loadSessions(workspace);
-		const localSessionsById = new Map(
-			localSessions.map((session) => [session.uploadId, session]),
-		);
-		const candidates: RestoreCandidate[] = [];
-		const restoredServerUploadIds = new Set<string>();
+			const localSessions = loadSessions(binding.accountId, binding.workspace);
+			const localSessionsById = new Map(
+				localSessions.map((session) => [session.uploadId, session]),
+			);
+			const candidates: RestoreCandidate[] = [];
+			const restoredServerUploadIds = new Set<string>();
 
-		const ghostTasks: UploadTask[] = [];
-		for (const pending of loadPendingEmptyFiles(workspace)) {
-			ghostTasks.push({
-				id: pending.taskId,
-				file: null,
-				filename: pending.filename,
-				relativePath: pending.relativePath,
-				baseFolderId: pending.baseFolderId,
-				baseFolderName: pending.baseFolderName,
-				totalBytes: 0,
-				mode: null,
-				status: "queued",
-				progress: 0,
-				uploadedBytes: 0,
-				error: null,
-				uploadId: null,
-				emptyFileIdempotencyKey: pending.idempotencyKey,
-			});
-		}
-		const completionTasks: Array<{
-			task: UploadTask;
-			parts?: CompletedPart[];
-		}> = [];
-
-		try {
-			const serverSessions = await uploadService.listRecoverableSessions();
-			for (const serverSession of serverSessions) {
-				restoredServerUploadIds.add(serverSession.upload_id);
-				const session = serverSessionToLocalSession({
-					localSession: localSessionsById.get(serverSession.upload_id),
-					serverSession,
-					t,
-					workspace,
-				});
-				if (!session) {
-					logger.warn(
-						"skipping recoverable upload session with unsupported mode",
-						{
-							mode: serverSession.mode,
-							uploadId: serverSession.upload_id,
-						},
-					);
-					continue;
-				}
-				candidates.push({
-					progress: serverSessionToProgress(serverSession),
-					session,
+			const ghostTasks: UploadTask[] = [];
+			for (const pending of loadPendingEmptyFiles(
+				binding.accountId,
+				binding.workspace,
+			)) {
+				ghostTasks.push({
+					binding,
+					id: pending.taskId,
+					file: null,
+					filename: pending.filename,
+					relativePath: pending.relativePath,
+					baseFolderId: pending.baseFolderId,
+					baseFolderName: pending.baseFolderName,
+					totalBytes: 0,
+					mode: null,
+					status: "queued",
+					progress: 0,
+					uploadedBytes: 0,
+					error: null,
+					uploadId: null,
+					emptyFileIdempotencyKey: pending.idempotencyKey,
 				});
 			}
-		} catch (error) {
-			logger.warn("failed to list recoverable upload sessions", error);
-		}
+			const completionTasks: Array<{
+				task: UploadTask;
+				parts?: CompletedPart[];
+			}> = [];
 
-		const localOnlySessions = localSessions.filter(
-			(session) => !restoredServerUploadIds.has(session.uploadId),
-		);
-		const progressResults = await mapAllSettledWithConcurrency(
-			localOnlySessions,
-			RESTORE_PROGRESS_CONCURRENCY,
-			async (session) => {
-				try {
-					const progress = await uploadService.getProgress(session.uploadId);
-					return { session, progress };
-				} catch (error) {
-					throw { session, error };
-				}
-			},
-		);
-
-		for (const result of progressResults) {
-			if (result.status === "rejected") {
-				const { error, session } = result.reason as {
-					error: unknown;
-					session: ResumableSession;
-				};
-				if (shouldRemovePersistedSession(error)) {
-					removeSession(session.uploadId);
-				}
-				continue;
-			}
-
-			candidates.push(result.value);
-		}
-
-		for (const { progress, session } of candidates) {
-			if (!progress?.status) {
-				if (process.env.NODE_ENV === "development") {
-					logger.warn(
-						"skipping restored upload session because progress is missing a status",
-						{
-							progress,
-							uploadId: session.uploadId,
-						},
-					);
-				}
-				continue;
-			}
-
-			const mode = session.mode ?? "chunked";
-			const plan = getResumePlan(mode, progress.status);
-			const completedChunks = restoredCompletedCount(mode, progress);
-			if (plan === "restart") {
-				removeSession(session.uploadId);
-				if (progress.status === "failed") {
-					ghostTasks.push({
-						id: createTaskId(),
-						file: null,
-						filename: session.filename,
-						relativePath: session.relativePath,
-						baseFolderId: session.baseFolderId,
-						baseFolderName: session.baseFolderName,
-						totalBytes: session.totalSize,
-						mode,
-						status: "pending_file",
-						progress: 0,
-						error: t("files:upload_failed"),
-						uploadId: null,
-						totalChunks: session.totalChunks,
-						completedChunks,
+			try {
+				const serverSessions = await service.listRecoverableSessions();
+				lifetimeSignal.throwIfAborted();
+				assertCurrentAuthOperation(binding);
+				for (const serverSession of serverSessions) {
+					restoredServerUploadIds.add(serverSession.upload_id);
+					const session = serverSessionToLocalSession({
+						localSession: localSessionsById.get(serverSession.upload_id),
+						serverSession,
+						accountId: binding.accountId,
+						t,
+						workspace,
+					});
+					if (!session) {
+						logger.warn(
+							"skipping recoverable upload session with unsupported mode",
+							{
+								mode: serverSession.mode,
+								uploadId: serverSession.upload_id,
+							},
+						);
+						continue;
+					}
+					candidates.push({
+						progress: serverSessionToProgress(serverSession),
+						session,
 					});
 				}
-				continue;
+			} catch (error) {
+				if (!isCurrentAuthOperation(binding)) return;
+				logger.warn("failed to list recoverable upload sessions", error);
 			}
 
-			const task: UploadTask = {
-				id: createTaskId(),
-				file: null,
-				filename: session.filename,
-				relativePath: session.relativePath,
-				baseFolderId: session.baseFolderId,
-				baseFolderName: session.baseFolderName,
-				totalBytes: session.totalSize,
-				mode,
-				status: plan === "upload" ? "pending_file" : "processing",
-				progress: plan === "upload" ? 0 : getProcessingProgress(mode),
-				error: null,
-				uploadId: session.uploadId,
-				totalChunks: session.totalChunks,
-				completedChunks:
-					plan === "upload" ? completedChunks : session.totalChunks,
-			};
-			ghostTasks.push(task);
-			if (plan === "complete") {
-				completionTasks.push({
-					task,
-					parts:
-						mode === "presigned_multipart"
-							? (session.completedParts ?? [])
-							: undefined,
-				});
-			}
-		}
+			const localOnlySessions = localSessions.filter(
+				(session) => !restoredServerUploadIds.has(session.uploadId),
+			);
+			const progressResults = await mapAllSettledWithConcurrency(
+				localOnlySessions,
+				RESTORE_PROGRESS_CONCURRENCY,
+				async (session) => {
+					try {
+						const progress = await service.getProgress(session.uploadId);
+						return { session, progress };
+					} catch (error) {
+						throw { session, error };
+					}
+				},
+			);
 
-		if (ghostTasks.length > 0) {
-			setTasks((prev) => mergeRestoredUploadTasks(ghostTasks, prev));
-			setUploadPanelOpen(true);
-			for (const completionTask of completionTasks) {
-				void resumeCompletionTask(completionTask.task, completionTask.parts);
+			lifetimeSignal.throwIfAborted();
+			assertCurrentAuthOperation(binding);
+			for (const result of progressResults) {
+				if (result.status === "rejected") {
+					const { error, session } = result.reason as {
+						error: unknown;
+						session: ResumableSession;
+					};
+					if (shouldRemovePersistedSession(error)) {
+						removeSession(session.uploadId);
+					}
+					continue;
+				}
+
+				candidates.push(result.value);
 			}
-		}
-	}, [
-		resumeCompletionTask,
-		restoredWorkspaceKeysRef,
-		setTasks,
-		setUploadPanelOpen,
-		t,
-		workspace,
-	]);
+
+			for (const { progress, session } of candidates) {
+				if (!progress?.status) {
+					if (process.env.NODE_ENV === "development") {
+						logger.warn(
+							"skipping restored upload session because progress is missing a status",
+							{
+								progress,
+								uploadId: session.uploadId,
+							},
+						);
+					}
+					continue;
+				}
+
+				const mode = session.mode ?? "chunked";
+				const plan = getResumePlan(mode, progress.status);
+				const completedChunks = restoredCompletedCount(mode, progress);
+				if (plan === "restart") {
+					removeSession(session.uploadId);
+					if (progress.status === "failed") {
+						ghostTasks.push({
+							binding,
+							id: createTaskId(),
+							file: null,
+							filename: session.filename,
+							relativePath: session.relativePath,
+							baseFolderId: session.baseFolderId,
+							baseFolderName: session.baseFolderName,
+							totalBytes: session.totalSize,
+							mode,
+							status: "pending_file",
+							progress: 0,
+							error: t("files:upload_failed"),
+							uploadId: null,
+							totalChunks: session.totalChunks,
+							completedChunks,
+						});
+					}
+					continue;
+				}
+
+				const task: UploadTask = {
+					binding,
+					id: createTaskId(),
+					file: null,
+					filename: session.filename,
+					relativePath: session.relativePath,
+					baseFolderId: session.baseFolderId,
+					baseFolderName: session.baseFolderName,
+					totalBytes: session.totalSize,
+					mode,
+					status: plan === "upload" ? "pending_file" : "processing",
+					progress: plan === "upload" ? 0 : getProcessingProgress(mode),
+					error: null,
+					uploadId: session.uploadId,
+					totalChunks: session.totalChunks,
+					completedChunks:
+						plan === "upload" ? completedChunks : session.totalChunks,
+				};
+				ghostTasks.push(task);
+				if (plan === "complete") {
+					completionTasks.push({
+						task,
+						parts:
+							mode === "presigned_multipart"
+								? (session.completedParts ?? [])
+								: undefined,
+					});
+				}
+			}
+
+			lifetimeSignal.throwIfAborted();
+			assertCurrentAuthOperation(binding);
+			restoredWorkspaceKeysRef.current.add(currentWorkspaceKey);
+			if (ghostTasks.length > 0) {
+				setTasks((prev) => mergeRestoredUploadTasks(ghostTasks, prev));
+				setUploadPanelOpen(true);
+				for (const completionTask of completionTasks) {
+					void resumeCompletionTask(completionTask.task, completionTask.parts);
+				}
+			}
+		},
+		[
+			currentAccountId,
+			ownerLifetimeRef,
+			resumeCompletionTask,
+			restoredWorkspaceKeysRef,
+			setTasks,
+			setUploadPanelOpen,
+			t,
+			workspace,
+		],
+	);
 
 	useEffect(() => {
+		const lifetime = new AbortController();
 		const timer = window.setTimeout(() => {
-			void restorePendingSessions();
+			void restorePendingSessions(lifetime.signal).catch((error) => {
+				if (lifetime.signal.aborted || error?.name === "AbortError") return;
+				logger.warn("upload restore failed", error);
+			});
 		}, 600);
-		return () => window.clearTimeout(timer);
+		return () => {
+			lifetime.abort();
+			window.clearTimeout(timer);
+		};
 	}, [restorePendingSessions]);
 }

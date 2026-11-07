@@ -222,7 +222,9 @@ Avoid completing enroll in a temporary directory, then letting systemd or Docker
 Create the record under `Admin -> Follower Nodes`, filling in the name, transport mode, and `base_url`. After saving, the admin console generates a one-time command, roughly like:
 
 ```bash
-aster_drive node enroll --master-url https://drive.example.com --token enr_xxxxx
+aster_drive node enroll --master-url 'https://drive.example.com' --token-stdin --yes <<'ASTER_ENROLLMENT_TOKEN'
+enr_xxxxx
+ASTER_ENROLLMENT_TOKEN
 ```
 
 ### B3. Run enroll on the Follower
@@ -231,9 +233,11 @@ Enter the follower's own working directory and run the generated command. To spe
 
 ```bash
 aster_drive node enroll \
-  --master-url https://drive.example.com \
-  --token enr_xxxxx \
-  --database-url sqlite:///data/asterdrive.db?mode=rwc
+  --master-url 'https://drive.example.com' \
+  --token-stdin --yes \
+  --database-url 'sqlite:///data/asterdrive.db?mode=rwc' <<'ASTER_ENROLLMENT_TOKEN'
+enr_xxxxx
+ASTER_ENROLLMENT_TOKEN
 ```
 
 This command exchanges the token with the primary for one-time bootstrap configuration, writes the primary binding locally on the follower (the object isolation prefix is generated automatically), and writes the enroll receipt back to the primary.

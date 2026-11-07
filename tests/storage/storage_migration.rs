@@ -55,6 +55,12 @@ struct FailingStreamUploadDriver {
     objects: Arc<Mutex<HashMap<String, Vec<u8>>>>,
     failure_mode: StreamUploadFailureMode,
     fail_delete: bool,
+    succeed_upload: bool,
+    last_write_path: Arc<Mutex<Option<String>>>,
+    after_write: Option<Arc<tokio::sync::Notify>>,
+    resume_write: Option<Arc<tokio::sync::Notify>>,
+    before_delete: Option<Arc<tokio::sync::Notify>>,
+    resume_delete: Option<Arc<tokio::sync::Notify>>,
 }
 
 impl FailingStreamUploadDriver {
@@ -108,6 +114,14 @@ impl StorageDriver for FailingStreamUploadDriver {
                 "simulated cleanup delete failure",
             ));
         }
+        if !path.starts_with("_aster_migration_preflight-") {
+            if let Some(ready) = &self.before_delete {
+                ready.notify_one();
+            }
+            if let Some(resume) = &self.resume_delete {
+                resume.notified().await;
+            }
+        }
         self.objects.lock().remove(path);
         Ok(())
     }
@@ -150,6 +164,16 @@ impl StreamUploadDriver for FailingStreamUploadDriver {
             .map_aster_err_ctx("read test upload stream", AsterError::storage_driver_error)?;
         if matches!(self.failure_mode, StreamUploadFailureMode::AfterWrite) {
             self.objects.lock().insert(storage_path.to_string(), bytes);
+        }
+        *self.last_write_path.lock() = Some(storage_path.to_owned());
+        if let Some(ready) = &self.after_write {
+            ready.notify_one();
+        }
+        if let Some(resume) = &self.resume_write {
+            resume.notified().await;
+        }
+        if self.succeed_upload {
+            return Ok(storage_path.to_owned());
         }
         Err(aster_drive_storage::StorageError::new(
             StorageErrorKind::Permission,
@@ -1823,10 +1847,16 @@ async fn test_storage_migration_moves_blob_to_empty_target_policy() {
         .await
         .expect("blob should still exist");
     assert_eq!(migrated.policy_id, target.id);
+    let migrated_path = migrated.storage_path_for_connector().unwrap();
+    let components = migrated_path.split('/').collect::<Vec<_>>();
     assert_eq!(
-        migrated.storage_path,
-        Some(aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap())
+        components.len(),
+        3,
+        "local candidates preserve two directory fanout levels"
     );
+    assert_eq!(components[0], &components[2][..2]);
+    assert_eq!(components[1], &components[2][2..4]);
+    assert_ne!(migrated.storage_path, blob.storage_path);
     assert!(migrated.thumbnail_path.is_none());
     assert!(
         std::path::Path::new(&common::local_policy_base_path(&target))
@@ -2009,9 +2039,8 @@ async fn test_storage_migration_moves_opaque_local_blob_key_without_content_hash
     assert_eq!(migrated.hash, blob.hash);
     assert_eq!(migrated.policy_id, target.id);
     let target_object = tokio::fs::read(
-        std::path::Path::new(&common::local_policy_base_path(&target)).join(
-            aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap(),
-        ),
+        std::path::Path::new(&common::local_policy_base_path(&target))
+            .join(migrated.storage_path_for_connector().unwrap()),
     )
     .await
     .expect("target object should exist");
@@ -2067,10 +2096,14 @@ async fn test_storage_migration_local_to_rustfs_s3_e2e() {
         .expect("blob row should remain after policy move");
     assert_eq!(migrated.hash, blob.hash);
     assert_eq!(migrated.policy_id, target.id);
-    assert_eq!(
-        migrated.storage_path,
-        Some(aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap())
+    assert!(
+        migrated
+            .storage_path
+            .as_deref()
+            .unwrap()
+            .starts_with("files/")
     );
+    assert_ne!(migrated.storage_path, blob.storage_path);
     let object_key = policy_object_key(
         &target,
         migrated
@@ -2710,6 +2743,7 @@ async fn test_storage_migration_cleans_target_object_when_stream_upload_returns_
             .expect("failed task should store last_error")
             .contains("simulated upload failure after remote write")
     );
+    assert!(!target_driver.contains(target_driver.last_write_path.lock().as_deref().unwrap()));
     assert!(
         !target_driver.contains(&target_path),
         "failed stream upload should cleanup the target object left before the error"
@@ -2755,6 +2789,7 @@ async fn test_storage_migration_stream_upload_error_without_target_object_stays_
             .expect("failed task should store last_error")
             .contains("simulated upload failure after remote write")
     );
+    assert!(!target_driver.contains(target_driver.last_write_path.lock().as_deref().unwrap()));
     assert!(
         !target_driver.contains(&target_path),
         "cleanup should tolerate upload errors that left no target object"
@@ -2777,8 +2812,6 @@ async fn test_storage_migration_stream_upload_cleanup_error_preserves_upload_err
 
     let body = create_migration_task_via_api(&app, &token, source.id, target.id).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
-    let target_path =
-        aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap();
 
     let stats = task::drain(&state)
         .await
@@ -2802,7 +2835,7 @@ async fn test_storage_migration_stream_upload_cleanup_error_preserves_upload_err
         "cleanup failure should stay a warning, not the task failure reason"
     );
     assert!(
-        target_driver.contains(&target_path),
+        target_driver.contains(target_driver.last_write_path.lock().as_deref().unwrap()),
         "object remains when best-effort cleanup itself fails"
     );
 }
@@ -2883,17 +2916,24 @@ async fn test_storage_migration_large_blob_uses_multipart_upload() {
 
     let body = create_migration_task_via_api(&app, &token, source.id, target.id).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
-    let target_path =
-        aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap();
     let stats = task::drain(&state)
         .await
         .expect("multipart migration task should drain");
     assert_eq!(stats.succeeded, 1);
+    let target_path = file_repo::find_blob_by_id(state.writer_db(), blob.id)
+        .await
+        .unwrap()
+        .storage_path
+        .unwrap();
 
     let migrated = file_repo::find_blob_by_id(state.writer_db(), blob.id)
         .await
         .expect("blob should remain after multipart migration");
     assert_eq!(migrated.policy_id, target.id);
+    assert!(
+        target_path.starts_with("files/"),
+        "drivers without local_path keep opaque provider keys"
+    );
     assert_eq!(target_driver.put_reader_calls(), 0);
     assert!(target_driver.reader_upload_calls() >= 2);
     assert_eq!(
@@ -2933,12 +2973,15 @@ async fn test_storage_migration_multipart_retries_transient_part_upload() {
     create_file_for_blob(&state, blob.id, "multipart-retry.7z").await;
 
     create_migration_task_via_api(&app, &token, source.id, target.id).await;
-    let target_path =
-        aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap();
     let stats = task::drain(&state)
         .await
         .expect("multipart retry migration task should drain");
     assert_eq!(stats.succeeded, 1);
+    let target_path = file_repo::find_blob_by_id(state.writer_db(), blob.id)
+        .await
+        .unwrap()
+        .storage_path
+        .unwrap();
 
     assert_eq!(target_driver.part_attempt_count(1), 2);
     assert_eq!(target_driver.part_attempt_count(2), 1);
@@ -2986,6 +3029,7 @@ async fn test_storage_migration_multipart_part_failure_aborts_and_keeps_source_b
     );
     assert_eq!(target_driver.abort_calls(), 1);
     assert_eq!(target_driver.complete_calls(), 0);
+    assert!(target_driver.state.lock().objects.is_empty());
     assert_eq!(target_driver.object_bytes(&target_path), None);
     let source_blob = file_repo::find_blob_by_id(state.writer_db(), blob.id)
         .await
@@ -3009,12 +3053,15 @@ async fn test_storage_migration_multipart_complete_timeout_accepts_existing_obje
     create_file_for_blob(&state, blob.id, "multipart-complete-timeout.7z").await;
 
     create_migration_task_via_api(&app, &token, source.id, target.id).await;
-    let target_path =
-        aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap();
     let stats = task::drain(&state)
         .await
         .expect("multipart complete-timeout task should drain");
     assert_eq!(stats.succeeded, 1);
+    let target_path = file_repo::find_blob_by_id(state.writer_db(), blob.id)
+        .await
+        .unwrap()
+        .storage_path
+        .unwrap();
 
     assert_eq!(target_driver.complete_calls(), 1);
     assert_eq!(target_driver.abort_calls(), 0);
@@ -3061,6 +3108,7 @@ async fn test_storage_migration_multipart_verification_failure_cleans_object_and
     );
     assert_eq!(target_driver.abort_calls(), 0);
     assert_eq!(target_driver.delete_calls(), 2);
+    assert!(target_driver.state.lock().objects.is_empty());
     assert_eq!(target_driver.object_bytes(&target_path), None);
     let source_blob = file_repo::find_blob_by_id(state.writer_db(), blob.id)
         .await
@@ -3258,4 +3306,189 @@ async fn test_storage_migration_active_statuses_block_new_migrations() {
             dry_run_migration_via_api(&app, &token, target.id, new_target.id).await;
         assert_conflicting_storage_migration_response(dry_run_status, &dry_run_body);
     }
+}
+
+#[actix_web::test]
+async fn test_storage_migration_bad_digest_never_overwrites_another_publishers_object() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let source = create_local_policy(&state, "source-bad-owned").await;
+    let target = create_local_policy(&state, "target-bad-owned").await;
+    let bytes = b"verified-good";
+    let blob = create_blob_with_object(&state, &source, bytes, 1).await;
+    create_file_for_blob(&state, blob.id, "bad-source.txt").await;
+    let shared_path = blob.storage_path_for_connector().unwrap();
+    let target_driver = state.driver_registry.get_driver(&target).unwrap();
+    // Another publisher has stored its verified bytes but not committed a blob
+    // row yet. The migration cannot infer ownership from that missing row.
+    target_driver.put(shared_path, bytes).await.unwrap();
+    let source_driver = state.driver_registry.get_driver(&source).unwrap();
+    source_driver
+        .put(shared_path, b"corrupted-bad")
+        .await
+        .unwrap();
+    create_migration_task_via_api(&app, &token, source.id, target.id).await;
+    assert_eq!(task::drain(&state).await.unwrap().failed, 1);
+    assert_eq!(target_driver.get(shared_path).await.unwrap(), bytes);
+    assert_eq!(
+        file_repo::find_blob_by_id(state.writer_db(), blob.id)
+            .await
+            .unwrap()
+            .policy_id,
+        source.id
+    );
+}
+
+async fn assert_migration_cleanup_owns_only_its_candidate(cas_loser: bool) {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let source = create_local_policy(&state, "source-cleanup-race").await;
+    let target = create_local_policy(&state, "target-cleanup-race").await;
+    let third = create_local_policy(&state, "other-policy-winner").await;
+    let write_ready = Arc::new(tokio::sync::Notify::new());
+    let write_resume = Arc::new(tokio::sync::Notify::new());
+    let delete_ready = Arc::new(tokio::sync::Notify::new());
+    let delete_resume = Arc::new(tokio::sync::Notify::new());
+    let target_driver = FailingStreamUploadDriver {
+        succeed_upload: cas_loser,
+        after_write: cas_loser.then_some(write_ready.clone()),
+        resume_write: cas_loser.then_some(write_resume.clone()),
+        before_delete: Some(delete_ready.clone()),
+        resume_delete: Some(delete_resume.clone()),
+        ..Default::default()
+    };
+    state
+        .driver_registry
+        .insert_for_test(target.id, Arc::new(target_driver.clone()));
+    let bytes = b"publish-during-cleanup";
+    let blob = create_blob_with_object(&state, &source, bytes, 1).await;
+    create_file_for_blob(&state, blob.id, "source-race.txt").await;
+    let shared_path = blob.storage_path_for_connector().unwrap().to_string();
+    create_migration_task_via_api(&app, &token, source.id, target.id).await;
+    let drain_state = state.clone();
+    let drain = actix_web::rt::spawn(async move { task::drain(&drain_state).await });
+    if cas_loser {
+        tokio::time::timeout(Duration::from_secs(15), write_ready.notified())
+            .await
+            .unwrap();
+        state
+            .driver_registry
+            .get_driver(&third)
+            .unwrap()
+            .put(&shared_path, bytes)
+            .await
+            .unwrap();
+        let mut changed: file_blob::ActiveModel = blob.clone().into();
+        changed.policy_id = Set(third.id);
+        changed.update(state.writer_db()).await.unwrap();
+        write_resume.notify_one();
+    }
+    tokio::time::timeout(Duration::from_secs(15), delete_ready.notified())
+        .await
+        .unwrap();
+    // This is after the old cleanup's reference query and before its physical
+    // delete. A new publisher commits a reference while cleanup is suspended.
+    target_driver.put(&shared_path, bytes).await.unwrap();
+    let adopted =
+        create_blob_record_with_storage_path(&state, &target, &blob.hash, &shared_path, bytes, 1)
+            .await;
+    let published_file = create_file_for_blob(&state, adopted.id, "published-race.txt").await;
+    delete_resume.notify_one();
+    let result = tokio::time::timeout(Duration::from_secs(15), drain)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(result.failed, if cas_loser { 0 } else { 1 });
+    assert_eq!(target_driver.get(&shared_path).await.unwrap(), bytes);
+    assert_eq!(
+        file_repo::find_by_id(state.writer_db(), published_file.id)
+            .await
+            .unwrap()
+            .blob_id,
+        adopted.id
+    );
+    let owned_path = target_driver.last_write_path.lock().clone().unwrap();
+    assert_ne!(owned_path, shared_path);
+    assert!(!target_driver.contains(&owned_path));
+}
+
+#[actix_web::test]
+async fn test_storage_migration_failed_cleanup_cannot_delete_a_later_publication() {
+    assert_migration_cleanup_owns_only_its_candidate(false).await;
+}
+
+#[actix_web::test]
+async fn test_storage_migration_cas_loser_cannot_delete_a_later_publication() {
+    assert_migration_cleanup_owns_only_its_candidate(true).await;
+}
+
+#[actix_web::test]
+async fn test_storage_migration_concurrent_dedup_publisher_wins_without_overwrite_or_task_failure()
+{
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let source = create_local_policy(&state, "source-concurrent-adopt").await;
+    let target = create_local_policy(&state, "target-concurrent-adopt").await;
+    let ready = Arc::new(tokio::sync::Notify::new());
+    let resume = Arc::new(tokio::sync::Notify::new());
+    let driver = FailingStreamUploadDriver {
+        succeed_upload: true,
+        after_write: Some(ready.clone()),
+        resume_write: Some(resume.clone()),
+        ..Default::default()
+    };
+    state
+        .driver_registry
+        .insert_for_test(target.id, Arc::new(driver.clone()));
+    let bytes = b"concurrent-same-hash";
+    let source_blob = create_blob_with_object(&state, &source, bytes, 1).await;
+    let source_file = create_file_for_blob(&state, source_blob.id, "concurrent-source.txt").await;
+    create_migration_task_via_api(&app, &token, source.id, target.id).await;
+    let drain_state = state.clone();
+    let drain = actix_web::rt::spawn(async move { task::drain(&drain_state).await });
+    tokio::time::timeout(Duration::from_secs(15), ready.notified())
+        .await
+        .unwrap();
+    let shared_path = source_blob.storage_path_for_connector().unwrap();
+    driver.put(shared_path, bytes).await.unwrap();
+    let target_blob = create_blob_record_with_storage_path(
+        &state,
+        &target,
+        &source_blob.hash,
+        shared_path,
+        bytes,
+        1,
+    )
+    .await;
+    create_file_for_blob(&state, target_blob.id, "concurrent-target.txt").await;
+    resume.notify_one();
+    let result = tokio::time::timeout(Duration::from_secs(15), drain)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(result.succeeded, 1);
+    assert_eq!(result.failed, 0);
+    let retained = file_repo::find_blob_by_id(state.writer_db(), target_blob.id)
+        .await
+        .unwrap();
+    assert_eq!(retained.ref_count, 2);
+    assert_eq!(driver.get(shared_path).await.unwrap(), bytes);
+    assert!(
+        file_repo::find_blob_by_id(state.writer_db(), source_blob.id)
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        file_repo::find_by_id(state.writer_db(), source_file.id)
+            .await
+            .unwrap()
+            .blob_id,
+        target_blob.id
+    );
+    assert!(!driver.contains(driver.last_write_path.lock().as_deref().unwrap()));
 }

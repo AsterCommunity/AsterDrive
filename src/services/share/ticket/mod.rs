@@ -10,10 +10,7 @@ use utoipa::ToSchema;
 use crate::config::site_url;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
-use crate::services::{
-    task,
-    workspace::storage::{self, WorkspaceStorageScope},
-};
+use crate::services::{task, workspace::storage::WorkspaceStorageScope};
 
 const STREAM_TICKET_TTL_SECS: i64 = 5 * 60;
 
@@ -34,7 +31,7 @@ enum StreamTicketKind {
         folder_ids: Vec<i64>,
         archive_name: String,
     },
-    SharedArchiveDownload {
+    SharedArchiveDownloadV2 {
         share_token: String,
         file_ids: Vec<i64>,
         folder_ids: Vec<i64>,
@@ -91,7 +88,7 @@ pub(crate) async fn create_shared_archive_download_ticket(
         actor_user_id: 0,
         team_id: None,
         exp: expires_at.timestamp(),
-        kind: StreamTicketKind::SharedArchiveDownload {
+        kind: StreamTicketKind::SharedArchiveDownloadV2 {
             share_token: share_token.to_string(),
             file_ids: prepared.file_ids,
             folder_ids: prepared.folder_ids,
@@ -124,7 +121,13 @@ pub(crate) async fn resolve_archive_download_ticket_in_scope(
     }
 
     ensure_scope_matches_ticket(scope, &payload)?;
-    storage::require_scope_access(state, scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
 
     match payload.kind {
         StreamTicketKind::ArchiveDownload {
@@ -136,7 +139,7 @@ pub(crate) async fn resolve_archive_download_ticket_in_scope(
             folder_ids,
             archive_name: Some(archive_name),
         }),
-        StreamTicketKind::SharedArchiveDownload { .. } => Err(AsterError::auth_forbidden(
+        StreamTicketKind::SharedArchiveDownloadV2 { .. } => Err(AsterError::auth_forbidden(
             "stream ticket belongs to a shared archive download",
         )),
     }
@@ -158,7 +161,7 @@ pub(crate) async fn resolve_shared_archive_download_ticket(
     }
 
     match payload.kind {
-        StreamTicketKind::SharedArchiveDownload {
+        StreamTicketKind::SharedArchiveDownloadV2 {
             share_token: ticket_share_token,
             file_ids,
             folder_ids,
@@ -168,7 +171,7 @@ pub(crate) async fn resolve_shared_archive_download_ticket(
             folder_ids,
             archive_name: Some(archive_name),
         }),
-        StreamTicketKind::SharedArchiveDownload { .. } => Err(AsterError::auth_forbidden(
+        StreamTicketKind::SharedArchiveDownloadV2 { .. } => Err(AsterError::auth_forbidden(
             "stream ticket belongs to a different share",
         )),
         StreamTicketKind::ArchiveDownload { .. } => Err(AsterError::auth_forbidden(
@@ -249,4 +252,17 @@ fn shared_stream_download_path(
 ) -> String {
     let path = format!("/api/v1/s/{share_token}/archive-download/{token}");
     site_url::public_app_url_or_path(runtime_config, &path)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn legacy_uncharged_shared_archive_tickets_are_not_paid_capabilities() {
+        let legacy = serde_json::json!({"actor_user_id":0,"team_id":null,"exp":9999999999_i64,
+            "kind":{"kind":"shared_archive_download","share_token":"share","file_ids":[1],"folder_ids":[],"archive_name":"x.zip"}});
+        assert!(serde_json::from_value::<super::StreamTicketPayload>(legacy.clone()).is_err());
+        let mut paid = legacy;
+        paid["kind"]["kind"] = serde_json::json!("shared_archive_download_v2");
+        assert!(serde_json::from_value::<super::StreamTicketPayload>(paid).is_ok());
+    }
 }

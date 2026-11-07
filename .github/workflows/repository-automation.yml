@@ -40,13 +40,13 @@ jobs:
           node-version-file: .nvmrc
 
       - name: Validate repository automation configuration
-        uses: AsterCommunity/aster-automation@db8baab15da6858a67a6c7b1bea7dd1040fa954e # v0.1.0 candidate
+        uses: AsterCommunity/aster-automation@f12ece993b91aadc1fe91433581b808fc44a389b # v0.1.0 candidate
         with:
           mode: validate-config
           config-path: .github/aster-automation.json
 
       - name: Validate repository automation contract
-        uses: AsterCommunity/aster-automation@db8baab15da6858a67a6c7b1bea7dd1040fa954e # v0.1.0 candidate
+        uses: AsterCommunity/aster-automation@f12ece993b91aadc1fe91433581b808fc44a389b # v0.1.0 candidate
         with:
           mode: validate-repository
           config-path: .github/aster-automation.json
@@ -71,3 +71,6 @@ jobs:
 
       - name: Validate Docker release channel metadata
         run: node scripts/github/test-docker-image-tags.mjs
+
+      - name: Validate release certificate identity instructions
+        run: node scripts/github/test-release-verification.mjs

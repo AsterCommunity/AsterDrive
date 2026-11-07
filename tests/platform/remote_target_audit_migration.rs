@@ -200,7 +200,13 @@ async fn assert_migration(db: &DatabaseConnection) {
     Migrator::up(db, None).await.unwrap();
     assert_eq!(logs(db).await, after);
     assert_eq!(read_config(db).await, migrated_selection);
-    CurrentMigrator::down(db, Some(1)).await.unwrap();
+    let migrations = CurrentMigrator::migrations();
+    let position = migrations
+        .iter()
+        .position(|migration| migration.name() == MIGRATION)
+        .unwrap();
+    let steps = u32::try_from(migrations.len() - position).unwrap();
+    CurrentMigrator::down(db, Some(steps)).await.unwrap();
     assert_eq!(read_config(db).await, selection);
     let down = logs(db).await;
     for entry in &down[..12] {

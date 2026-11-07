@@ -299,7 +299,7 @@ async fn existing_identity_survives_missing_provider_email() {
         let app = create_test_app!(state.clone(), driver.registry());
         let (admin, _) = register_and_login!(app);
         let user_id = admin_create_user!(app, admin, "linked", "linked@example.com", "password123");
-        let stored = provider(&state, kind, "existing", true).await;
+        let stored = provider(&state, kind, "existing", false).await;
         external_auth_identity::ActiveModel {
             user_id: Set(user_id),
             provider_id: Set(stored.id),

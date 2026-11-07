@@ -1,34 +1,18 @@
 //! 服务模块：`share::stream`。
 
-mod cache;
-
 use actix_web::http::header::HeaderValue;
 use base64::Engine;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
-use std::time::Duration as StdDuration;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
 use crate::config::{operations, site_url};
-use crate::db::repository::share_repo;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::files::{direct_link, file as file_ops};
 use aster_drive_model::entities::{file, share};
 use aster_forge_utils::numbers::u64_to_i64;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum CountMarkerState {
-    Pending,
-    Counted,
-}
-
-enum CountReservation {
-    Reserved,
-    AlreadyCounted,
-}
 
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -47,20 +31,10 @@ enum ShareStreamSubject {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ShareStreamSessionPayload {
+    version: u8,
     subject: ShareStreamSubject,
     exp: i64,
     nonce: String,
-}
-
-enum ResolvedShareStreamTarget {
-    Fresh {
-        share: share::Model,
-        file: file::Model,
-    },
-    Marked {
-        share: share::Model,
-        file: file::Model,
-    },
 }
 
 pub(crate) async fn create_session_for_shared_file_for_origin(
@@ -75,7 +49,9 @@ pub(crate) async fn create_session_for_shared_file_for_origin(
         },
         share_stream_session_ttl_secs_i64(state)?,
     );
-    build_session_for_shared_file(state, &share, &file, &payload, Some(request_origin))
+    let info = build_session_for_shared_file(state, &share, &file, &payload, Some(request_origin))?;
+    super::initialize_share_download(state, &share).await?;
+    Ok(info)
 }
 
 pub(crate) async fn create_session_for_shared_folder_file_for_origin(
@@ -92,7 +68,9 @@ pub(crate) async fn create_session_for_shared_folder_file_for_origin(
         },
         share_stream_session_ttl_secs_i64(state)?,
     );
-    build_session_for_shared_file(state, &share, &file, &payload, Some(request_origin))
+    let info = build_session_for_shared_file(state, &share, &file, &payload, Some(request_origin))?;
+    super::initialize_share_download(state, &share).await?;
+    Ok(info)
 }
 
 pub(crate) async fn stream_file(
@@ -102,11 +80,7 @@ pub(crate) async fn stream_file(
     requested_name: &str,
     range_header: Option<&HeaderValue>,
 ) -> Result<file_ops::DownloadOutcome> {
-    let (payload, target) = resolve_session_target(state, share_token, session_token).await?;
-    let (share, file) = match target {
-        ResolvedShareStreamTarget::Fresh { share, file }
-        | ResolvedShareStreamTarget::Marked { share, file } => (share, file),
-    };
+    let (_share, file) = resolve_session_target(state, share_token, session_token).await?;
     direct_link::validate_public_file_name(&file, requested_name)?;
     let authorized = file;
     let (file, blob, revision) =
@@ -122,30 +96,7 @@ pub(crate) async fn stream_file(
     }
     direct_link::validate_public_file_name(&file, requested_name)?;
     let range = file_ops::resolve_range_for_download_snapshot(&file, range_header)?;
-    let count_reservation = ensure_counted_once(state, session_token, &payload).await?;
-
-    if matches!(count_reservation, CountReservation::Reserved) {
-        match share_repo::increment_download_count(state.writer_db(), share.id).await {
-            Ok(true) => {
-                mark_counted(state, session_token, &payload).await?;
-                super::invalidate_all_share_token_record_cache(state).await;
-            }
-            Ok(false) => {
-                release_counted_marker(state, session_token).await;
-                return Err(AsterError::share_download_limit("download limit reached"));
-            }
-            Err(error) => {
-                release_counted_marker(state, session_token).await;
-                tracing::warn!(
-                    share_id = share.id,
-                    "failed to increment share stream download count: {error}"
-                );
-                return Err(error);
-            }
-        }
-    }
-
-    match file_ops::build_stream_outcome_with_disposition_and_range(
+    file_ops::build_stream_outcome_with_disposition_and_range(
         state,
         &file,
         &blob,
@@ -155,25 +106,6 @@ pub(crate) async fn stream_file(
         &revision.etag,
     )
     .await
-    {
-        Ok(outcome) => Ok(outcome),
-        Err(error) => {
-            if matches!(count_reservation, CountReservation::Reserved) {
-                release_counted_marker(state, session_token).await;
-                match share_repo::decrement_download_count_by(state.writer_db(), share.id, 1).await
-                {
-                    Ok(true) | Ok(false) => {}
-                    Err(rollback_error) => {
-                        tracing::warn!(
-                            share_id = share.id,
-                            "failed to roll back share stream count after response build failure: {rollback_error}"
-                        );
-                    }
-                }
-            }
-            Err(error)
-        }
-    }
 }
 
 fn share_stream_session_ttl_secs_i64(state: &impl SharedRuntimeState) -> Result<i64> {
@@ -185,6 +117,7 @@ fn share_stream_session_ttl_secs_i64(state: &impl SharedRuntimeState) -> Result<
 
 fn build_payload(subject: ShareStreamSubject, ttl_secs: i64) -> ShareStreamSessionPayload {
     ShareStreamSessionPayload {
+        version: 2,
         subject,
         exp: (Utc::now() + Duration::seconds(ttl_secs)).timestamp(),
         nonce: aster_forge_utils::id::new_short_token(),
@@ -257,18 +190,16 @@ async fn resolve_session_target(
     state: &impl SharedRuntimeState,
     share_token: &str,
     session_token: &str,
-) -> Result<(ShareStreamSessionPayload, ResolvedShareStreamTarget)> {
+) -> Result<(share::Model, file::Model)> {
     let (payload_segment, signature) = split_token(session_token)?;
     let payload = decode_payload(payload_segment)?;
     let expires_at = decode_expiry(payload.exp)?;
     if expires_at < Utc::now() {
-        release_counted_marker(state, session_token).await;
         return Err(AsterError::share_expired("share stream session expired"));
     }
 
     ensure_payload_share_token(&payload, share_token)?;
-    let marker_state = count_marker_state(state, session_token).await;
-    let (share, file) = load_target(state, &payload, marker_state.is_some()).await?;
+    let (share, file) = load_target(state, &payload).await?;
     if !verify_shared_payload(
         &share,
         &file,
@@ -281,37 +212,23 @@ async fn resolve_session_target(
         ));
     }
 
-    let target = if marker_state.is_some() {
-        ResolvedShareStreamTarget::Marked { share, file }
-    } else {
-        ResolvedShareStreamTarget::Fresh { share, file }
-    };
-    Ok((payload, target))
+    Ok((share, file))
 }
 
 async fn load_target(
     state: &impl SharedRuntimeState,
     payload: &ShareStreamSessionPayload,
-    counted: bool,
 ) -> Result<(share::Model, file::Model)> {
     match &payload.subject {
         ShareStreamSubject::ShareFile { share_token } => {
-            if counted {
-                super::load_shared_file_ignoring_download_limit(state, share_token).await
-            } else {
-                super::load_preview_shared_file(state, share_token).await
-            }
+            super::load_shared_file_ignoring_download_limit(state, share_token).await
         }
         ShareStreamSubject::ShareFolderFile {
             share_token,
             file_id,
         } => {
-            if counted {
-                super::load_shared_folder_file_ignoring_download_limit(state, share_token, *file_id)
-                    .await
-            } else {
-                super::load_preview_shared_folder_file(state, share_token, *file_id).await
-            }
+            super::load_shared_folder_file_ignoring_download_limit(state, share_token, *file_id)
+                .await
         }
     }
 }
@@ -332,8 +249,14 @@ fn decode_payload(payload_segment: &str) -> Result<ShareStreamSessionPayload> {
     let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(payload_segment)
         .map_aster_err_with(|| AsterError::share_not_found("invalid share stream session token"))?;
-    serde_json::from_slice::<ShareStreamSessionPayload>(&bytes)
-        .map_aster_err_with(|| AsterError::share_not_found("invalid share stream session token"))
+    let payload = serde_json::from_slice::<ShareStreamSessionPayload>(&bytes)
+        .map_aster_err_with(|| AsterError::share_not_found("invalid share stream session token"))?;
+    match payload.version {
+        2 => Ok(payload),
+        _ => Err(AsterError::share_not_found(
+            "restart pre-upgrade stream session",
+        )),
+    }
 }
 
 fn decode_expiry(exp: i64) -> Result<DateTime<Utc>> {
@@ -381,7 +304,7 @@ fn shared_payload_mac(
         <Hmac<sha2::Sha256> as KeyInit>::new_from_slice(secret.as_bytes()).map_err(|error| {
             AsterError::internal_error(format!("failed to initialize HMAC: {error}"))
         })?;
-    mac.update(b"share_stream_session:");
+    mac.update(b"share_stream_session:v2:");
     mac.update(share.token.as_bytes());
     mac.update(b":");
     mac.update(share.id.to_string().as_bytes());
@@ -407,70 +330,31 @@ fn verify_shared_payload(
         .is_ok_and(|mac| mac.verify_slice(&decoded).is_ok())
 }
 
-async fn ensure_counted_once(
-    state: &impl SharedRuntimeState,
-    session_token: &str,
-    payload: &ShareStreamSessionPayload,
-) -> Result<CountReservation> {
-    let ttl_secs = ttl_seconds(payload)?;
-    for _ in 0..20 {
-        match cache::load_count_marker(state, session_token).await {
-            Some(CountMarkerState::Counted) => return Ok(CountReservation::AlreadyCounted),
-            Some(CountMarkerState::Pending) => {
-                tokio::time::sleep(StdDuration::from_millis(25)).await;
-                continue;
-            }
-            None => {}
-        }
-
-        if cache::reserve_count_marker(state, session_token, ttl_secs).await? {
-            return Ok(CountReservation::Reserved);
-        }
-
-        tokio::time::sleep(StdDuration::from_millis(25)).await;
-    }
-
-    Err(AsterError::validation_error(
-        "share stream session count is still being initialized",
-    ))
-}
-
-async fn mark_counted(
-    state: &impl SharedRuntimeState,
-    session_token: &str,
-    payload: &ShareStreamSessionPayload,
-) -> Result<()> {
-    let ttl_secs = ttl_seconds(payload)?;
-    cache::store_count_marker(state, session_token, CountMarkerState::Counted, ttl_secs).await
-}
-
-async fn count_marker_state(
-    state: &impl SharedRuntimeState,
-    session_token: &str,
-) -> Option<CountMarkerState> {
-    cache::load_count_marker(state, session_token).await
-}
-
-async fn release_counted_marker(state: &impl SharedRuntimeState, session_token: &str) {
-    cache::delete_count_marker(state, session_token).await;
-}
-
-fn ttl_seconds(payload: &ShareStreamSessionPayload) -> Result<u64> {
-    let remaining = payload.exp.saturating_sub(Utc::now().timestamp());
-    if remaining <= 0 {
-        return Err(AsterError::share_expired("share stream session expired"));
-    }
-    u64::try_from(remaining).map_aster_err_ctx(
-        "share stream session ttl conversion failed",
-        AsterError::internal_error,
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::{ShareStreamSubject, build_payload, decode_payload, encode_payload, stream_path};
     use crate::config::RuntimeConfig;
     use chrono::Utc;
+
+    #[test]
+    fn uncharged_legacy_or_unknown_version_sessions_cannot_be_redeemed() {
+        use base64::Engine;
+        let mut value = serde_json::to_value(build_payload(
+            ShareStreamSubject::ShareFile {
+                share_token: "share".into(),
+            },
+            3600,
+        ))
+        .unwrap();
+        value.as_object_mut().unwrap().remove("version");
+        let encode = |value: &serde_json::Value| {
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(serde_json::to_vec(value).unwrap())
+        };
+        assert!(decode_payload(&encode(&value)).is_err());
+        value["version"] = serde_json::json!(1);
+        assert!(decode_payload(&encode(&value)).is_err());
+    }
 
     #[test]
     fn payload_roundtrips() {

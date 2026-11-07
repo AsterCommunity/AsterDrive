@@ -24,6 +24,7 @@
 | 任务 | 先读 | 代码入口 | 最低验证 |
 | --- | --- | --- | --- |
 | 文件/目录 CRUD、移动、复制、删除、恢复 | [关键模块设计](../architecture/module-designs.md)、[后端服务所有权](../architecture/backend-service-ownership.md) | `src/api/routes/files/`、`src/api/routes/folders.rs`、`src/services/files/`、`src/services/workspace/` | 成功、权限、scope、锁、冲突、事务回滚和 storage side effect |
+| Workspace / 资源操作授权 | [授权契约](../design/workspace-authorization.md) | `src/services/workspace/scope/`、实际 service/protocol/task publication | actor/成员/credential 撤销、root、集合/后代锁、重放和延迟发布；SQLite/PostgreSQL/MySQL；前端任务绑定 |
 | 团队与 personal workspace 共用行为 | [架构概览](../architecture/index.md) | `src/services/workspace/scope/`、`storage/`、`storage_core/` | personal/team 双路径、权限和 quota 边界 |
 | 上传 init/chunk/complete/cancel | [浏览器上传协调](../design/browser-upload-coordination.md)、[上传完成契约](../design/upload-finalization-contracts.md)、[关键模块设计](../architecture/module-designs.md) | `src/services/files/upload/`、workspace storage、storage drivers | 各协商模式、失败清理、重试/取消、actual size/hash、quota/version/blob 一致性 |
 | 文件锁和结构性 mutation | [资源锁系统](../design/resource-lock-system.md) | `src/services/files/lock/`、workspace storage、`src/webdav/` | owner/token/namespace、父子资源、过期、并发、mutation 和缓存投影边界 |
@@ -42,14 +43,16 @@
 | 远端节点 / storage target / policy ownership | [远端存储目标归属](../design/remote-storage-target-policy-ownership.md) | `src/services/remote/`、storage policy、remote protocol | direct/reverse tunnel/auto、binding、capability、target selection 和失败映射 |
 | Internal storage / reverse tunnel wire contract | [内部存储 API](../api/internal-storage.md)、[架构概览](../architecture/index.md) | `src/api/routes/internal_storage.rs`、`remote_tunnel.rs`、`src/storage/remote_protocol/` | 签名、版本兼容、path encoding、超时/取消、流式响应和 transport fallback |
 
+预览内容与管理员集成的隔离修改先读[预览信任边界](../design/preview-content-trust.md)，同时验证安全拒绝与 embed/WOPI 正常行为。
+
 ## 协议、安全与运行时
 
 | 任务 | 先读 | 代码入口 | 最低验证 |
 | --- | --- | --- | --- |
 | WebDAV | [WebDAV API](../api/webdav.md)、[合规测试](../testing/webdav-compliance-testing.md) | `src/webdav/`、相关 files/workspace service | focused unit/integration、协议边界、锁、Range/ETag；需要时 Litmus/真实客户端 |
 | WOPI | [WOPI API](../api/wopi.md)、[项目契约](../architecture/project-contract.md) | WOPI route、`src/services/preview/wopi/`、files/workspace service | token、proof、lock、PUT_RELATIVE、rename、版本和错误响应 |
-| 认证、MFA、外部认证和 session | [外部认证模块](../design/external-auth.md)、认证 API | auth routes/services、external auth adapter、session repository | 正常/失败、token rotation、browser binding、MFA、限流、凭据泄露边界 |
-| 出站 HTTP / plugin network | [出站 HTTP 契约](../design/outbound-http.md) | `crates/aster_drive_outbound/`、Forge HTTP、各 transport 调用点 | construction inventory、UA/redirect/profile、取消/大小/DNS 边界、相关协议测试 |
+| 认证、MFA、外部认证和 session | [认证预算与信任边界](../design/authentication-boundaries.md)、[外部认证模块](../design/external-auth.md)、认证 API | auth routes/services、auth_once_state_repo、MFA budget、session repository | 正常/失败、token rotation、browser binding、跨flow预算、一次消费、防重放、限流与到期 |
+| 出站 HTTP / plugin network | [出站 HTTP 契约](../design/outbound-http.md) | `crates/aster_drive_outbound/`、Forge HTTP、各 transport 调用点 | `python3 scripts/check-http-construction.py --self-test`（测试 fixture 也必须使用 factory）、UA/redirect/profile、取消/大小/DNS 边界、相关协议测试 |
 | 后台任务、runtime 和 shutdown | [架构概览](../architecture/index.md) | `src/runtime/`、task services、Forge adapters | claim/lease、retry、cancellation、shutdown、幂等和多实例边界 |
 | 缓存和多实例行为 | [项目契约](../architecture/project-contract.md) | `src/cache/`、对应 authority repository、runtime health | cache miss/fallback/invalidation、权威数据重读、并发和 readiness |
 

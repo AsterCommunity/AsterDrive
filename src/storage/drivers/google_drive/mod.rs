@@ -239,7 +239,12 @@ impl StorageDriver for GoogleDriveDriver {
         })
     }
 
-    async fn copy_object(&self, src_path: &str, dest_path: &str) -> Result<String> {
+    async fn copy_object(
+        &self,
+        src_path: &str,
+        dest_path: &str,
+        _options: aster_drive_storage::StorageCopyOptions,
+    ) -> Result<String> {
         let size = self.metadata(src_path).await?.size;
         let reader = self.get_stream(src_path).await?;
         self.upload_reader(

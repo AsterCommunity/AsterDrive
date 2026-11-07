@@ -12,6 +12,10 @@ use aster_drive_model::types::{StoredUserConfig, UserConfig};
 use super::models::{UpdatePreferencesReq, UserPreferences};
 
 const DISPLAY_TIME_ZONE_BROWSER: &str = "browser";
+// Bound the persisted aggregate, not just each PATCH: custom keys survive
+// subsequent requests and the config is also loaded along with account data.
+const MAX_USER_CONFIG_BYTES: usize = 64 * 1024;
+const MAX_CUSTOM_PREFERENCE_KEYS: usize = 256;
 const RESERVED_PREFERENCE_KEYS: &[&str] = &[
     "theme_mode",
     "color_preset",
@@ -115,12 +119,25 @@ async fn save_user_config(
     user: user::Model,
     config: &UserConfig,
 ) -> Result<()> {
-    let mut active = user.into_active_model();
-    active.config = Set(if config.is_empty() {
+    if config.extra.len() > MAX_CUSTOM_PREFERENCE_KEYS {
+        return Err(AsterError::validation_error(
+            "too many custom preference keys",
+        ));
+    }
+    let stored = if config.is_empty() {
         None
     } else {
-        Some(StoredUserConfig::from_config(config).map_aster_err(AsterError::internal_error)?)
-    });
+        let stored =
+            StoredUserConfig::from_config(config).map_aster_err(AsterError::internal_error)?;
+        if stored.as_ref().len() > MAX_USER_CONFIG_BYTES {
+            return Err(AsterError::validation_error(
+                "user preferences exceed 64 KiB",
+            ));
+        }
+        Some(stored)
+    };
+    let mut active = user.into_active_model();
+    active.config = Set(stored);
     active.updated_at = Set(Utc::now());
     active.save(state.writer_db()).await?;
     Ok(())

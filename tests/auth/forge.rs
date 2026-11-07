@@ -724,9 +724,9 @@ async fn foreign_account_session_and_expired_persistence_do_not_rotate_or_revoke
 }
 
 /// Documents Drive's chosen single-session boundary: refresh stops immediately, while already
-/// issued access credentials keep their expiry window unless the account epoch changes.
+/// issued access credentials are rejected immediately against the persisted session tombstone.
 #[actix_web::test]
-async fn revoked_session_retains_explicit_access_expiry_window_but_refresh_is_rejected() {
+async fn revoked_session_rejects_access_and_refresh_immediately() {
     let (state, access, token, id) = fixture().await;
     let wire = claims(&state, &token, AuthTokenType::Refresh);
     local::revoke_auth_session(
@@ -738,12 +738,11 @@ async fn revoked_session_retains_explicit_access_expiry_window_but_refresh_is_re
     .await
     .unwrap();
     assert_eq!(refresh(&state, &token).await.unwrap_err().code(), "E012");
-    // Drive's product policy retains short-lived access for single-session revocation. Account
-    // generation changes are authoritative immediately; sid presence alone is not a live check.
+    // The writer session tombstone invalidates this access token without affecting other devices.
     assert!(
         local::authenticate_access_token(&state, &access)
             .await
-            .is_ok()
+            .is_err()
     );
 }
 
@@ -893,16 +892,19 @@ async fn sqlite_cas_failure_preserves_old_credential_and_returns_no_replacement_
     assert!(session.previous_refresh_jti.is_none());
 }
 
-/// A stale logout credential must never revoke its successor, and non-refresh input must not
-/// mutate any session. A current logout remains idempotent and keeps Drive's access expiry window.
+/// Logout targets a stable signed session, including a refresh credential whose response lost
+/// the race with rotation. Delayed access/refresh cookies cannot resurrect that session.
 #[actix_web::test]
-async fn logout_rejects_stale_access_and_malformed_credentials_without_revoking_the_successor() {
+async fn logout_revokes_rotated_session_and_delayed_access_without_affecting_other_devices() {
     let (state, access, original, id) = fixture().await;
-    let (_, successor) = refresh(&state, &original).await.unwrap();
+    let (late_access, successor) = refresh(&state, &original).await.unwrap();
+    let (other_access, other_refresh) = local::issue_tokens_for_session(&state, id, 1, None, None)
+        .await
+        .unwrap();
     let before = auth_session_repo::list_active_for_user(state.writer_db(), id)
         .await
         .unwrap();
-    for rejected in [&original, &access, "not-a-jwt"] {
+    for rejected in [&access, "not-a-jwt"] {
         assert!(!local::revoke_refresh_token(&state, rejected).await.unwrap());
         assert_eq!(
             auth_session_repo::list_active_for_user(state.writer_db(), id)
@@ -912,24 +914,36 @@ async fn logout_rejects_stale_access_and_malformed_credentials_without_revoking_
         );
     }
     assert!(
-        local::revoke_refresh_token(&state, &successor)
+        local::revoke_refresh_token(&state, &original)
             .await
-            .unwrap()
+            .unwrap(),
+        "pre-rotation logout must revoke the same stable session"
     );
     assert!(
         !local::revoke_refresh_token(&state, &successor)
             .await
             .unwrap()
     );
+    assert!(
+        local::authenticate_access_token(&state, &access)
+            .await
+            .is_err()
+    );
+    assert!(
+        local::authenticate_access_token(&state, &late_access)
+            .await
+            .is_err()
+    );
     assert_eq!(
         refresh(&state, &successor).await.unwrap_err().code(),
         "E012"
     );
     assert!(
-        local::authenticate_access_token(&state, &access)
+        local::authenticate_access_token(&state, &other_access)
             .await
             .is_ok()
     );
+    assert!(refresh(&state, &other_refresh).await.is_ok());
     assert_eq!(audit_count(&state, id).await, 0);
 }
 
@@ -1278,4 +1292,51 @@ async fn writer_unavailability_is_not_mapped_to_authentication_failure() {
         Err(AsterError::DatabaseConnection(_) | AsterError::DatabaseOperation(_))
     ));
     assert_eq!(state.runtime_config.refresh_coordinator().tracked_ids(), 0);
+}
+
+/// Rotation's CAS and logout's stable-session update share the same row. Each possible database
+/// ordering ends with a tombstone; even a rotation winner's unexpired access pair is then denied.
+#[actix_web::test]
+async fn concurrent_logout_and_refresh_leave_no_live_credentials_for_the_session() {
+    let (state, access, token, _) = fixture().await;
+    let (rotation, logout) = tokio::join!(
+        refresh(&state, &token),
+        local::revoke_refresh_token(&state, &token)
+    );
+    assert!(logout.unwrap());
+    assert!(
+        local::authenticate_access_token(&state, &access)
+            .await
+            .is_err()
+    );
+    match rotation {
+        Ok((late_access, late_refresh)) => {
+            assert!(
+                local::authenticate_access_token(&state, &late_access)
+                    .await
+                    .is_err()
+            );
+            assert!(refresh(&state, &late_refresh).await.is_err());
+        }
+        Err(error) => assert_eq!(error.code(), "E012"),
+    }
+}
+
+#[actix_web::test]
+async fn logout_writer_failure_does_not_report_success_or_clear_cookies() {
+    let (state, _, token, _) = fixture().await;
+    match state.writer_db().get_database_backend() {
+        sea_orm::DbBackend::Sqlite => {}
+        _ => return,
+    }
+    state.writer_db().execute_unprepared("CREATE TRIGGER fail_logout_revoke BEFORE UPDATE OF revoked_at ON auth_sessions BEGIN SELECT RAISE(ABORT, 'injected revoke failure'); END;").await.unwrap();
+    let app = create_test_app!(state.clone());
+    let request = test::TestRequest::post()
+        .uri("/api/v1/auth/logout")
+        .insert_header(("Cookie", common::refresh_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let response = test::call_service(&app, request).await;
+    assert_eq!(response.status(), 500);
+    assert!(common::extract_cookie(&response, "aster_refresh").is_none());
 }

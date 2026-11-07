@@ -11,7 +11,7 @@ use crate::db::repository::{
     background_task_repo, file_repo, policy_repo, revision_repo, storage_migration_checkpoint_repo,
 };
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState, TaskRuntimeState};
+use crate::runtime::{PrimaryAppState, TaskRuntimeState};
 use aster_drive_model::entities::{background_task, file_blob, storage_policy};
 use aster_drive_model::types::BackgroundTaskKind;
 use aster_drive_storage::{
@@ -1052,10 +1052,16 @@ async fn migrate_one_blob(
     } else {
         format!("migration-{}", uuid::Uuid::new_v4())
     };
-    let target_path = aster_forge_validation::filename::storage_path_from_blob_key(&target_hash)?;
+    // Physical publication belongs to this migration attempt. The content hash
+    // remains the deduplication identity in metadata, but a failed source can
+    // never overwrite another publisher's object before digest verification.
+    let target_path = match target_driver.extensions().local_path {
+        Some(_) => aster_drive_storage::object_path::new_local_blob().1,
+        None => aster_drive_storage::object_path::new_blob_path(),
+    };
 
     copy_blob_streaming(migration, &latest, &target_path).await?;
-    let moved = transaction::with_transaction(state.writer_db(), async |txn| {
+    let move_result = transaction::with_transaction(state.writer_db(), async |txn| {
         let moved = file_repo::move_blob_policy_if_current(
             txn,
             latest.id,
@@ -1091,26 +1097,53 @@ async fn migrate_one_blob(
         .await?;
         Ok::<_, AsterError>(outcome)
     })
-    .await?;
-    if moved.skipped > 0 {
-        cleanup_unmoved_target_object(state, target_driver, target_policy_id, &target_path).await;
+    .await;
+    match move_result {
+        Ok(moved) => {
+            if moved.skipped > 0 {
+                cleanup_owned_migration_object(target_driver, &target_path).await;
+            }
+            Ok(moved)
+        }
+        Err(error) => {
+            // A lost commit acknowledgement does not prove the object stayed
+            // unpublished. Keep the unique candidate for recovery in that case.
+            if !error.database_commit_outcome_uncertain() {
+                cleanup_owned_migration_object(target_driver, &target_path).await;
+                if content_hash
+                    && error.database_error_kind()
+                        == Some(aster_forge_db::DatabaseErrorKind::UniqueConstraint)
+                {
+                    context.ensure_active()?;
+                    if let Some(target) = file_repo::find_blob_by_hash(
+                        state.writer_db(),
+                        &latest.hash,
+                        target_policy_id,
+                    )
+                    .await?
+                    {
+                        verify_existing_target(
+                            context,
+                            target_driver,
+                            &target,
+                            &latest.hash,
+                            latest.size,
+                        )
+                        .await?;
+                        return merge_blob_records(state, task_id, latest, target).await;
+                    }
+                }
+            }
+            Err(error)
+        }
     }
-    Ok(moved)
 }
 
-async fn cleanup_unmoved_target_object(
-    state: &PrimaryAppState,
-    target_driver: &dyn StorageDriver,
-    target_policy_id: i64,
-    target_path: &str,
-) {
-    if target_object_is_referenced(state, target_policy_id, target_path).await {
-        return;
-    }
+async fn cleanup_owned_migration_object(target_driver: &dyn StorageDriver, target_path: &str) {
     if let Err(error) = target_driver.delete(target_path).await {
         tracing::warn!(
             target_path,
-            "failed to cleanup migrated target object after blob policy CAS miss: {error}"
+            "failed to cleanup owned migration candidate: {error}"
         );
     }
 }
@@ -1209,9 +1242,7 @@ async fn copy_blob_streaming(
     target_path: &str,
 ) -> Result<()> {
     let BlobMigrationContext {
-        state,
         execution: context,
-        target_policy_id,
         target_multipart_part_size,
         source_driver,
         target_driver,
@@ -1264,13 +1295,11 @@ async fn copy_blob_streaming(
         // bytes, especially when the client times out waiting for the response.
         // The blob row has not moved yet, so best-effort cleanup prevents
         // repeated migration retries from leaving orphan target objects behind.
-        context.ensure_active()?;
-        cleanup_failed_target_object(state, context, target_driver, target_policy_id, target_path)
-            .await;
+        cleanup_owned_migration_object(target_driver, target_path).await;
         return Err(error.into());
     }
-    context.ensure_active()?;
     let verify_result = async {
+        context.ensure_active()?;
         let copied_hash = digest.finish_hex()?;
         if is_content_sha256_blob_key(&blob.hash) && copied_hash != blob.hash {
             return Err(AsterError::storage_driver_error(format!(
@@ -1283,8 +1312,7 @@ async fn copy_blob_streaming(
     .await;
 
     if let Err(error) = verify_result {
-        cleanup_failed_target_object(state, context, target_driver, target_policy_id, target_path)
-            .await;
+        cleanup_owned_migration_object(target_driver, target_path).await;
         return Err(error);
     }
 
@@ -1298,9 +1326,7 @@ async fn copy_blob_multipart(
     target_path: &str,
 ) -> Result<()> {
     let BlobMigrationContext {
-        state,
         execution: context,
-        target_policy_id,
         target_multipart_part_size,
         source_driver,
         target_driver,
@@ -1392,8 +1418,7 @@ async fn copy_blob_multipart(
         if !completed {
             abort_migration_multipart_upload(multipart, target_path, &upload_id).await;
         }
-        cleanup_failed_target_object(state, context, target_driver, target_policy_id, target_path)
-            .await;
+        cleanup_owned_migration_object(target_driver, target_path).await;
         return Err(error);
     }
 
@@ -1539,72 +1564,6 @@ async fn abort_migration_multipart_upload(
             upload_id,
             "failed to abort storage migration multipart upload: {error}"
         );
-    }
-}
-
-async fn cleanup_failed_target_object(
-    state: &PrimaryAppState,
-    context: &TaskExecutionContext,
-    target_driver: &dyn StorageDriver,
-    target_policy_id: i64,
-    target_path: &str,
-) {
-    if let Err(error) = context.ensure_active() {
-        tracing::warn!(
-            target_path,
-            target_policy_id,
-            "skip target object cleanup because task lease is no longer active: {error}"
-        );
-        return;
-    }
-    if target_object_is_referenced(state, target_policy_id, target_path).await {
-        return;
-    }
-    if let Err(error) = context.ensure_active() {
-        tracing::warn!(
-            target_path,
-            target_policy_id,
-            "skip target object cleanup after reference check because task lease is no longer active: {error}"
-        );
-        return;
-    }
-    if let Err(cleanup_error) = target_driver.delete(target_path).await {
-        tracing::warn!(
-            target_path,
-            "failed to cleanup migrated target object after verification error: {cleanup_error}"
-        );
-    }
-}
-
-async fn target_object_is_referenced(
-    state: &PrimaryAppState,
-    target_policy_id: i64,
-    target_path: &str,
-) -> bool {
-    match file_repo::blob_storage_path_exists_for_policy(
-        state.reader_db(),
-        target_policy_id,
-        target_path,
-    )
-    .await
-    {
-        Ok(true) => {
-            tracing::debug!(
-                target_path,
-                target_policy_id,
-                "skip target object cleanup because the path is already referenced"
-            );
-            true
-        }
-        Ok(false) => false,
-        Err(error) => {
-            tracing::warn!(
-                target_path,
-                target_policy_id,
-                "failed to verify target object references before cleanup: {error}"
-            );
-            true
-        }
     }
 }
 
@@ -1790,38 +1749,11 @@ impl HashingReader {
     }
 }
 
-struct SyncRead {
-    inner: std::sync::Mutex<Box<dyn AsyncRead + Unpin + Send>>,
-}
-
-impl SyncRead {
-    fn new(inner: Box<dyn AsyncRead + Unpin + Send>) -> Self {
-        Self {
-            inner: std::sync::Mutex::new(inner),
-        }
-    }
-}
-
-impl AsyncRead for SyncRead {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<std::io::Result<()>> {
-        match self.inner.lock() {
-            Ok(mut inner) => Pin::new(&mut *inner).poll_read(cx, buf),
-            Err(_) => Poll::Ready(Err(std::io::Error::other("sync read mutex poisoned"))),
-        }
-    }
-}
-
-impl Unpin for SyncRead {}
-
 impl HashingReader {
     fn wrap_inner(
         inner: Box<dyn AsyncRead + Unpin + Send>,
     ) -> Box<dyn AsyncRead + Unpin + Send + Sync> {
-        Box::new(SyncRead::new(inner))
+        Box::new(aster_drive_storage::SyncReader::new(inner))
     }
 }
 

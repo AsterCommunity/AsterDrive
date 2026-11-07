@@ -14,6 +14,12 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { getApiErrorMessage } from "@/hooks/useApiError";
+import {
+	assertCurrentAuthOperation,
+	captureUploadOperation,
+	isCurrentAuthOperation,
+	type UploadOperationBinding,
+} from "@/lib/authOperationOwner";
 import { formatBytes } from "@/lib/format";
 import { decideUploadQueueSettledRefresh } from "@/lib/storageMutationCoordinator";
 import {
@@ -30,6 +36,7 @@ import {
 	writeUploadConcurrency,
 } from "@/lib/uploadSettings";
 import type { Workspace } from "@/lib/workspace";
+import { useAuthStore } from "@/stores/authStore";
 import type { MeField } from "@/types/api";
 import {
 	extractFilesFromDrop,
@@ -76,6 +83,10 @@ export function useUploadAreaManager({
 	workspace,
 }: UseUploadAreaManagerOptions) {
 	const { t } = useTranslation(["core", "files"]);
+	const currentAccountId = useAuthStore((state) =>
+		state.isAuthenticated ? (state.user?.id ?? null) : null,
+	);
+	const lifecycleRef = useRef(new AbortController());
 	const currentFolderIdRef = useRef(currentFolderId);
 	const [isDragging, setIsDragging] = useState(false);
 	const dragCounter = useRef(0);
@@ -114,12 +125,25 @@ export function useUploadAreaManager({
 	}, [setUploadPanelOpen, tasks.length]);
 
 	useEffect(() => {
+		const lifecycle = new AbortController();
+		lifecycleRef.current = lifecycle;
+		// 换号时只保留仍属于当前登录生命周期的任务；旧 generation 不得复活。
+		setTasks((current) =>
+			current.filter(
+				(task) =>
+					task.binding.accountId === currentAccountId &&
+					isCurrentAuthOperation(task.binding),
+			),
+		);
 		const metadataAbortControllers = metadataAbortRef.current;
 		const progressFlushTimerState = progressFlushTimerRef;
 		const queueWasActiveState = queueWasActiveRef;
 		const uploadRequests = uploadRequestRef;
 
 		return () => {
+			lifecycle.abort();
+			for (const task of tasksRef.current)
+				abortFlagsRef.current.set(task.id, true);
 			for (const controller of metadataAbortControllers.values()) {
 				controller.abort();
 			}
@@ -133,10 +157,12 @@ export function useUploadAreaManager({
 				clearDeferredStorageRefresh();
 			}
 		};
-	}, []);
+	}, [currentAccountId]);
 
 	const patchTask = useCallback(
 		(taskId: string, patch: Partial<UploadTask>) => {
+			const task = tasksRef.current.find((task) => task.id === taskId);
+			if (!task || !isCurrentAuthOperation(task.binding)) return;
 			const terminalStatuses: UploadStatus[] = ["completed", "cancelled"];
 			const normalizedPatch = patch.status
 				? {
@@ -183,6 +209,8 @@ export function useUploadAreaManager({
 
 	const patchTaskThrottled = useCallback(
 		(taskId: string, patch: Partial<UploadTask>) => {
+			const task = tasksRef.current.find((task) => task.id === taskId);
+			if (!task || !isCurrentAuthOperation(task.binding)) return;
 			const existing = progressBufferRef.current.get(taskId);
 			progressBufferRef.current.set(
 				taskId,
@@ -199,6 +227,7 @@ export function useUploadAreaManager({
 	);
 
 	const markFolderForRefresh = useCallback((task: UploadTask) => {
+		if (!isCurrentAuthOperation(task.binding)) return;
 		pendingRefreshFolderIdsRef.current.add(task.baseFolderId);
 	}, []);
 
@@ -275,11 +304,15 @@ export function useUploadAreaManager({
 
 	const attachFileToTask = useCallback(
 		(taskId: string, file: File) => {
-			const sessions = loadSessions(workspace);
 			setTasks((prev) => {
 				const task = prev.find((item) => item.id === taskId);
 				if (task?.status !== "pending_file") return prev;
 
+				if (!isCurrentAuthOperation(task.binding)) return prev;
+				const sessions = loadSessions(
+					task.binding.accountId,
+					task.binding.workspace,
+				);
 				const session = sessions.find(
 					(entry) => entry.uploadId === task.uploadId,
 				);
@@ -307,7 +340,7 @@ export function useUploadAreaManager({
 				);
 			});
 		},
-		[t, workspace],
+		[t],
 	);
 
 	const handleResumeFileChange = useCallback(
@@ -367,10 +400,10 @@ export function useUploadAreaManager({
 			setUploadPanelOpen,
 			t,
 			tasksRef,
-			workspace,
 		});
 
 	useUploadAreaRestore({
+		ownerLifetimeRef: lifecycleRef,
 		restoredWorkspaceKeysRef,
 		resumeCompletionTask,
 		setTasks,
@@ -418,82 +451,71 @@ export function useUploadAreaManager({
 		[clearTasks],
 	);
 
+	const captureDestination = useCallback(
+		() => ({
+			binding: captureUploadOperation(workspace, lifecycleRef.current.signal),
+			baseFolderId: currentFolderIdRef.current,
+			baseFolderName:
+				breadcrumb[breadcrumb.length - 1]?.name ?? t("files:root"),
+		}),
+		[workspace, breadcrumb, t],
+	);
+
+	const enqueueFiles = useCallback(
+		(
+			files: Array<{ file: File; relativePath: string | null }>,
+			destination: {
+				binding: UploadOperationBinding;
+				baseFolderId: number | null;
+				baseFolderName: string;
+			},
+		) => {
+			assertCurrentAuthOperation(destination.binding);
+			const nextTasks = files.map(({ file, relativePath }) =>
+				createQueuedUploadTask({ ...destination, file, relativePath }),
+			);
+			const savedAt = Date.now();
+			savePendingEmptyFiles(
+				nextTasks.flatMap((task) =>
+					task.emptyFileIdempotencyKey
+						? [
+								{
+									taskId: task.id,
+									idempotencyKey: task.emptyFileIdempotencyKey,
+									filename: task.filename,
+									baseFolderId: task.baseFolderId,
+									baseFolderName: task.baseFolderName,
+									relativePath: task.relativePath,
+									savedAt,
+									workspace: task.binding.workspace,
+									accountId: task.binding.accountId,
+								},
+							]
+						: [],
+				),
+			);
+			setTasks((previous) => [...nextTasks, ...previous]);
+			setUploadPanelOpen(true);
+		},
+		[setUploadPanelOpen],
+	);
+
 	const addFilesWithPath = useCallback(
 		(files: FileWithPath[]) => {
 			if (files.length === 0) return;
-			const baseFolderId = currentFolderIdRef.current;
-			const baseFolderName =
-				breadcrumb[breadcrumb.length - 1]?.name ?? t("files:root");
-			const nextTasks = files.map(({ file, relativePath }) =>
-				createQueuedUploadTask({
-					baseFolderId,
-					baseFolderName,
-					file,
-					relativePath,
-				}),
-			);
-			const savedAt = Date.now();
-			savePendingEmptyFiles(
-				nextTasks.flatMap((task) =>
-					task.emptyFileIdempotencyKey
-						? [
-								{
-									taskId: task.id,
-									idempotencyKey: task.emptyFileIdempotencyKey,
-									filename: task.filename,
-									baseFolderId: task.baseFolderId,
-									baseFolderName: task.baseFolderName,
-									relativePath: task.relativePath,
-									savedAt,
-									workspace,
-								},
-							]
-						: [],
-				),
-			);
-			setTasks((prev) => [...nextTasks, ...prev]);
-			setUploadPanelOpen(true);
+			enqueueFiles(files, captureDestination());
 		},
-		[breadcrumb, setUploadPanelOpen, t, workspace],
+		[captureDestination, enqueueFiles],
 	);
-
 	const addFiles = useCallback(
 		(files: FileList | null) => {
-			if (!files || files.length === 0) return;
-			const baseFolderId = currentFolderIdRef.current;
-			const baseFolderName =
-				breadcrumb[breadcrumb.length - 1]?.name ?? t("files:root");
-			const nextTasks = Array.from(files).map((file) =>
-				createQueuedUploadTask({
-					baseFolderId,
-					baseFolderName,
-					file,
-					relativePath: null,
-				}),
+			if (!files?.length) return;
+			enqueueFiles(
+				Array.from(files).map((file) => ({ file, relativePath: null })),
+				captureDestination(),
 			);
-			const savedAt = Date.now();
-			savePendingEmptyFiles(
-				nextTasks.flatMap((task) =>
-					task.emptyFileIdempotencyKey
-						? [
-								{
-									taskId: task.id,
-									idempotencyKey: task.emptyFileIdempotencyKey,
-									filename: task.filename,
-									baseFolderId: task.baseFolderId,
-									baseFolderName: task.baseFolderName,
-									relativePath: task.relativePath,
-									savedAt,
-									workspace,
-								},
-							]
-						: [],
-				),
-			);
-			setTasks((prev) => [...nextTasks, ...prev]);
-			setUploadPanelOpen(true);
 		},
-		[breadcrumb, setUploadPanelOpen, t, workspace],
+		[captureDestination, enqueueFiles],
 	);
 
 	const handleFileInputChange = useCallback(
@@ -544,13 +566,16 @@ export function useUploadAreaManager({
 				(event.dataTransfer.files.length === 0 ||
 					hasDirectoryInDropItems(event.dataTransfer.items))
 			) {
+				// 目录扫描也可能跨越导航/换号；目标必须在第一次 await 前冻结。
+				const destination = captureDestination();
 				const files = await extractFilesFromDrop(event.dataTransfer.items);
-				addFilesWithPath(files);
+				if (!isCurrentAuthOperation(destination.binding)) return;
+				enqueueFiles(files, destination);
 				return;
 			}
 			addFiles(event.dataTransfer.files);
 		},
-		[addFiles, addFilesWithPath],
+		[addFiles, captureDestination, enqueueFiles],
 	);
 
 	const {

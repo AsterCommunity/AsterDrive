@@ -111,7 +111,7 @@ async fn missing_base_is_not_created_by_reads_metadata_delete_or_failed_copy_sou
     );
     assert_eq!(
         driver
-            .copy_object("files/key", "files/copy")
+            .copy_object("files/key", "files/copy", Default::default())
             .await
             .unwrap_err()
             .kind(),

@@ -140,8 +140,9 @@ macro_rules! delegate_s3_compatible_storage_driver {
                 &self,
                 src_path: &str,
                 dest_path: &str,
-            ) -> aster_drive_storage::Result<String> {
-                self.$field.copy_object(src_path, dest_path).await
+        options: aster_drive_storage::StorageCopyOptions,
+    ) -> aster_drive_storage::Result<String> {
+                self.$field.copy_object(src_path, dest_path, options).await
             }
 
             fn extensions(&self) -> aster_drive_storage::StorageDriverExtensions<'_> {

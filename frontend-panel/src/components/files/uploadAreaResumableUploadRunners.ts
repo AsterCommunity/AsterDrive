@@ -7,18 +7,18 @@ import {
 import { getApiErrorMessage } from "@/hooks/useApiError";
 import { appendCompletedPart, removeSession } from "@/lib/uploadPersistence";
 import { runBrowserUpload } from "@/services/browserUploadResource";
-import {
-	type BrowserUploadRequest,
-	type CompletedPart,
-	type InitUploadResponse,
-	type UploadProgressResponse,
-	uploadService,
+import type {
+	BrowserUploadRequest,
+	CompletedPart,
+	InitUploadResponse,
+	UploadProgressResponse,
 } from "@/services/uploadService";
 import {
 	CHUNK_CONCURRENT,
 	completeWithRetry,
 	shouldRemovePersistedSession,
 	type UploadTask,
+	uploadServiceForTask,
 } from "./uploadAreaManagerShared";
 import { createResumableUploadShared } from "./uploadAreaResumableUploadShared";
 import type {
@@ -87,7 +87,7 @@ export function createResumableUploadRunners({
 
 		await waitForMultipartDrain(task.id);
 		try {
-			await uploadService.cancelUpload(task.uploadId);
+			await uploadServiceForTask(task).cancelUpload(task.uploadId);
 		} catch {}
 		removeSession(task.uploadId);
 	};
@@ -114,7 +114,8 @@ export function createResumableUploadRunners({
 					attempt < 40 && status === "assembling";
 					attempt += 1
 				) {
-					status = (await uploadService.getProgress(uploadId)).status;
+					status = (await uploadServiceForTask(task).getProgress(uploadId))
+						.status;
 					if (status === "assembling") {
 						await new Promise((resolve) => window.setTimeout(resolve, 250));
 					}
@@ -123,7 +124,7 @@ export function createResumableUploadRunners({
 					throw new Error(`stream publication ended in ${status}`);
 				}
 			} else {
-				await completeWithRetry(uploadId, parts);
+				await completeWithRetry(task, uploadId, parts);
 			}
 			if (abortFlagsRef.current.get(task.id)) {
 				patchTask(task.id, {
@@ -198,7 +199,7 @@ export function createResumableUploadRunners({
 
 		await runResumableTransfer({
 			concurrency: resolveChunkConcurrency(init, CHUNK_CONCURRENT),
-			completeUpload: () => completeWithRetry(uploadId),
+			completeUpload: () => completeWithRetry(task, uploadId),
 			initialCompleted: alreadyReceived.length,
 			initialCompletedBytes: alreadyReceived.reduce(
 				(total, chunkNumber) => total + getChunkSize(chunkNumber),
@@ -218,13 +219,14 @@ export function createResumableUploadRunners({
 				const blob = file.slice(start, end);
 
 				await runRetryableUploadOperation({
+					task,
 					run: async () => {
 						return withTrackedMultipartRequest(task.id, () =>
 							withTrackedUploadRequest(
 								uploadRequestRef,
 								task.id,
 								(onCreateXhr) =>
-									uploadService.uploadChunk(
+									uploadServiceForTask(task).uploadChunk(
 										uploadId,
 										chunkNumber,
 										blob,
@@ -319,7 +321,7 @@ export function createResumableUploadRunners({
 				);
 			}
 
-			const presignBatch = uploadService
+			const presignBatch = uploadServiceForTask(task)
 				.presignParts(uploadId, batch)
 				.then((requests) => {
 					requestCache = { ...requestCache, ...requests };
@@ -348,7 +350,7 @@ export function createResumableUploadRunners({
 				collectedParts.sort(
 					(left, right) => left.part_number - right.part_number,
 				);
-				await completeWithRetry(uploadId, collectedParts);
+				await completeWithRetry(task, uploadId, collectedParts);
 			},
 			initialCompleted: completedSet.size,
 			initialCompletedBytes: [...completedSet].reduce(
@@ -369,6 +371,7 @@ export function createResumableUploadRunners({
 				const blob = file.slice(start, end);
 
 				const etag = await runRetryableUploadOperation({
+					task,
 					onRetryableError: () => {
 						delete requestCache[partNumber];
 					},
@@ -379,7 +382,7 @@ export function createResumableUploadRunners({
 								uploadRequestRef,
 								task.id,
 								(onCreateXhr) =>
-									uploadService.uploadPartRequest(
+									uploadServiceForTask(task).uploadPartRequest(
 										request,
 										blob,
 										reportProgress,
@@ -425,7 +428,7 @@ export function createResumableUploadRunners({
 		const initialOffset = initial.confirmed_offset;
 		await runResumableTransfer({
 			concurrency: 1,
-			completeUpload: () => completeWithRetry(uploadId),
+			completeUpload: () => completeWithRetry(task, uploadId),
 			initialCompleted: 0,
 			initialCompletedBytes: initialOffset,
 			items: [0],
@@ -438,19 +441,29 @@ export function createResumableUploadRunners({
 			uploadId,
 			uploadItem: async (_item, reportProgress) => {
 				await withTrackedMultipartRequest(task.id, () =>
-					runBrowserUpload(uploadService, uploadId, file, initial, {
-						isAborted: () => abortFlagsRef.current.get(task.id) === true,
-						onProgress: (offset) => reportProgress(offset - initialOffset),
-						execute: (instruction) =>
-							withTrackedUploadRequest(
-								uploadRequestRef,
-								task.id,
-								(onCreateXhr) =>
-									uploadService.executeBrowserUpload(instruction, file, {
-										onCreateXhr,
-									}),
-							),
-					}),
+					runBrowserUpload(
+						uploadServiceForTask(task),
+						uploadId,
+						file,
+						initial,
+						{
+							isAborted: () => abortFlagsRef.current.get(task.id) === true,
+							onProgress: (offset) => reportProgress(offset - initialOffset),
+							execute: (instruction) =>
+								withTrackedUploadRequest(
+									uploadRequestRef,
+									task.id,
+									(onCreateXhr) =>
+										uploadServiceForTask(task).executeBrowserUpload(
+											instruction,
+											file,
+											{
+												onCreateXhr,
+											},
+										),
+								),
+						},
+					),
 				);
 			},
 			uploadingPatch: {

@@ -19,7 +19,7 @@ pub async fn probe_ffmpeg_cli_command(command: &str) -> Result<String> {
 
     let probe_command = command.clone();
     let output = tokio::task::spawn_blocking(move || {
-        run_cli_command_with_timeout(&probe_command, &["-version"], |message| {
+        run_cli_command_with_timeout(&probe_command, &["-version"], None, |message| {
             AsterError::validation_error(format!("ffmpeg_cli probe failed: {message}"))
         })
     })

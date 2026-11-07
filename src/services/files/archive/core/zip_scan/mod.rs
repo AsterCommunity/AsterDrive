@@ -10,6 +10,7 @@ use zip::HasZipMetadata;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use aster_drive_model::types::ArchiveFilenameEncoding;
 
+mod budget;
 mod encoding;
 mod entry;
 
@@ -22,6 +23,8 @@ use super::scan::{
     ArchiveRawScanEntry, ArchiveRawScanResult, ArchiveScanEntryKind, ArchiveScanLimits,
     ArchiveScanNamePolicy, ArchiveScanResult, ensure_archive_scan_deadline,
 };
+pub(crate) use budget::open_zip_archive;
+
 use encoding::{ZIP_UTF8_FLAG, decode_zip_entry_name, decode_zip_entry_name_parts};
 use entry::{
     build_scan_entry, build_scan_entry_from_parts, format_zip_datetime, map_zip_entry_error,
@@ -29,7 +32,7 @@ use entry::{
 };
 
 pub(crate) fn scan_zip_archive<R, F>(
-    archive: &mut zip::ZipArchive<R>,
+    archive: &mut zip::unstable::read::ZipIterable<R>,
     limits: ArchiveScanLimits,
     deadline: Option<Instant>,
     filename_encoding: ArchiveFilenameEncoding,
@@ -56,11 +59,11 @@ where
     let mut seen_paths = HashSet::new();
     let mut directory_paths = HashSet::new();
     let mut file_paths = HashSet::new();
-    let mut entries = Vec::with_capacity(archive.len());
+    let mut entries = Vec::new();
 
-    for index in 0..archive.len() {
+    for entry in archive.files().map_err(map_zip_entry_error)? {
         ensure_archive_scan_deadline(deadline)?;
-        let entry = archive.by_index_raw(index).map_err(map_zip_entry_error)?;
+        let entry = entry.map_err(map_zip_entry_error)?;
         let decoded_name = decode_zip_entry_name(&entry, filename_encoding)?;
         validate_zip_entry_supported(&entry, &decoded_name)?;
         if matches!(name_policy, ArchiveScanNamePolicy::PreviewDisplayName)
@@ -82,7 +85,6 @@ where
         if entry.is_dir() {
             insert_directory_path_with_limit(&relative_path, &mut directory_paths, limits)?;
             entries.push(build_scan_entry(
-                index,
                 relative_path,
                 ArchiveScanEntryKind::Directory,
                 0,
@@ -128,7 +130,6 @@ where
             .ok_or_else(|| AsterError::internal_error("archive compressed size overflow"))?;
         file_paths.insert(relative_path.clone());
         entries.push(build_scan_entry(
-            index,
             relative_path,
             ArchiveScanEntryKind::File,
             entry_size,
@@ -159,7 +160,7 @@ where
 }
 
 pub(crate) fn scan_zip_archive_raw<R>(
-    archive: &mut zip::ZipArchive<R>,
+    archive: &mut zip::unstable::read::ZipIterable<R>,
     limits: ArchiveScanLimits,
     deadline: Option<Instant>,
 ) -> Result<ArchiveRawScanResult>
@@ -179,11 +180,11 @@ where
     let mut total_compressed_bytes = 0_u64;
     let mut file_count = 0_u64;
     let mut directory_count = 0_u64;
-    let mut entries = Vec::with_capacity(archive.len());
+    let mut entries = Vec::new();
 
-    for index in 0..archive.len() {
+    for (index, entry) in archive.files().map_err(map_zip_entry_error)?.enumerate() {
         ensure_archive_scan_deadline(deadline)?;
-        let entry = archive.by_index_raw(index).map_err(map_zip_entry_error)?;
+        let entry = entry.map_err(map_zip_entry_error)?;
         let display_name = entry.name().map_err(map_zip_entry_error)?.into_owned();
         validate_zip_entry_supported(&entry, &display_name)?;
         let raw_name = entry.name_raw().to_vec();
@@ -329,7 +330,6 @@ where
         if raw_entry.kind.is_dir() {
             insert_directory_path_with_limit(&relative_path, &mut directory_paths, limits)?;
             entries.push(build_scan_entry_from_parts(
-                raw_entry.index,
                 relative_path,
                 ArchiveScanEntryKind::Directory,
                 0,
@@ -378,7 +378,6 @@ where
             .ok_or_else(|| AsterError::internal_error("archive compressed size overflow"))?;
         file_paths.insert(relative_path.clone());
         entries.push(build_scan_entry_from_parts(
-            raw_entry.index,
             relative_path,
             ArchiveScanEntryKind::File,
             raw_entry.size,

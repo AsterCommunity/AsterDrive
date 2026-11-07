@@ -26,6 +26,7 @@ pub(crate) struct FollowerObjectWriteRequest<'a> {
     pub storage_path: &'a str,
     pub content_length: i64,
     pub expected_sha256: Option<&'a str>,
+    pub temp_root: Option<&'a str>,
 }
 
 #[derive(Clone, Copy)]
@@ -94,6 +95,7 @@ pub(crate) async fn write_follower_object(
         storage_path,
         content_length,
         expected_sha256,
+        temp_root,
     } = request;
     let stream_driver = driver.extensions().stream_upload.ok_or_else(|| {
         crate::errors::storage_driver_error(
@@ -104,10 +106,7 @@ pub(crate) async fn write_follower_object(
     // Default provider staging may write its `storage_path` immediately. Give
     // every attempt a unique unpublished key so a bad digest can never replace
     // the existing object; only copy it to the final key after verification.
-    let attempt_path = format!(
-        "{storage_path}.aster-attempt-{}",
-        aster_forge_utils::id::new_uuid()
-    );
+    let attempt_path = aster_drive_storage::object_path::new_relay_attempt_path(storage_path);
     let attempt = StreamUploadAttempt::new(&attempt_path, content_length)?;
     let _attempt_metrics = StreamUploadMetricsGuard::new(metrics, content_length);
     let (writer, reader) = tokio::io::duplex(RELAY_BUFFER_SIZE);
@@ -173,7 +172,20 @@ pub(crate) async fn write_follower_object(
         cleanup_unpublished_attempt(driver.as_ref(), &attempt_path, binding_id, object_key).await;
         return Err(error.into());
     }
-    if let Err(error) = publish_staged_object(driver.as_ref(), &attempt_path, storage_path).await {
+    if let Err(error) = publish_staged_object(
+        driver.as_ref(),
+        &attempt_path,
+        storage_path,
+        aster_drive_storage::StorageCopyOptions {
+            expected_size: Some(aster_forge_utils::numbers::i64_to_u64(
+                content_length,
+                "follower copy size",
+            )?),
+            temp_root: temp_root.map(str::to_owned),
+        },
+    )
+    .await
+    {
         cleanup_unpublished_attempt(driver.as_ref(), &attempt_path, binding_id, object_key).await;
         return Err(error.into());
     }
@@ -200,6 +212,10 @@ async fn cleanup_unpublished_attempt(
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "follower composition keeps driver, request scope, parts and scratch ownership explicit"
+)]
 pub(crate) async fn compose_follower_objects(
     driver: Arc<dyn StorageDriver>,
     metrics: &dyn MetricsRecorder,
@@ -208,6 +224,7 @@ pub(crate) async fn compose_follower_objects(
     target_storage_path: &str,
     part_storage_paths: Vec<String>,
     expected_size: i64,
+    temp_root: Option<&str>,
 ) -> Result<u64> {
     let stream_driver = driver.extensions().stream_upload.ok_or_else(|| {
         crate::errors::storage_driver_error(
@@ -217,10 +234,8 @@ pub(crate) async fn compose_follower_objects(
     })?;
     let expected_size_u64 =
         aster_forge_utils::numbers::i64_to_u64(expected_size, "compose expected_size")?;
-    let attempt_path = format!(
-        "{target_storage_path}.aster-attempt-{}",
-        aster_forge_utils::id::new_uuid()
-    );
+    let attempt_path =
+        aster_drive_storage::object_path::new_relay_attempt_path(target_storage_path);
     let attempt = StreamUploadAttempt::new(&attempt_path, expected_size)?;
     let _attempt_metrics = StreamUploadMetricsGuard::new(metrics, expected_size);
     let read_driver = Arc::clone(&driver);
@@ -289,8 +304,16 @@ pub(crate) async fn compose_follower_objects(
         cleanup_unpublished_attempt(driver.as_ref(), &attempt_path, binding_id, target_key).await;
         return Err(error.into());
     }
-    if let Err(error) =
-        publish_staged_object(driver.as_ref(), &attempt_path, target_storage_path).await
+    if let Err(error) = publish_staged_object(
+        driver.as_ref(),
+        &attempt_path,
+        target_storage_path,
+        aster_drive_storage::StorageCopyOptions {
+            expected_size: Some(expected_size_u64),
+            temp_root: temp_root.map(str::to_owned),
+        },
+    )
+    .await
     {
         cleanup_unpublished_attempt(driver.as_ref(), &attempt_path, binding_id, target_key).await;
         return Err(error.into());
@@ -314,11 +337,14 @@ async fn publish_staged_object(
     driver: &dyn StorageDriver,
     staging_path: &str,
     storage_path: &str,
+    options: aster_drive_storage::StorageCopyOptions,
 ) -> aster_drive_storage::Result<String> {
     if let Some(publisher) = driver.extensions().native_publish {
         publisher.publish_staged(staging_path, storage_path).await
     } else {
-        driver.copy_object(staging_path, storage_path).await
+        driver
+            .copy_object(staging_path, storage_path, options)
+            .await
     }
 }
 
@@ -410,6 +436,7 @@ mod tests {
             &self,
             source: &str,
             target: &str,
+            _options: aster_drive_storage::StorageCopyOptions,
         ) -> aster_drive_storage::Result<String> {
             assert_eq!((source, target), ("staged", "target"));
             self.copies.fetch_add(1, Ordering::SeqCst);
@@ -450,7 +477,7 @@ mod tests {
                 copies: AtomicUsize::new(0),
             };
             assert_eq!(
-                publish_staged_object(&driver, "staged", "target")
+                publish_staged_object(&driver, "staged", "target", Default::default())
                     .await
                     .unwrap(),
                 "target"
@@ -474,7 +501,7 @@ mod tests {
                 copies: AtomicUsize::new(0),
             };
             assert_eq!(
-                publish_staged_object(&driver, "staged", "target")
+                publish_staged_object(&driver, "staged", "target", Default::default())
                     .await
                     .unwrap_err()
                     .kind(),
@@ -519,6 +546,7 @@ mod tests {
                 storage_path: "object.bin",
                 content_length: 9,
                 expected_sha256: Some(&hex::encode(sha2::Sha256::digest(b"published"))),
+                temp_root: None,
             },
             payload,
         )
@@ -546,6 +574,7 @@ mod tests {
             "object.bin",
             vec!["part-a".to_owned(), "part-b".to_owned()],
             11,
+            None,
         )
         .await
         .unwrap();
@@ -574,7 +603,7 @@ mod tests {
                     .unwrap()
                     .ino()
             };
-            publish_staged_object(&driver, "staged", "target")
+            publish_staged_object(&driver, "staged", "target", Default::default())
                 .await
                 .unwrap();
             assert_eq!(driver.get("target").await.unwrap(), bytes);
@@ -610,6 +639,7 @@ mod tests {
                 "object.bin",
                 vec!["part".to_owned()],
                 expected_size,
+                None,
             )
             .await
             .unwrap_err();
@@ -639,6 +669,7 @@ mod tests {
                 storage_path: "object.bin",
                 content_length: 64,
                 expected_sha256: None,
+                temp_root: None,
             },
             payload,
         )
@@ -671,6 +702,7 @@ mod tests {
                 storage_path: "object.bin",
                 content_length: 5,
                 expected_sha256: None,
+                temp_root: None,
             },
             payload,
         )
@@ -708,6 +740,7 @@ mod tests {
                 storage_path: "object.bin",
                 content_length: 8,
                 expected_sha256: Some(&hex::encode(sha2::Sha256::digest(b"expected"))),
+                temp_root: None,
             },
             payload,
         )

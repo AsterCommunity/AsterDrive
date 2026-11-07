@@ -9,6 +9,7 @@ use sea_orm::ConnectionTrait;
 use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::services::files::folder::hierarchy::load_active_chain_on;
 use crate::services::{
     events::storage_change,
     workspace::storage::{self, WorkspaceStorageScope},
@@ -252,6 +253,19 @@ pub(crate) async fn batch_move_in_scope(
             continue;
         }
 
+        if folder.parent_id != target_folder_id
+            && let Err(error) =
+                crate::services::files::folder::hierarchy::ensure_subtree_placement_on(
+                    state.writer_db(),
+                    scope,
+                    folder.id,
+                    target_ancestor_ids.len(),
+                )
+                .await
+        {
+            result.record_failure("folder", id, error.to_string());
+            continue;
+        }
         result.record_success();
         if folder.parent_id != target_folder_id {
             folder_ids_to_move.insert(folder.id);
@@ -275,38 +289,17 @@ pub(crate) async fn batch_move_in_scope(
             .collect();
 
         let txn = transaction::begin(state.writer_db()).await?;
-        let workspace = match scope {
-            WorkspaceStorageScope::Personal { user_id } => {
-                crate::services::files::lock::LockWorkspace::Personal { user_id }
-            }
-            WorkspaceStorageScope::Team { team_id, .. } => {
-                crate::services::files::lock::LockWorkspace::Team { team_id }
-            }
-        };
+        let access = crate::services::workspace::scope::authorize_workspace_on(
+            &txn,
+            scope,
+            crate::services::workspace::scope::WorkspaceOperation::Move,
+            &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+        )
+        .await?;
         if let Some(target_folder_id) = target_folder_id {
             let target = folder_repo::lock_by_id(&txn, target_folder_id).await?;
+            access.folder(&target).await?;
             storage::ensure_active_folder_scope(&target, scope)?;
-        }
-        let source_and_target_parents: BTreeSet<Option<i64>> = file_ids_to_move
-            .iter()
-            .filter_map(|id| file_map.get(id).map(|file| file.folder_id))
-            .chain(
-                folder_ids_to_move
-                    .iter()
-                    .filter_map(|id| folder_map.get(id).map(|folder| folder.parent_id)),
-            )
-            .chain(std::iter::once(target_folder_id))
-            .collect();
-        // The mutation phase is one atomic transaction. A membership lock found during
-        // revalidation aborts the whole batch instead of reporting a partial commit.
-        for parent_id in source_and_target_parents {
-            crate::services::files::lock::enforce_collection_membership_mutation_on(
-                &txn,
-                workspace,
-                parent_id,
-                &crate::services::files::lock::SubmittedLockCredentials::none(),
-            )
-            .await?;
         }
         let mut locked_file_ids = file_ids_to_move.clone();
         locked_file_ids.sort_unstable();
@@ -325,6 +318,22 @@ pub(crate) async fn batch_move_in_scope(
         let before_folders =
             revalidate_batch_folder_move(&txn, scope, &folder_ids_to_move, target_folder_id)
                 .await?;
+        // 成员移出集合必须以事务内锁定后的当前 parent 为准。请求前的 file_map
+        // 可能已被并发 MOVE 改变，不能让旧 parent 的校验覆盖另一个当前集合。
+        let parents: BTreeSet<_> = before_files
+            .iter()
+            .map(|file| file.folder_id)
+            .chain(before_folders.iter().map(|folder| folder.parent_id))
+            .chain(std::iter::once(target_folder_id))
+            .collect();
+        for parent in parents {
+            access
+                .collection(
+                    parent,
+                    &crate::services::files::lock::SubmittedLockCredentials::none(),
+                )
+                .await?;
+        }
         let activity = crate::services::workspace::activity::ActivityContext::actor(
             &txn,
             scope.actor_user_id(),
@@ -394,12 +403,12 @@ async fn revalidate_batch_folder_move<C: ConnectionTrait>(
         crate::services::files::lock::LockWorkspace::from_folder(&workspace_snapshot)?,
     )
     .await?;
-    let initial_target_chain = load_folder_chain_in_scope(db, scope, target_folder_id).await?;
+    let initial_target_chain = load_active_chain_on(db, scope, target_folder_id).await?;
     let mut lock_ids: Vec<i64> = folder_ids_to_move.to_vec();
     lock_ids.extend(initial_target_chain.iter().map(|folder| folder.id));
     lock_folder_ids_in_order(db, &lock_ids).await?;
 
-    let target_chain = load_folder_chain_in_scope(db, scope, target_folder_id).await?;
+    let target_chain = load_active_chain_on(db, scope, target_folder_id).await?;
     let mut before = Vec::with_capacity(folder_ids_to_move.len());
     for &folder_id in folder_ids_to_move {
         let folder = folder_repo::lock_by_id(db, folder_id).await?;
@@ -416,32 +425,19 @@ async fn revalidate_batch_folder_move<C: ConnectionTrait>(
                 "cannot move folder into its own subfolder",
             ));
         }
+        if current.parent_id != target_folder_id {
+            crate::services::files::folder::hierarchy::ensure_subtree_placement_on(
+                db,
+                scope,
+                folder_id,
+                target_chain.len(),
+            )
+            .await?;
+        }
         before.push(current);
     }
 
     Ok(before)
-}
-
-async fn load_folder_chain_in_scope<C: ConnectionTrait>(
-    db: &C,
-    scope: WorkspaceStorageScope,
-    start_id: Option<i64>,
-) -> Result<Vec<folder::Model>> {
-    let mut chain = Vec::new();
-    let mut seen = BTreeSet::new();
-    let mut cursor = start_id;
-    while let Some(folder_id) = cursor {
-        if !seen.insert(folder_id) {
-            return Err(AsterError::validation_error(
-                "folder hierarchy contains a cycle",
-            ));
-        }
-        let folder = folder_repo::find_by_id(db, folder_id).await?;
-        storage::ensure_active_folder_scope(&folder, scope)?;
-        cursor = folder.parent_id;
-        chain.push(folder);
-    }
-    Ok(chain)
 }
 
 async fn lock_folder_ids_in_order<C: ConnectionTrait>(db: &C, ids: &[i64]) -> Result<()> {

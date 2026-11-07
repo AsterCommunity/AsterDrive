@@ -147,6 +147,16 @@ fn build_find_ancestors_statement(
     scope: AncestorScope,
     folder_id: i64,
 ) -> Statement {
+    let maximum_depth = aster_drive_model::types::folder::MAX_FOLDER_DEPTH;
+    // Query-local recursion leaves pooled MySQL connections unchanged. The SQL
+    // cutoff also includes one sentinel row for detecting unsupported hierarchies.
+    let recursion_hint = match backend {
+        DbBackend::MySql => format!(
+            "/*+ SET_VAR(cte_max_recursion_depth = {}) */",
+            maximum_depth + 1
+        ),
+        _ => String::new(),
+    };
     let root_depth_expr = match backend {
         DbBackend::Postgres => "CAST(0 AS BIGINT)",
         DbBackend::MySql => "CAST(0 AS SIGNED)",
@@ -176,7 +186,6 @@ fn build_find_ancestors_statement(
                  FROM folders f \
                  WHERE f.id = $1 \
                    AND f.owner_user_id = $2 \
-                   AND f.deleted_at IS NULL \
                  UNION ALL \
                  SELECT \
                      fa.depth + 1, \
@@ -196,9 +205,9 @@ fn build_find_ancestors_statement(
                  FROM folders parent \
                  JOIN folder_ancestors fa ON fa.parent_id = parent.id \
                  WHERE parent.owner_user_id = $2 \
-                   AND parent.deleted_at IS NULL \
+                   AND fa.depth < {maximum_depth} \
              ) \
-             SELECT \
+             SELECT {recursion_hint} \
                  depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, modified_by_user_id, modified_by_username, modified_at, policy_id, icon_kind, icon_value, created_at, updated_at, deleted_at \
              FROM folder_ancestors \
              ORDER BY depth DESC"
@@ -228,7 +237,6 @@ fn build_find_ancestors_statement(
                  FROM folders f \
                  WHERE f.id = $1 \
                    AND f.team_id = $2 \
-                   AND f.deleted_at IS NULL \
                  UNION ALL \
                  SELECT \
                      fa.depth + 1, \
@@ -248,9 +256,9 @@ fn build_find_ancestors_statement(
                  FROM folders parent \
                  JOIN folder_ancestors fa ON fa.parent_id = parent.id \
                  WHERE parent.team_id = $2 \
-                   AND parent.deleted_at IS NULL \
+                   AND fa.depth < {maximum_depth} \
              ) \
-             SELECT \
+             SELECT {recursion_hint} \
                  depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, modified_by_user_id, modified_by_username, modified_at, policy_id, icon_kind, icon_value, created_at, updated_at, deleted_at \
              FROM folder_ancestors \
              ORDER BY depth DESC"
@@ -280,7 +288,6 @@ fn build_find_ancestors_statement(
                  FROM folders f \
                  WHERE f.id = ? \
                    AND f.owner_user_id = ? \
-                   AND f.deleted_at IS NULL \
                  UNION ALL \
                  SELECT \
                      fa.depth + 1, \
@@ -300,9 +307,9 @@ fn build_find_ancestors_statement(
                  FROM folders parent \
                  JOIN folder_ancestors fa ON fa.parent_id = parent.id \
                  WHERE parent.owner_user_id = ? \
-                   AND parent.deleted_at IS NULL \
+                   AND fa.depth < {maximum_depth} \
              ) \
-             SELECT \
+             SELECT {recursion_hint} \
                  depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, modified_by_user_id, modified_by_username, modified_at, policy_id, icon_kind, icon_value, created_at, updated_at, deleted_at \
              FROM folder_ancestors \
              ORDER BY depth DESC"
@@ -332,7 +339,6 @@ fn build_find_ancestors_statement(
                  FROM folders f \
                  WHERE f.id = ? \
                    AND f.team_id = ? \
-                   AND f.deleted_at IS NULL \
                  UNION ALL \
                  SELECT \
                      fa.depth + 1, \
@@ -352,9 +358,9 @@ fn build_find_ancestors_statement(
                  FROM folders parent \
                  JOIN folder_ancestors fa ON fa.parent_id = parent.id \
                  WHERE parent.team_id = ? \
-                   AND parent.deleted_at IS NULL \
+                   AND fa.depth < {maximum_depth} \
              ) \
-             SELECT \
+             SELECT {recursion_hint} \
                  depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, modified_by_user_id, modified_by_username, modified_at, policy_id, icon_kind, icon_value, created_at, updated_at, deleted_at \
              FROM folder_ancestors \
              ORDER BY depth DESC"
@@ -380,7 +386,101 @@ async fn find_ancestor_models_in_scope<C: ConnectionTrait>(
     .await
     .map_err(AsterError::from)?;
 
+    // The CTE bounds database work even for inconsistent topology; validate
+    // the projection before presenting a partial or cyclic breadcrumb chain.
+    let mut seen = std::collections::HashSet::new();
+    if rows.iter().any(|row| {
+        row.depth >= aster_drive_model::types::folder::MAX_FOLDER_DEPTH as i64
+            || !seen.insert(row.id)
+    }) {
+        return Err(AsterError::validation_error(
+            "folder ancestry exceeds depth budget or contains a cycle",
+        ));
+    }
+    if rows.first().is_some_and(|row| row.parent_id.is_some())
+        || rows
+            .windows(2)
+            .any(|pair| pair[1].parent_id != Some(pair[0].id))
+    {
+        return Err(AsterError::validation_error(
+            "folder ancestry is incomplete",
+        ));
+    }
     Ok(rows.into_iter().map(Into::into).collect())
+}
+
+/// Return the height in folder levels, including the root, without materializing its contents.
+/// The caller serializes workspace mutations while checking and publishing a new parent.
+pub(crate) async fn find_subtree_height<C: ConnectionTrait>(
+    db: &C,
+    scope: super::common::FolderScope,
+    root_id: i64,
+    include_deleted: bool,
+) -> Result<usize> {
+    #[derive(FromQueryResult)]
+    struct Height {
+        maximum_depth: Option<i64>,
+    }
+
+    let backend = db.get_database_backend();
+    let maximum_depth = aster_drive_model::types::folder::MAX_FOLDER_DEPTH;
+    let (scope_column, scope_id) = match scope {
+        super::common::FolderScope::Personal { user_id } => ("owner_user_id", user_id),
+        super::common::FolderScope::Team { team_id } => ("team_id", team_id),
+    };
+    let (root_placeholder, scope_placeholder, recursive_scope_placeholder, depth_type) =
+        match backend {
+            DbBackend::Postgres => ("$1", "$2", "$2", "BIGINT"),
+            DbBackend::MySql => ("?", "?", "?", "SIGNED"),
+            _ => ("?", "?", "?", "INTEGER"),
+        };
+    let active_root = if include_deleted {
+        ""
+    } else {
+        "AND f.deleted_at IS NULL"
+    };
+    let active_child = if include_deleted {
+        ""
+    } else {
+        "AND child.deleted_at IS NULL"
+    };
+    let hint = match backend {
+        DbBackend::MySql => format!(
+            "/*+ SET_VAR(cte_max_recursion_depth = {}) */",
+            maximum_depth + 1
+        ),
+        _ => String::new(),
+    };
+    let sql = format!(
+        "WITH RECURSIVE subtree (id, depth) AS ( \
+             SELECT f.id, CAST(0 AS {depth_type}) FROM folders f \
+             WHERE f.id = {root_placeholder} AND f.{scope_column} = {scope_placeholder} {active_root} \
+             UNION ALL \
+             SELECT child.id, subtree.depth + 1 FROM folders child \
+             JOIN subtree ON child.parent_id = subtree.id \
+             WHERE child.{scope_column} = {recursive_scope_placeholder} \
+               {active_child} AND subtree.depth < {maximum_depth} \
+         ) SELECT {hint} CAST(MAX(depth) AS {depth_type}) AS maximum_depth FROM subtree"
+    );
+    let mut values = vec![root_id.into(), scope_id.into()];
+    if backend != DbBackend::Postgres {
+        values.push(scope_id.into());
+    }
+    let row = Height::find_by_statement(Statement::from_sql_and_values(backend, sql, values))
+        .one(db)
+        .await
+        .map_err(AsterError::from)?;
+    let depth = row
+        .and_then(|row| row.maximum_depth)
+        .ok_or_else(|| AsterError::folder_not_found("folder subtree root is unavailable"))?;
+    let depth = usize::try_from(depth)
+        .map_err(|_| AsterError::validation_error("invalid folder subtree depth"))?;
+    if depth >= maximum_depth {
+        return Err(AsterError::validation_error(
+            "folder hierarchy exceeds the 4096-level limit or contains a cycle",
+        ));
+    }
+    Ok(depth + 1)
 }
 
 fn requested_segments_subquery(segments: &[String]) -> Result<sea_orm::sea_query::SelectStatement> {
@@ -652,6 +752,12 @@ pub async fn find_ancestors<C: ConnectionTrait>(
     }
 
     let ancestors = find_ancestor_models(db, user_id, folder_id).await?;
+    if ancestors
+        .iter()
+        .any(|ancestor| ancestor.deleted_at.is_some())
+    {
+        return Err(AsterError::folder_not_found("folder ancestor is in trash"));
+    }
     Ok(ancestors
         .into_iter()
         .map(|folder| (folder.id, folder.name))

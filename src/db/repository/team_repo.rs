@@ -374,6 +374,26 @@ pub async fn set_storage_used<C: ConnectionTrait>(db: &C, id: i64, value: i64) -
     Ok(())
 }
 
+/// Same authoritative row used by charging; acquire the lock before recounting.
+pub(crate) async fn lock_storage_used<C: ConnectionTrait>(db: &C, id: i64) -> Result<Option<i64>> {
+    Team::update_many()
+        .col_expr(
+            team::Column::StorageUsed,
+            Expr::col(team::Column::StorageUsed),
+        )
+        .filter(team::Column::Id.eq(id))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    Team::find_by_id(id)
+        .select_only()
+        .column(team::Column::StorageUsed)
+        .into_tuple::<i64>()
+        .one(db)
+        .await
+        .map_err(AsterError::from)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

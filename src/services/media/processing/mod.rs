@@ -4,6 +4,8 @@
 
 mod avatar;
 mod cli_input;
+pub(crate) mod ffmpeg_input;
+mod range_input;
 mod resolve;
 mod shared;
 #[cfg(test)]

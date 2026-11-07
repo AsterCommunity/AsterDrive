@@ -103,3 +103,32 @@ pub async fn cleanup_expired(db: &DatabaseConnection, now: chrono::DateTime<Utc>
         .map_err(AsterError::from)?;
     Ok(result.rows_affected)
 }
+
+/// Called inside the authenticated completion transaction. SQL locks lifecycle state before
+/// deciding consumption; SQLite obtains writer admission before its first snapshot read.
+pub async fn lock_by_id<C: ConnectionTrait>(
+    db: &C,
+    id: i64,
+) -> Result<Option<external_auth_email_verification_flow::Model>> {
+    use sea_orm::{DbBackend, QuerySelect};
+    let query = ExternalAuthEmailVerificationFlow::find_by_id(id);
+    match db.get_database_backend() {
+        DbBackend::Sqlite => {
+            ExternalAuthEmailVerificationFlow::update_many()
+                .col_expr(
+                    external_auth_email_verification_flow::Column::Id,
+                    Expr::col(external_auth_email_verification_flow::Column::Id),
+                )
+                .filter(external_auth_email_verification_flow::Column::Id.eq(id))
+                .exec(db)
+                .await
+                .map_err(AsterError::from)?;
+            query.one(db).await.map_err(AsterError::from)
+        }
+        _ => query
+            .lock_exclusive()
+            .one(db)
+            .await
+            .map_err(AsterError::from),
+    }
+}

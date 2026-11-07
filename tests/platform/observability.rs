@@ -79,14 +79,8 @@ async fn backlog_aggregates_cleanup_interval_and_observation_migration_round_tri
         .cleanup_pending_since
         .unwrap();
     assert!(file_repo::claim_blob_cleanup(db, blob.id).await.unwrap());
-    assert!(
-        file_repo::restore_blob_cleanup_claim(db, blob.id)
-            .await
-            .unwrap()
-    );
-    file_repo::reset_blob_ref_count_to_zero(db, blob.id)
-        .await
-        .unwrap();
+    assert!(file_repo::set_blob_ref_count(db, blob.id, 0).await.unwrap());
+    file_repo::set_blob_ref_count(db, blob.id, 0).await.unwrap();
     assert_eq!(
         file_repo::find_blob_by_id(db, blob.id)
             .await

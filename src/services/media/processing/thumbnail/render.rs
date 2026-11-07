@@ -92,7 +92,7 @@ pub(super) async fn render_thumbnail_bytes(
                 blob,
                 source_file_name,
                 source_mime_type,
-                driver.as_ref(),
+                driver.clone(),
                 &command,
                 operations::thumbnail_max_dimension(state.runtime_config()),
             )
@@ -165,7 +165,7 @@ async fn render_thumbnail_with_lofty(
         source_file_name,
         source_mime_type,
         temp_dir.path(),
-        false,
+        blob.size,
     )
     .await?;
     let source_path = std::path::PathBuf::from(prepared_input.input_arg());
@@ -284,7 +284,7 @@ pub(super) async fn render_image_preview_bytes(
                 blob,
                 source_file_name,
                 source_mime_type,
-                driver.as_ref(),
+                driver.clone(),
                 &command,
                 operations::image_preview_max_dimension(state.runtime_config()),
             )

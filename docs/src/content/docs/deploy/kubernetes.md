@@ -96,6 +96,8 @@ helm upgrade --install asterdrive deploy/helm/asterdrive \
 
 Chart 默认引用 `asterdrive-cluster` Secret。数据库连接串、Redis endpoint 和应用密钥不进入普通 Helm values；通过集群现有 Secret 管理方案创建 Secret，需要改名时设置 `existingSecret`。所有 Primary 必须通过 Chart 创建或复用的 RWX PVC 共享头像目录；Chart 会拒绝关闭头像持久化。额外环境变量只能补充非权威配置，不能覆盖 cluster profile、每 Pod 内部端点、数据库、Redis、内部代理或认证密钥。启用 NetworkPolicy 后始终允许 Primary 互访，`allowSameNamespace` 仅控制是否额外放行整个 Namespace。Chart 还支持 Ingress、镜像 tag/digest、资源、调度和 PDB，但不提供 PostgreSQL、Redis 或对象存储 subchart。
 
+应用配置会统一环境变量大小写，并把 `__` 转为 `.` 路径。比如 `ASTER__AUTH.JWT_SECRET` 与 `ASTER__AUTH__JWT_SECRET` 是同一项。Chart 的 `config.extra`／`extraEnv` 校验覆盖这些别名；无法由 Helm 读取的 `extraEnvFrom` 内容则在应用启动时执行冲突检查，发现同项不同拼写会拒绝加载，不按环境枚举顺序选一个。升级前移除补充资源中的重复别名，管理项保留 Chart 注入的规范来源；错误消息不会打印密钥值。
+
 生产多节点建议设置 `topologySpread.whenUnsatisfiable=DoNotSchedule`。默认保留 `ScheduleAnyway`，便于开发集群和单节点验证；严格设置在可用节点不足时会让新 Pod 保持 Pending，这是正确的故障域保护，不应通过把两个 Primary 挤回同一节点来掩盖容量不足。
 
 ## 本地校验

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createMeResponse } from "@/test/fixtures";
 import { ApiErrorCode } from "@/types/api-helpers";
 
 const mockState = vi.hoisted(() => ({
@@ -47,6 +48,10 @@ vi.mock("@/services/authService", () => ({
 	},
 }));
 
+vi.mock("@/services/downloadCoordinator", () => ({
+	clearAccountDownloads: vi.fn(),
+}));
+
 vi.mock("@/stores/fileStore", () => ({
 	useFileStore: {
 		getState: () => ({
@@ -55,6 +60,7 @@ vi.mock("@/stores/fileStore", () => ({
 			sortBy: "name",
 			sortOrder: "asc",
 			_applyFromServer: mockState.applyFilePrefs,
+			resetWorkspaceState: vi.fn(),
 		}),
 	},
 }));
@@ -144,6 +150,73 @@ describe("useAuthStore edge cases", () => {
 		});
 		expect(localStorage.getItem("aster-cached-user")).toBeNull();
 		expect(sessionStorage.getItem("aster-auth-expires-at")).toBeNull();
+	});
+
+	it("waits for an in-flight refresh cookie response before remote logout and blocks another refresh", async () => {
+		localStorage.setItem(
+			"aster-cached-user",
+			JSON.stringify(createCachedUser()),
+		);
+		let finishRefresh!: (value: { expiresIn: number }) => void;
+		mockState.refreshToken.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					finishRefresh = resolve;
+				}),
+		);
+		mockState.logout.mockResolvedValue(undefined);
+		const { useAuthStore } = await loadStore();
+		const refresh = useAuthStore.getState().refreshToken();
+		await vi.waitFor(() =>
+			expect(mockState.refreshToken).toHaveBeenCalledTimes(1),
+		);
+		const logout = useAuthStore.getState().logout();
+		expect(useAuthStore.getState().isAuthenticated).toBe(false);
+		expect(mockState.logout).not.toHaveBeenCalled();
+		await useAuthStore.getState().refreshToken();
+		expect(mockState.refreshToken).toHaveBeenCalledTimes(1);
+		finishRefresh({ expiresIn: 900 });
+		await Promise.all([refresh, logout]);
+		expect(mockState.logout).toHaveBeenCalledTimes(1);
+		expect(useAuthStore.getState()).toMatchObject({
+			isAuthenticated: false,
+			user: null,
+			expiresAt: null,
+		});
+	});
+
+	it("does not bootstrap cookies again during logout or install a delayed anonymous bootstrap", async () => {
+		let finishMe!: (value: ReturnType<typeof createCachedUser>) => void;
+		mockState.me.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					finishMe = resolve;
+				}),
+		);
+		let finishLogout!: () => void;
+		mockState.logout.mockImplementation(
+			() =>
+				new Promise<void>((resolve) => {
+					finishLogout = resolve;
+				}),
+		);
+		const { useAuthStore } = await loadStore();
+		const bootstrap = useAuthStore.getState().checkAuth();
+		await vi.waitFor(() => expect(mockState.me).toHaveBeenCalledTimes(1));
+		const logout = useAuthStore.getState().logout();
+		await vi.waitFor(() => expect(mockState.logout).toHaveBeenCalledTimes(1));
+		await useAuthStore.getState().checkAuth();
+		await useAuthStore.getState().probePublicSession();
+		expect(mockState.me).toHaveBeenCalledTimes(1);
+		expect(mockState.probeCurrentSession).not.toHaveBeenCalled();
+		finishMe(createCachedUser());
+		await bootstrap;
+		expect(useAuthStore.getState()).toMatchObject({
+			isAuthenticated: false,
+			user: null,
+		});
+		finishLogout();
+		await logout;
 	});
 
 	it("boots into offline mode when auth check fails without a cached user", async () => {
@@ -377,6 +450,53 @@ describe("useAuthStore edge cases", () => {
 
 		expect(mockState.warn).toHaveBeenCalledWith("refreshUser failed", failure);
 	});
+
+	it.each([false, true])(
+		"does not install a previous account's late current-user response after logout (new login: %s)",
+		async (newLogin) => {
+			const previous = createMeResponse({
+				id: 11,
+				username: "previous-user",
+				email: "previous-private@example.com",
+			});
+			const current = createMeResponse({
+				id: 22,
+				username: "current-user",
+				email: "current@example.com",
+			});
+			let finishPrevious!: (value: typeof previous) => void;
+			mockState.me.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						finishPrevious = resolve;
+					}),
+			);
+			mockState.logout.mockResolvedValue(undefined);
+			const { useAuthStore } = await loadStore();
+			useAuthStore.setState({ user: previous, isAuthenticated: true });
+			const staleRequest = useAuthStore.getState().refreshUser();
+			expect(mockState.me).toHaveBeenCalledTimes(1);
+			await useAuthStore.getState().logout();
+
+			if (newLogin) {
+				mockState.login.mockResolvedValue({
+					status: "authenticated",
+					expiresIn: 900,
+				});
+				mockState.me.mockResolvedValueOnce(current);
+				await useAuthStore.getState().login("current-user", "secret");
+			}
+			finishPrevious(previous);
+			await staleRequest;
+
+			expect(useAuthStore.getState().user).toEqual(newLogin ? current : null);
+			expect(useAuthStore.getState().isAuthenticated).toBe(newLogin);
+			expect(localStorage.getItem("aster-cached-user") ?? "").not.toContain(
+				"previous",
+			);
+			useAuthStore.getState().stopAutoRefresh();
+		},
+	);
 
 	it("does not refresh an already fresh session", async () => {
 		const { SESSION_REFRESH_THRESHOLD_MS, useAuthStore } = await loadStore();

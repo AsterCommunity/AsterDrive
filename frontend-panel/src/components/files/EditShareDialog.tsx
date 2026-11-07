@@ -255,6 +255,9 @@ function EditShareDialogContent({
 								})
 							}
 						/>
+						<p className="text-xs text-muted-foreground">
+							{t("share:share_download_limit_hint")}
+						</p>
 					</div>
 				</form>
 			</ManagerDialogScrollableList>

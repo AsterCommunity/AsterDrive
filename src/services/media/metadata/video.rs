@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use serde_json::Value;
 
 use crate::config::media_processing;
@@ -7,22 +5,14 @@ use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::services::media::processing::run_cli_command_with_timeout;
 use aster_drive_model::types::VideoMediaMetadata;
 
-pub(super) fn parse_video_metadata_from_path(
+pub(super) fn parse_video_metadata(
     command: &str,
-    path: &Path,
+    input: crate::services::media::processing::ffmpeg_input::FfmpegInput,
 ) -> Result<VideoMediaMetadata> {
-    let path_arg = path.to_string_lossy().to_string();
-    let output = run_cli_command_with_timeout(
+    let output = input.run(
         command,
-        &[
-            "-v",
-            "error",
-            "-print_format",
-            "json",
-            "-show_streams",
-            "-show_format",
-            &path_arg,
-        ],
+        &["-v", "error"],
+        &["-print_format", "json", "-show_streams", "-show_format"],
         |message| AsterError::validation_error(format!("ffprobe metadata failed: {message}")),
     )?;
     if !output.status.success() {
@@ -236,7 +226,7 @@ pub async fn probe_ffprobe_cli_command(command: &str) -> Result<String> {
 
     let probe_command = command.clone();
     let output = tokio::task::spawn_blocking(move || {
-        run_cli_command_with_timeout(&probe_command, &["-version"], |message| {
+        run_cli_command_with_timeout(&probe_command, &["-version"], None, |message| {
             AsterError::validation_error(format!("ffprobe probe failed: {message}"))
         })
     })
