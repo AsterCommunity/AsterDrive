@@ -35,6 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **出站 HTTP 策略** — 内置 HTTP 客户端统一经过 `aster_drive_outbound` 与 Forge factory；保留流式上传／下载超时语义，统一产品 User-Agent 并允许按客户端覆盖，集中拒绝重定向且保留条件请求 304。各 provider 共享上传进度／确认生命周期，Google Drive 控制、下载、上传使用独立连接池；插件传输受单个 origin、预算、取消、公共地址校验及 DNS pinning 约束。
 
+### Deprecated
+
+- **旧版公开直链** — 按产品决定在 0.x 保留 pre-v2 直链兼容；计划在 1.0.0 移除无版本标记的解析与截断旧签名验签。升级前需重新生成当前 v2 格式的链接；这是移除计划，旧格式本身本轮不做密码学修复。（#745，Finding 59）
+
 ### Fixed
 
 - **OneDrive 流式传输** — 下载空闲读取与上传进度／确认超时独立于 60 秒控制请求 deadline，大文件直连／重定向读取及持续推进的分片上传可正常完成，metadata 限制保留。服务端 relay 分片继续使用调用方的 90 秒 deadline。

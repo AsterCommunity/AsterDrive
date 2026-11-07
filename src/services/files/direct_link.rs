@@ -98,6 +98,8 @@ enum ParsedDirectLinkToken<'a> {
     // `<base62 file id><6-char signature>` shape, so they have no explicit
     // version marker. Keep verification support here to avoid breaking copied
     // links, but never mint new tokens in this format.
+    // TODO(1.0.0): remove this variant and all legacy parsing/signature helpers.
+    // Finding 59 is intentionally retained during 0.x, not cryptographically hardened.
     Legacy { file_id: i64, signature: &'a str },
 }
 
@@ -127,8 +129,8 @@ fn parse_token(token: &str) -> Result<ParsedDirectLinkToken<'_>> {
 
     // No prefix means an old direct link. The old format appended a fixed-width
     // 6-character signature to the base62 file id, so parsing is only possible
-    // by cutting the suffix. This branch can be removed if we decide to revoke
-    // all pre-v2 public direct links.
+    // by cutting the suffix. TODO(1.0.0): remove this compatibility branch and
+    // reject all pre-v2 public direct links (product decision for finding 59).
     // Legacy tokens consist entirely of base62 ASCII. Validate before slicing
     // at a byte offset, so malformed Unicode can never reach str::split_at.
     if token.len() <= DIRECT_LINK_SIG_LEN || !token.bytes().all(|byte| byte.is_ascii_alphanumeric())
@@ -218,6 +220,8 @@ fn verify_token_signature(
                 .is_ok())
         }
         ParsedDirectLinkToken::Legacy { signature, .. } => {
+            // TODO(1.0.0): remove verification of the truncated 32-bit legacy
+            // authenticator together with its parser and compatibility tests.
             // Compatibility only: legacy_signature_for_file reproduces the old
             // 6-character signature algorithm, but verification still depends
             // on auth.direct_link_secret, so rotating that secret invalidates
