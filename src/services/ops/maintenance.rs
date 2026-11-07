@@ -147,14 +147,11 @@ pub async fn reconcile_blob_state(state: &PrimaryAppState) -> Result<BlobMainten
                 .await?;
 
         for blob in blobs {
-            match blob.ref_count {
-                file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT => {
-                    if crate::services::files::file::cleanup_unreferenced_blob(state, &blob).await {
-                        stats.orphan_blobs_deleted += 1;
-                    }
-                    continue;
+            if blob.ref_count == file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT {
+                if crate::services::files::file::cleanup_unreferenced_blob(state, &blob).await {
+                    stats.orphan_blobs_deleted += 1;
                 }
-                _ => {}
+                continue;
             }
             let actual_refs = actual_ref_counts.get(&blob.id).copied().unwrap_or(0);
 

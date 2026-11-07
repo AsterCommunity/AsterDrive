@@ -189,10 +189,9 @@ pub(crate) fn build_discovered_apps(discovery: &WopiDiscovery) -> Vec<Discovered
             if let Some(ext) = action.ext.as_deref()
                 && !ext.is_empty()
                 && ext != "*"
+                && seen_extensions.insert(ext)
             {
-                if seen_extensions.insert(ext) {
-                    extensions.push(ext.to_string());
-                }
+                extensions.push(ext.to_string());
             }
         }
 

@@ -1,5 +1,6 @@
 //! MFA 业务逻辑。
 
+mod budget;
 mod crypto;
 mod login_flow;
 mod management;

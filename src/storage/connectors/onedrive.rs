@@ -1084,6 +1084,43 @@ impl StorageConnector for OneDriveConnector {
         Ok(())
     }
 
+    async fn reconcile_saved_credential(
+        &self,
+        db: &sea_orm::DatabaseTransaction,
+        encryption_key: &str,
+        policy: &storage_policy::Model,
+    ) -> Result<bool> {
+        let saved =
+            match storage_policy_connector_credential_repo::find_by_policy(db, policy.id).await? {
+                Some(saved) => saved,
+                None => return Ok(false),
+            };
+        let payload: OneDriveCredentialV1 = super::decode_typed_connector_credential(
+            encryption_key,
+            &saved,
+            &aster_drive_storage::ConnectorId::declared(Self::ID),
+            1,
+        )?;
+        let config = Self::decode_config(policy)?;
+        let tenant = normalized_option(config.tenant.clone()).unwrap_or_else(|| "common".into());
+        if payload.application.cloud == config.cloud && payload.application.tenant == tenant {
+            return Ok(false);
+        }
+        Self::upsert_application_config(
+            db,
+            encryption_key,
+            policy.id,
+            &config,
+            OneDriveAuthorizationApplicationV1 {
+                client_id: String::new(),
+                client_secret: String::new(),
+                scopes: None,
+            },
+        )
+        .await?;
+        Ok(true)
+    }
+
     async fn start_authorization(
         &self,
         context: &super::StorageConnectorContext<'_>,
@@ -1107,6 +1144,14 @@ impl StorageConnector for OneDriveConnector {
             1,
         )?;
         let application = payload.application;
+        let connector_config = Self::decode_config(policy)?;
+        let configured_tenant =
+            normalized_option(connector_config.tenant.clone()).unwrap_or_else(|| "common".into());
+        if application.cloud != connector_config.cloud || application.tenant != configured_tenant {
+            return Err(AsterError::conflict(
+                "saved OneDrive application does not match current cloud/tenant; save the policy again",
+            ));
+        }
         let client_id = normalized_option(Some(application.client_id))
             .ok_or_else(|| AsterError::validation_error("Microsoft Graph client_id is required"))?;
         let client_secret =
@@ -1117,7 +1162,6 @@ impl StorageConnector for OneDriveConnector {
             })?;
         let tenant =
             normalized_option(Some(application.tenant)).unwrap_or_else(|| "common".to_string());
-        let connector_config = Self::decode_config(policy)?;
         let scopes = normalize_microsoft_graph_scopes(
             (!application.scopes.is_empty()).then_some(application.scopes),
             default_microsoft_graph_scopes(&connector_config),
@@ -1498,6 +1542,14 @@ impl StorageConnector for OneDriveConnector {
             &aster_drive_storage::ConnectorId::declared(Self::ID),
             1,
         )?;
+        let policy_config = Self::decode_config(policy)?;
+        let configured_tenant =
+            normalized_option(policy_config.tenant).unwrap_or_else(|| "common".into());
+        if payload.application.cloud != policy_config.cloud
+            || payload.application.tenant != configured_tenant
+        {
+            return Ok(None);
+        }
         let Some(authorization) = payload.authorization.as_ref() else {
             return Ok(None);
         };

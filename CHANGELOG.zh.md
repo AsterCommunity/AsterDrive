@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **账号认证预算与最终校验** — 持久化彼此独立的账号级 MFA 登录／管理预算和邮件重发资格，Passkey challenge 与签名请求 nonce 通过 writer 数据库一次消费；HTTP worker 共享认证限流，改密校验并发恢复／session 撤销，受限 optional identity 与 SSE token 到期生效，邮箱确认重新检查黑名单。MFA 在十五分钟窗口内最多失败五次，随后固定冷却十五分钟，被拒请求不延长冷却。Primary／Follower writer 须协调升级，升级前的 Passkey 流程需重新发起。
+
+- **远端与 provider 委托边界** — 校验 multipart 清理范围和实际 completion 正文摘要，统一 target 规范边界，aria2 已保存测试密钥绑定原 endpoint，注册 token 改为 stdin 并正确转义生成命令，Follower 翻译按本地 node／connector scope 隔离。Provider 会话在外部创建前预留上传记录，OneDrive tenant／cloud 配置同步凭据身份，driver 缓存绑定策略与凭据代。COS 浏览器上传通过服务端中转阻止 copy-source 委托；Azure 客户端可写 multipart 对象复制到新 key 后发布。显式 HTTP 部署选择保留。
+
 - **Blob 发布与清理所有权** — 内容 hash 保留为逻辑去重身份，上传和迁移先验证本次独占的物理对象代，再通过数据库 CAS／事务发布 metadata。去重命中直接复用锁定记录，不复制内容；本地冷路径保留两级目录分散。失败和落败请求只清理自己的对象，历史跨策略别名保留共享字节，迟到清理不能退休其他物理代。Provider 完成原子转移临时清理权，团队归档保留永久对象；Doctor 和后台维护在 blob 锁内重新计数并保留清理认领。升级时须协调全部 writer 切换。（#745）
 
 - **资源处理预算** — 在昂贵操作前限制隧道响应缓冲、WOPI discovery 展开、已保存偏好、图片／TIFF 处理、归档 metadata 与 Range 读取、WebDAV 锁发现及存储事件连接数。JSON／CSV 大内容预览降级显示。通用对象复制在 Forge runtime 临时目录中暂存并严格校验声明长度后流式上传，原生复制能力保留。（#745）

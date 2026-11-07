@@ -30,7 +30,10 @@ const interactionMocks = vi.hoisted(() => ({
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({
 		t: (key: string, values?: Record<string, number | string>) => {
-			const namespace = typeof values?.ns === "string" ? values.ns : null;
+			const namespace =
+				typeof values?.ns === "string"
+					? values.ns.replace(/^aster_storage_primary_/, "")
+					: null;
 			if (namespace) {
 				const translated = connectorMessages.get(`${namespace}:${key}`);
 				if (translated) return translated;

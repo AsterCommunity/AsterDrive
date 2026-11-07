@@ -58,15 +58,14 @@ pub async fn authorize_remote_node_request<S: SharedRuntimeState>(
         ));
     }
 
-    let nonce_cache_key = format!("remote_node_nonce:{access_key}:{nonce}");
-    if !state
-        .cache()
-        .set_bytes_if_absent(
-            &nonce_cache_key,
-            Vec::new(),
-            Some(INTERNAL_AUTH_NONCE_TTL_SECS),
-        )
-        .await
+    let nonce_state_key = format!("remote_node_nonce:{access_key}:{nonce}");
+    if !crate::db::repository::auth_once_state_repo::reserve(
+        state.writer_db(),
+        &nonce_state_key,
+        "",
+        chrono::Utc::now() + chrono::Duration::seconds(INTERNAL_AUTH_NONCE_TTL_SECS as i64),
+    )
+    .await?
     {
         return Err(AsterError::auth_token_invalid(
             "remote node auth nonce has already been used",

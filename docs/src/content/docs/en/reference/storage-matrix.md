@@ -18,7 +18,7 @@ Per-backend onboarding steps live in the [Storage Backends](/en/admin/storage-ba
 | [SFTP](/en/admin/storage-backends/sftp/) | Shared across Primary instances | No | No | No | No | Static secret |
 | [Azure Blob](/en/admin/storage-backends/azure-blob/) | Shared across Primary instances | Presigned | Yes | No | No | Static secret |
 | [Huawei Cloud OBS](/en/admin/storage-backends/huawei-obs/) | Shared across Primary instances | Presigned | Yes | No | No | Static secret |
-| [Tencent COS](/en/admin/storage-backends/tencent-cos/) | Shared across Primary instances | Presigned | Yes | No | Thumbnail + media metadata | Static secret |
+| [Tencent COS](/en/admin/storage-backends/tencent-cos/) | Shared across Primary instances | No | Yes | No | Thumbnail + media metadata | Static secret |
 | [Remote](/en/admin/storage-backends/remote-follower/) | Shared across Primary instances | Presigned | Yes | Yes | No | None |
 | [OneDrive](/en/admin/storage-backends/onedrive/) | Shared across Primary instances | Provider-direct | Yes | Yes | No | Delegated OAuth |
 | [Google Drive](/en/admin/storage-backends/google-drive/) | Shared across Primary instances | Provider-direct | No | Yes | No | Delegated OAuth |

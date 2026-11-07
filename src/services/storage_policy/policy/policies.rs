@@ -495,7 +495,7 @@ pub async fn update(
         is_default,
         allowed_types,
     } = input;
-    let credential_updated = credential.is_some();
+    let mut credential_updated = credential.is_some();
     let existing = policy_repo::find_by_id(state.writer_db(), id).await?;
     let existing_storage_config: StoragePolicyConfigEnvelope =
         serde_json::from_str(existing.storage_config.as_ref()).map_err(|error| {
@@ -674,6 +674,16 @@ pub async fn update(
         .await
         .map_aster_err(AsterError::database_operation)?;
 
+    if credential.is_none() {
+        credential_updated = connectors
+            .require_policy(&result)?
+            .reconcile_saved_credential(
+                &txn,
+                &state.config().auth.storage_credential_secret_key,
+                &result,
+            )
+            .await?;
+    }
     if let Some(credential) = credential {
         crate::storage::connectors::persist_credential(
             connectors,

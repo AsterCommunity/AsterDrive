@@ -35,6 +35,32 @@ fn sample_driver(endpoint: &str, bucket: &str) -> TencentCosDriver {
         .expect("driver should build")
 }
 
+#[tokio::test]
+async fn browser_upload_signatures_never_delegate_the_static_cos_identity() {
+    use aster_drive_storage::{MultipartStorageDriver, PresignedUploadStorageDriver};
+    let driver = sample_driver("https://cos.ap-guangzhou.myqcloud.com", "bucket-1250000000");
+    assert!(
+        driver
+            .presigned_put_request("files/owned", Duration::from_secs(60))
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        driver
+            .presigned_upload_part_request("files/owned", "multipart", 1, Duration::from_secs(60))
+            .await
+            .unwrap_err()
+            .kind(),
+        StorageErrorKind::Unsupported
+    );
+    assert!(driver.extensions().stream_upload.is_some());
+    assert!(
+        driver.extensions().multipart.is_some(),
+        "server-side multipart remains available"
+    );
+}
+
 fn query_value<'a>(url: &'a Url, key: &str) -> Option<std::borrow::Cow<'a, str>> {
     url.query_pairs()
         .find_map(|(candidate, value)| (candidate == key).then_some(value))
@@ -290,7 +316,6 @@ fn cname_endpoint_rejects_ambiguous_url_components() {
 
 #[tokio::test]
 async fn cname_driver_presigns_final_host_and_encoded_object_key() {
-    use aster_drive_storage::MultipartStorageDriver;
     let mut config = sample_config("https://files.example.test:9443", "bucket-1250000000");
     config.use_cname = true;
     let driver = TencentCosDriver::new(config, sample_credentials()).unwrap();
@@ -301,16 +326,8 @@ async fn cname_driver_presigns_final_host_and_encoded_object_key() {
         .await
         .unwrap()
         .unwrap();
-    let upload = driver
-        .presigned_put_request(key, ttl)
-        .await
-        .unwrap()
-        .unwrap();
-    let part = driver
-        .presigned_upload_part_request(key, "upload+/%id", 7, ttl)
-        .await
-        .unwrap();
-    for request_url in [&download.url, &upload.url, &part.url] {
+    {
+        let request_url = &download.url;
         let url = Url::parse(request_url).unwrap();
         assert_eq!(url.host_str(), Some("files.example.test"));
         assert_eq!(url.port(), Some(9443));
@@ -324,12 +341,6 @@ async fn cname_driver_presigns_final_host_and_encoded_object_key() {
         assert!(query_value(&url, "q-signature").is_some());
         assert!(!request_url.contains("X-Amz-"));
     }
-    let part_url = Url::parse(&part.url).unwrap();
-    assert_eq!(
-        query_value(&part_url, "uploadId").as_deref(),
-        Some("upload+/%id")
-    );
-    assert_eq!(query_value(&part_url, "partNumber").as_deref(), Some("7"));
 }
 
 #[test]
@@ -391,26 +402,26 @@ async fn default_origin_ignores_dormant_delivery_url_and_custom_origin_requires_
 }
 
 #[tokio::test]
-async fn custom_download_origin_keeps_upload_and_multipart_on_storage_endpoint() {
+async fn custom_download_origin_keeps_uploads_on_safe_server_relay() {
     use aster_drive_storage::MultipartStorageDriver;
     let mut config = sample_config("https://cos.ap-guangzhou.myqcloud.com", "bucket-1250000000");
     config.download_delivery = super::CosDownloadDelivery::CustomOrigin;
     config.download_base_url = Some("https://download.example.test/assets".into());
     let driver = TencentCosDriver::new(config, sample_credentials()).unwrap();
-    for request in [
+    assert!(
         driver
             .presigned_put_request("file", Duration::from_secs(60))
             .await
             .unwrap()
-            .unwrap(),
+            .is_none()
+    );
+    assert_eq!(
         driver
             .presigned_upload_part_request("file", "upload-id", 1, Duration::from_secs(60))
             .await
-            .unwrap(),
-    ] {
-        assert_eq!(
-            Url::parse(&request.url).unwrap().host_str(),
-            Some("bucket-1250000000.cos.ap-guangzhou.myqcloud.com")
-        );
-    }
+            .unwrap_err()
+            .kind(),
+        StorageErrorKind::Unsupported
+    );
+    assert!(driver.extensions().stream_upload.is_some());
 }

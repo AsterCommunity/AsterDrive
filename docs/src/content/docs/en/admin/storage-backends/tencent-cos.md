@@ -92,10 +92,9 @@ For the first integration, use the conservative path:
 | Upload mode | `relay_stream` | The browser does not need to connect directly to COS, so there are fewer CORS issues |
 | Download mode | `relay_stream` | Downloads are also relayed by AsterDrive first, which makes troubleshooting easier |
 
-After confirming basic reads and writes work, then consider switching to:
+After verifying basic reads and writes, downloads can use `presigned`. Uploads use `relay_stream`, retaining server streaming and multipart resume. Previously saved presigned upload settings execute through relay and normalize to relay when saved again.
 
-- Upload `presigned`
-- Download `presigned`
+A COS signature made with the shared static identity does not restrict unsigned copy-source headers to ordinary uploads. AsterDrive therefore does not delegate that identity through browser PUT/part requests. Direct downloads, CDN, CNAME and COS CI remain available. Upgrading does not revoke upload URLs already issued: rotate the corresponding COS credentials for immediate revocation, or wait for their original expiry.
 
 :::caution[LightCOS requires server relay]
 If you use a **[Light Cloud Object Storage (LightCOS)](https://cloud.tencent.com/document/product/1722/112004)** bucket, keep both upload and download modes set to `relay_stream`. LightCOS does not provide bucket-level CORS configuration, so browser `presigned` upload and direct download are not suitable.
@@ -119,14 +118,7 @@ flowchart LR
 
 The advantage is a single entry point and simpler troubleshooting. The trade-off is that the application node must carry upload and download bandwidth.
 
-### How `presigned` Works
-
-During upload:
-
-```mermaid
-flowchart LR
-  Browser["Browser"] --> Cos["COS"]
-```
+### How `presigned` Downloads Work
 
 During download:
 
@@ -141,14 +133,7 @@ The advantage is reduced bandwidth pressure on the AsterDrive node. The prerequi
 
 If you only use `relay_stream`, browsers do not directly request COS, so CORS is not the first priority.
 
-If you use `presigned` upload, the COS bucket must allow browser cross-origin uploads. At minimum, check:
-
-- `AllowedOrigin`: your public AsterDrive site URL
-- `AllowedMethod`: includes `PUT`
-- `AllowedHeader`: allows the headers used by upload requests
-- `ExposeHeader`: includes `ETag` when using presigned multipart uploads
-
-After a single presigned PUT completes, AsterDrive verifies the object's metadata and size on the server and does not depend on the browser reading `ETag`. Presigned multipart completion still needs each part's `ETag`, so CORS must continue to expose `ETag` when large-file direct uploads are enabled.
+Uploads use server relay and do not require browser PUT access to COS. Configure GET/HEAD/Range CORS for direct downloads and external media reads that actually use those operations.
 
 If you use `presigned` download, also confirm that browsers can access the returned COS download URL and that you accept response headers and cache behavior being controlled more by COS.
 

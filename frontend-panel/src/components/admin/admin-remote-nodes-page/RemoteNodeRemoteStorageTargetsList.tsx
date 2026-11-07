@@ -95,7 +95,7 @@ export function RemoteNodeRemoteStorageTargetsList({
 					descriptor?.ui.badge_rgb,
 				);
 				const connectorT = (key: string) =>
-					translateStorageConnectorMessage(t, descriptor?.connector_id, key);
+					translateStorageConnectorMessage(t, descriptor, key);
 				const connectorLabel = descriptor
 					? connectorT(descriptor.ui.label_key)
 					: (target.connector_id ?? "unknown");

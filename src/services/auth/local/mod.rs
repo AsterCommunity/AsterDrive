@@ -464,12 +464,12 @@ pub async fn log_logout_for_token(
 
 pub async fn change_password_with_audit(
     state: &impl SharedRuntimeState,
-    user_id: i64,
+    claims: &Claims,
     current_password: &str,
     new_password: &str,
     audit_ctx: &AuditContext,
 ) -> Result<AuthUserInfo> {
-    let user = change_password(state, user_id, current_password, new_password).await?;
+    let user = change_password(state, claims, current_password, new_password).await?;
     audit::log(
         state,
         audit_ctx,

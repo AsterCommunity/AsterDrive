@@ -20,7 +20,10 @@ use aster_drive_storage::{
 use dashmap::DashMap;
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
 
 /// 已实例化的 driver。
 ///
@@ -32,6 +35,8 @@ use std::sync::Arc;
 struct DriverEntry {
     storage: Arc<dyn StorageDriver>,
     multipart: Option<Arc<dyn MultipartStorageDriver>>,
+    policy: Option<storage_policy::Model>,
+    credential_generation: u64,
 }
 
 impl DriverEntry {
@@ -47,6 +52,9 @@ impl DriverEntry {
 pub struct DriverRegistry {
     /// policy_id → 已实例化的 driver
     drivers: DashMap<i64, DriverEntry>,
+    published_policies: RwLock<HashMap<i64, storage_policy::Model>>,
+    credential_generation: AtomicU64,
+    credential_reload_lock: tokio::sync::Mutex<()>,
     driver_init_lock: parking_lot::Mutex<()>,
     managed_followers_by_id:
         RwLock<HashMap<i64, aster_drive_model::entities::managed_follower::Model>>,
@@ -77,6 +85,9 @@ impl DriverRegistry {
     ) -> Self {
         Self {
             drivers: DashMap::new(),
+            published_policies: RwLock::new(HashMap::new()),
+            credential_generation: AtomicU64::new(0),
+            credential_reload_lock: tokio::sync::Mutex::new(()),
             driver_init_lock: parking_lot::Mutex::new(()),
             managed_followers_by_id: RwLock::new(HashMap::new()),
             master_bindings_by_access_key: RwLock::new(HashMap::new()),
@@ -112,7 +123,21 @@ impl DriverRegistry {
         snapshot: &crate::storage::PolicySnapshot,
         db: &sea_orm::DatabaseConnection,
     ) -> Result<()> {
-        snapshot.reload(db, self.connectors()).await
+        snapshot.reload(db, self.connectors()).await?;
+        let policies = snapshot.all_policies();
+        let _guard = self.driver_init_lock.lock();
+        let current = policies
+            .into_iter()
+            .map(|policy| (policy.id, policy))
+            .collect::<HashMap<_, _>>();
+        self.drivers
+            .retain(|id, entry| match (&entry.policy, current.get(id)) {
+                (None, _) => true,
+                (Some(cached), Some(policy)) => cached == policy,
+                (Some(_), None) => false,
+            });
+        *self.published_policies.write() = current;
+        Ok(())
     }
 
     /// 根据 StoragePolicy 获取或创建 driver（惰性实例化）
@@ -146,9 +171,13 @@ impl DriverRegistry {
             .await
     }
 
-    pub(crate) fn get_cached_driver(&self, policy_id: i64) -> Option<Arc<dyn StorageDriver>> {
+    pub(crate) fn get_cached_driver(
+        &self,
+        policy: &storage_policy::Model,
+    ) -> Option<Arc<dyn StorageDriver>> {
         self.drivers
-            .get(&policy_id)
+            .get(&policy.id)
+            .filter(|entry| !self.is_retired_policy(policy) && self.matches_entry(entry, policy))
             .map(|entry| entry.storage_driver())
     }
 
@@ -238,6 +267,9 @@ impl DriverRegistry {
         db: &sea_orm::DatabaseConnection,
         config: &Config,
     ) -> Result<()> {
+        // Serialize the reads too: an older slow reload must not finish after
+        // a newer one and publish a retired credential map as the next epoch.
+        let _reload = self.credential_reload_lock.lock().await;
         let mut by_policy_id = HashMap::new();
 
         let connector_credentials =
@@ -288,8 +320,13 @@ impl DriverRegistry {
             };
             by_policy_id.insert(policy.id, runtime_credential);
         }
+        // Credential publication and invalidation share the construction lock:
+        // no factory can install an entry from a retired credential generation.
+        let _guard = self.driver_init_lock.lock();
         *self.runtime_credentials_by_policy_id.write() = by_policy_id;
-        self.invalidate_all();
+        self.credential_generation.fetch_add(1, Ordering::AcqRel);
+        self.drivers.clear();
+        self.capacity_probes.invalidate_all();
         Ok(())
     }
 
@@ -335,6 +372,8 @@ impl DriverRegistry {
             DriverEntry {
                 storage: driver,
                 multipart: None,
+                policy: None,
+                credential_generation: self.credential_generation.load(Ordering::Acquire),
             },
         );
     }
@@ -352,6 +391,8 @@ impl DriverRegistry {
             DriverEntry {
                 storage,
                 multipart: Some(multipart),
+                policy: None,
+                credential_generation: self.credential_generation.load(Ordering::Acquire),
             },
         );
     }
@@ -370,6 +411,8 @@ impl DriverRegistry {
             DriverEntry {
                 storage,
                 multipart: Some(multipart),
+                policy: None,
+                credential_generation: self.credential_generation.load(Ordering::Acquire),
             },
         );
     }
@@ -379,16 +422,38 @@ impl DriverRegistry {
         self.drivers.contains_key(&policy_id)
     }
 
+    fn matches_entry(&self, entry: &DriverEntry, policy: &storage_policy::Model) -> bool {
+        entry.credential_generation == self.credential_generation.load(Ordering::Acquire)
+            && entry.policy.as_ref().is_none_or(|cached| cached == policy)
+    }
+
+    fn is_retired_policy(&self, policy: &storage_policy::Model) -> bool {
+        self.published_policies
+            .read()
+            .get(&policy.id)
+            .is_some_and(|current| current != policy)
+    }
+
     fn get_entry(&self, policy: &storage_policy::Model) -> Result<DriverEntry> {
-        if let Some(entry) = self.drivers.get(&policy.id) {
+        if self.is_retired_policy(policy) {
+            let _guard = self.driver_init_lock.lock();
+            return self.create_entry(policy);
+        }
+        if let Some(entry) = self.drivers.get(&policy.id)
+            && self.matches_entry(&entry, policy)
+        {
             return Ok(entry.clone());
         }
         let _guard = self.driver_init_lock.lock();
-        if let Some(entry) = self.drivers.get(&policy.id) {
+        if let Some(entry) = self.drivers.get(&policy.id)
+            && self.matches_entry(&entry, policy)
+        {
             return Ok(entry.clone());
         }
         let entry = self.create_entry(policy)?;
-        self.drivers.insert(policy.id, entry.clone());
+        if !self.is_retired_policy(policy) {
+            self.drivers.insert(policy.id, entry.clone());
+        }
         Ok(entry)
     }
 
@@ -397,11 +462,13 @@ impl DriverRegistry {
             .connectors
             .require_policy(policy)?
             .build_runtime_driver(self, policy)?;
-        Ok(self.build_entry(
+        let mut entry = self.build_entry(
             STORAGE_CONNECTOR_METRIC_LABEL,
             driver.storage,
             driver.multipart,
-        ))
+        );
+        entry.policy = Some(policy.clone());
+        Ok(entry)
     }
 
     fn build_entry(
@@ -428,7 +495,12 @@ impl DriverRegistry {
         } else {
             (storage, multipart)
         };
-        DriverEntry { storage, multipart }
+        DriverEntry {
+            storage,
+            multipart,
+            policy: None,
+            credential_generation: self.credential_generation.load(Ordering::Acquire),
+        }
     }
 }
 
@@ -928,7 +1000,7 @@ mod tests {
         let policy = local_policy();
 
         assert!(
-            registry.get_cached_driver(policy.id).is_none(),
+            registry.get_cached_driver(&policy).is_none(),
             "cold cache lookup must not construct a driver"
         );
         assert!(
@@ -940,9 +1012,63 @@ mod tests {
             .get_driver(&policy)
             .expect("driver should be cached by normal lookup");
         let cached_lookup = registry
-            .get_cached_driver(policy.id)
+            .get_cached_driver(&policy)
             .expect("cached lookup should return the existing driver");
         assert!(Arc::ptr_eq(&cached, &cached_lookup));
+    }
+
+    #[test]
+    fn retired_policy_snapshot_cannot_poison_a_current_driver_lookup() {
+        let registry = DriverRegistry::noop().unwrap();
+        let old = local_policy();
+        let mut current = old.clone();
+        current.storage_config = crate::storage::connectors::test_support::local_policy(
+            std::env::temp_dir()
+                .join("aster-new-policy-root")
+                .to_string_lossy()
+                .into_owned(),
+        )
+        .storage_config;
+        let old_driver = registry.get_driver(&old).unwrap();
+        registry.invalidate(old.id);
+        let current_driver = registry.get_driver(&current).unwrap();
+        assert!(!Arc::ptr_eq(&old_driver, &current_driver));
+        registry
+            .published_policies
+            .write()
+            .insert(current.id, current.clone());
+        // A request carrying an old snapshot runs after cache invalidation.
+        let stale = registry.get_driver(&old).unwrap();
+        assert!(!Arc::ptr_eq(&current_driver, &stale));
+        assert!(Arc::ptr_eq(
+            &current_driver,
+            &registry.get_cached_driver(&current).unwrap()
+        ));
+        let next = registry.get_driver(&current).unwrap();
+        assert!(!Arc::ptr_eq(&next, &stale));
+        assert!(
+            Arc::ptr_eq(&next, &current_driver),
+            "retired callers must not evict the current generation"
+        );
+        assert!(Arc::ptr_eq(&next, &registry.get_driver(&current).unwrap()));
+    }
+
+    #[tokio::test]
+    async fn credential_reload_retires_cached_drivers_even_when_policy_fields_are_equal() {
+        let db = sea_orm::Database::connect("sqlite::memory:").await.unwrap();
+        crate::storage::connectors::test_support::migrate_current_storage_test_schema(&db).await;
+        let registry = DriverRegistry::noop().unwrap();
+        let policy = local_policy();
+        let first = registry.get_driver(&policy).unwrap();
+        let old_generation = registry.credential_generation.load(Ordering::Acquire);
+        registry
+            .reload_storage_policy_credentials(&db, &Config::default())
+            .await
+            .unwrap();
+        assert!(registry.credential_generation.load(Ordering::Acquire) > old_generation);
+        assert!(registry.get_cached_driver(&policy).is_none());
+        let next = registry.get_driver(&policy).unwrap();
+        assert!(!Arc::ptr_eq(&first, &next));
     }
 
     #[tokio::test]

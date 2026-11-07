@@ -16,8 +16,8 @@ use aster_drive_model::types::{
 use aster_forge_utils::numbers;
 
 use super::context::{
-    InitUploadContext, UploadSessionRecordParams, session_kind_for_transport,
-    try_persist_upload_session,
+    InitUploadContext, UploadSessionRecordParams, reserve_provider_upload_session,
+    session_kind_for_transport,
 };
 
 /// Negotiate a provider resumable session and persist its encrypted state and placement snapshot.
@@ -132,7 +132,46 @@ pub(super) async fn init_provider_resumable_upload(
             &upload_id,
             Some(&ctx.target.filename),
         )?;
-        let provider_session = provider.create_upload_session(&temp_key).await?;
+        let inserted = reserve_provider_upload_session(
+            state.writer_db(),
+            &ctx.policy,
+            UploadSessionRecordParams {
+                upload_id: &upload_id,
+                scope: ctx.scope,
+                filename: &ctx.target.filename,
+                mime_type: &ctx.mime_type,
+                total_size: ctx.total_size,
+                chunk_size,
+                total_chunks,
+                folder_id: ctx.target.folder_id,
+                policy_id: ctx.policy.id,
+                placement_profile_id: ctx.routing_decision.profile_id,
+                placement_rule_id: ctx.routing_decision.rule_id,
+                placement_revision: ctx.routing_decision.revision,
+                placement_execution_preference: ctx.routing_decision.execution_preference.as_str(),
+                frontend_client_id: ctx.frontend_client_id.as_deref(),
+                status: UploadSessionStatus::Uploading,
+                session_kind,
+                object_temp_key: Some(&temp_key),
+                object_multipart_id: None,
+                provider_session_ciphertext: None,
+                expires_at: Utc::now() + Duration::hours(24),
+            },
+        )
+        .await;
+        match inserted? {
+            true => {}
+            false => return Ok(UniqueUuidAttempt::Collision),
+        }
+        let provider_session = match provider.create_upload_session(&temp_key).await {
+            Ok(session) => session,
+            Err(error) => {
+                super::super::session::shared::delete_upload_session_record_after_init_error(
+                    state.writer_db(), &upload_id, "provider creation failure",
+                ).await;
+                return Err(error.into());
+            }
+        };
         if provider_session.upload_url.trim().is_empty() {
             let error = AsterError::storage_driver_error(
                 "provider returned an empty resumable upload URL",
@@ -142,6 +181,7 @@ pub(super) async fn init_provider_resumable_upload(
                     "{error}; failed to delete provider upload object: {delete_error}"
                 )));
             }
+            super::super::session::shared::delete_upload_session_record_after_init_error(state.writer_db(), &upload_id, "empty provider URL").await;
             return Err(error);
         }
         let secret = ProviderSessionSecret {
@@ -165,6 +205,7 @@ pub(super) async fn init_provider_resumable_upload(
                         "failed to encrypt provider upload session: {error}; cleanup error: {cleanup_error}"
                     )));
                 }
+                super::super::session::shared::delete_upload_session_record_after_init_error(state.writer_db(), &upload_id, "provider encryption failure").await;
                 return Err(error);
             }
         };
@@ -174,32 +215,7 @@ pub(super) async fn init_provider_resumable_upload(
             .map(|value| value.min(default_expires_at))
             .unwrap_or(default_expires_at);
 
-        let inserted = try_persist_upload_session(
-            state.writer_db(),
-            UploadSessionRecordParams {
-                upload_id: &upload_id,
-                scope: ctx.scope,
-                filename: &ctx.target.filename,
-                mime_type: &ctx.mime_type,
-                total_size: ctx.total_size,
-                chunk_size,
-                total_chunks,
-                folder_id: ctx.target.folder_id,
-                policy_id: ctx.policy.id,
-                placement_profile_id: ctx.routing_decision.profile_id,
-                placement_rule_id: ctx.routing_decision.rule_id,
-                placement_revision: ctx.routing_decision.revision,
-                placement_execution_preference: ctx.routing_decision.execution_preference.as_str(),
-                frontend_client_id: ctx.frontend_client_id.as_deref(),
-                status: UploadSessionStatus::Uploading,
-                session_kind,
-                object_temp_key: Some(&temp_key),
-                object_multipart_id: None,
-                provider_session_ciphertext: Some(&ciphertext),
-                expires_at,
-            },
-        )
-        .await;
+        let inserted = crate::db::repository::upload_session_repo::install_reserved_provider_session(state.writer_db(), &upload_id, &temp_key, &ciphertext, expires_at).await;
 
         match inserted {
             Ok(true) => {}
@@ -212,7 +228,7 @@ pub(super) async fn init_provider_resumable_upload(
                     "upload id collision",
                 )
                 .await?;
-                return Ok(UniqueUuidAttempt::Collision);
+                return Err(AsterError::conflict("provider upload reservation was cancelled during initialization"));
             }
             Err(error) => {
                 if let Err(cleanup_error) = cleanup_provider_session_after_init_error(

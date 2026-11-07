@@ -143,13 +143,37 @@ async fn execute_offline_download_action(
                     "offline_download_aria2_rpc_url is required to test aria2 RPC",
                 )
             })?;
-            let rpc_secret = offline_download_action_config_value(
-                state,
-                draft_values,
-                operations::OFFLINE_DOWNLOAD_ARIA2_RPC_SECRET_KEY,
-            )
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty());
+            let draft_secret = draft_values
+                .and_then(|values| values.get(operations::OFFLINE_DOWNLOAD_ARIA2_RPC_SECRET_KEY));
+            let rpc_secret = match draft_secret {
+                Some(secret) => Some(secret.clone()),
+                None => {
+                    let saved_secret = state
+                        .runtime_config()
+                        .get(operations::OFFLINE_DOWNLOAD_ARIA2_RPC_SECRET_KEY);
+                    let saved_url = state
+                        .runtime_config()
+                        .get(operations::OFFLINE_DOWNLOAD_ARIA2_RPC_URL_KEY)
+                        .map(|value| {
+                            operations::normalize_offline_download_aria2_rpc_url_config_value(
+                                &value,
+                            )
+                        })
+                        .transpose()?;
+                    let has_saved_secret = saved_secret
+                        .as_ref()
+                        .is_some_and(|secret| !secret.trim().is_empty());
+                    if has_saved_secret && saved_url.as_deref() != Some(rpc_url.as_str()) {
+                        return Err(AsterError::validation_error(
+                            "provide an explicit draft aria2 secret when testing a different RPC endpoint",
+                        ));
+                    }
+                    saved_secret
+                }
+            };
+            let rpc_secret = rpc_secret
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty());
             let request_timeout = offline_download_action_config_value(
                 state,
                 draft_values,

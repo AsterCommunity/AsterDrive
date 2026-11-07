@@ -516,7 +516,7 @@ impl MaintenanceDriverCache {
         state: &PrimaryAppState,
         policy: &aster_drive_model::entities::storage_policy::Model,
     ) -> Result<Arc<dyn StorageDriver>> {
-        if let Some(driver) = state.driver_registry().get_cached_driver(policy.id) {
+        if let Some(driver) = state.driver_registry().get_cached_driver(policy) {
             return Ok(driver);
         }
 

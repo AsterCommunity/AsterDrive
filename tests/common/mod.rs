@@ -1892,7 +1892,7 @@ macro_rules! create_test_app {
                 ))
                 .app_data(web::Data::new(state))
                 .configure(move |cfg| {
-                    aster_drive::api::configure_primary(cfg, &db, &Default::default())
+                    aster_drive::api::configure_primary(cfg, &db, &Default::default(), &Default::default())
                 }),
         )
         .await
@@ -2221,7 +2221,12 @@ macro_rules! setup_with_webdav {
                 .app_data(web::Data::new(state.clone()))
                 .configure(move |cfg| {
                     aster_drive::webdav::configure(cfg, &webdav_config, &db2);
-                    aster_drive::api::configure_primary(cfg, &db1, &Default::default());
+                    aster_drive::api::configure_primary(
+                        cfg,
+                        &db1,
+                        &Default::default(),
+                        &Default::default(),
+                    );
                 }),
         )
         .await;
@@ -2250,7 +2255,12 @@ macro_rules! setup_with_webdav_and_mail {
                 .app_data(web::Data::new(state))
                 .configure(move |cfg| {
                     aster_drive::webdav::configure(cfg, &webdav_config, &db2);
-                    aster_drive::api::configure_primary(cfg, &db1, &Default::default());
+                    aster_drive::api::configure_primary(
+                        cfg,
+                        &db1,
+                        &Default::default(),
+                        &Default::default(),
+                    );
                 }),
         )
         .await;

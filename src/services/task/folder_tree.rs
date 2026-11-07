@@ -353,13 +353,17 @@ async fn process_staging(
             // parent-link cursor instead of retaining an unbounded DFS stack.
             // Every ancestor has already finished its files before descent;
             // on return, the completed child's ID resumes its ordered page.
-            let current = stack.pop().expect("current traversal frame exists");
+            let current = stack
+                .pop()
+                .ok_or_else(|| AsterError::internal_error("folder traversal frame disappeared"))?;
             stack.clear();
             stack.push(current);
             legacy_cleanup = true;
             continue;
         }
-        let frame = stack.last_mut().expect("current traversal frame exists");
+        let frame = stack
+            .last_mut()
+            .ok_or_else(|| AsterError::internal_error("folder traversal frame disappeared"))?;
         if !frame.entered {
             let folder_id = frame.folder_id;
             let staged_total = transaction::with_transaction(state.writer_db(), async |txn| {

@@ -17,6 +17,7 @@ import type {
 	RemoteNodeInfo,
 	RemoteStorageTargetInfo,
 	StorageConnectorActionDescriptor,
+	StorageConnectorDescriptor,
 	StorageConnectorFieldDescriptor,
 	StorageConnectorFieldValue,
 } from "@/types/api";
@@ -31,7 +32,7 @@ interface StorageConnectorActionsPanelProps {
 	actions: StorageConnectorActionDescriptor[];
 	remoteNodes?: RemoteNodeInfo[];
 	remoteStorageTargets?: RemoteStorageTargetInfo[];
-	connectorId?: string | null;
+	descriptor?: StorageConnectorDescriptor | null;
 	confirmActionId: string | null;
 	submittingActionId: string | null;
 	t: Translate;
@@ -50,7 +51,7 @@ export function StorageConnectorActionsPanel({
 	actions,
 	remoteNodes = [],
 	remoteStorageTargets = [],
-	connectorId,
+	descriptor,
 	confirmActionId,
 	submittingActionId,
 	t,
@@ -61,7 +62,7 @@ export function StorageConnectorActionsPanel({
 	onValueChange,
 }: StorageConnectorActionsPanelProps) {
 	const connectorT: Translate = (key, values) =>
-		translateStorageConnectorMessage(t, connectorId, key, values);
+		translateStorageConnectorMessage(t, descriptor, key, values);
 	if (actions.length === 0) {
 		return null;
 	}

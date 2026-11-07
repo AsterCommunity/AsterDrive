@@ -462,7 +462,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 
 必须显式的副作用：
 
-- nonce cache 写入
+- writer 数据库一次性 nonce 预留（失败拒绝，不降级为独立缓存）
 - driver registry reload
 - disabled binding / missing ingress target 的 precondition 错误
 

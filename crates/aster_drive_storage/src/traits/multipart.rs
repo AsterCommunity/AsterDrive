@@ -82,6 +82,11 @@ pub trait MultipartStorageDriver: Send + Sync {
         MultipartStorageCapabilities::conservative_default()
     }
 
+    /// Whether a delegated browser part capability can still overwrite the completed object.
+    fn completed_object_remains_client_writable(&self) -> bool {
+        false
+    }
+
     /// 创建 multipart upload，返回 provider 端的 upload_id
     async fn create_multipart_upload(&self, path: &str) -> Result<String>;
 

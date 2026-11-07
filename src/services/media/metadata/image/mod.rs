@@ -58,7 +58,9 @@ impl<R: Read> Read for TiffMetadataReader<R> {
         }
         self.ensure_active()?;
         self.reads_remaining -= 1;
-        let length = output.len().min(self.bytes_remaining as usize);
+        let length = output
+            .len()
+            .min(usize::try_from(self.bytes_remaining).unwrap_or(usize::MAX));
         let read = self.inner.read(&mut output[..length])?;
         self.bytes_remaining -= read as u64;
         Ok(read)

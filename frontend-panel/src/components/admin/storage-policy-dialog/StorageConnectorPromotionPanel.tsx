@@ -55,7 +55,7 @@ export function StorageConnectorPromotionPanel({
 					const connectorT: Translate = (messageKey, values) =>
 						translateStorageConnectorMessage(
 							t,
-							candidate.targetDescriptor.connector_id,
+							candidate.targetDescriptor,
 							messageKey,
 							values,
 						);

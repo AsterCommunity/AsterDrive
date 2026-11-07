@@ -3544,8 +3544,14 @@ async fn assert_expired_storage_compat_cleanup(db: &DatabaseConnection) {
             .unwrap();
         assert_eq!(mode.try_get_by_index::<i64>(0).unwrap(), 1);
     }
+    let migrations = CurrentMigrator::migrations();
+    let cleanup_position = migrations
+        .iter()
+        .position(|migration| migration.name() == EXPIRED_STORAGE_COMPAT_MIGRATION)
+        .unwrap();
+    let rollback_steps = u32::try_from(migrations.len() - cleanup_position).unwrap();
     assert!(
-        CurrentMigrator::down(db, Some(2))
+        CurrentMigrator::down(db, Some(rollback_steps))
             .await
             .unwrap_err()
             .to_string()

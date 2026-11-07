@@ -177,7 +177,10 @@ pub(crate) async fn write_follower_object(
         &attempt_path,
         storage_path,
         aster_drive_storage::StorageCopyOptions {
-            expected_size: Some(content_length as u64),
+            expected_size: Some(aster_forge_utils::numbers::i64_to_u64(
+                content_length,
+                "follower copy size",
+            )?),
             temp_root: temp_root.map(str::to_owned),
         },
     )
@@ -209,6 +212,10 @@ async fn cleanup_unpublished_attempt(
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "follower composition keeps driver, request scope, parts and scratch ownership explicit"
+)]
 pub(crate) async fn compose_follower_objects(
     driver: Arc<dyn StorageDriver>,
     metrics: &dyn MetricsRecorder,

@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
@@ -204,7 +205,15 @@ impl MultipartStorageDriver for RemoteDriver {
     ) -> aster_drive_storage::Result<()> {
         let prefix = aster_drive_storage::object_path::multipart_parts_prefix(upload_id)?;
         let parts = self.list_paths(Some(&prefix)).await?;
-        for part_path in parts {
+        // Validate the entire response before issuing any destructive request.
+        // The listing is lower trust than this caller's upload ownership.
+        let part_numbers = parts
+            .iter()
+            .map(|path| canonical_part_number(upload_id, path))
+            .collect::<aster_drive_storage::Result<BTreeSet<_>>>()?;
+        for part_number in part_numbers {
+            let part_path =
+                aster_drive_storage::object_path::multipart_part_path(upload_id, part_number)?;
             self.client.delete(&self.object_key(&part_path)).await?;
         }
         Ok(())
@@ -221,11 +230,9 @@ impl MultipartStorageDriver for RemoteDriver {
             .await?
             .into_iter()
             .filter_map(|path| {
-                path.rsplit('/')
-                    .next()
-                    .and_then(|segment| segment.parse::<i32>().ok())
-                    .filter(|part_number| *part_number > 0)
-                    .map(|part_number| (part_number, path))
+                canonical_part_number(upload_id, &path)
+                    .ok()
+                    .map(|number| (number, path))
             })
             .collect::<Vec<_>>();
         parts.sort_unstable_by_key(|(part_number, _)| *part_number);
@@ -244,4 +251,26 @@ impl MultipartStorageDriver for RemoteDriver {
         }
         Ok(details)
     }
+}
+
+fn canonical_part_number(upload_id: &str, path: &str) -> aster_drive_storage::Result<i32> {
+    let prefix = aster_drive_storage::object_path::multipart_parts_prefix(upload_id)?;
+    let number = path
+        .strip_prefix(&prefix)
+        .and_then(|suffix| suffix.strip_prefix('/'))
+        .and_then(|number| number.parse::<i32>().ok())
+        .filter(|number| *number > 0)
+        .ok_or_else(|| {
+            storage_driver_error(
+                StorageErrorKind::Precondition,
+                "remote listing contains a key outside this multipart upload",
+            )
+        })?;
+    if aster_drive_storage::object_path::multipart_part_path(upload_id, number)? != path {
+        return Err(storage_driver_error(
+            StorageErrorKind::Precondition,
+            "remote listing contains a noncanonical multipart part key",
+        ));
+    }
+    Ok(number)
 }

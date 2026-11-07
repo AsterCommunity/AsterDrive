@@ -222,7 +222,9 @@ systemd 部署也可以用环境变量覆盖，写法见 [单实例 systemd 部�
 在 `管理 -> 远程节点` 创建记录，填好名称、传输方式和 `base_url`。保存后，后台会生成一条一次性命令，形态大概像这样：
 
 ```bash
-aster_drive node enroll --master-url https://drive.example.com --token enr_xxxxx
+aster_drive node enroll --master-url 'https://drive.example.com' --token-stdin --yes <<'ASTER_ENROLLMENT_TOKEN'
+enr_xxxxx
+ASTER_ENROLLMENT_TOKEN
 ```
 
 ### B3. 到从节点执行 enroll
@@ -231,9 +233,11 @@ aster_drive node enroll --master-url https://drive.example.com --token enr_xxxxx
 
 ```bash
 aster_drive node enroll \
-  --master-url https://drive.example.com \
-  --token enr_xxxxx \
-  --database-url sqlite:///data/asterdrive.db?mode=rwc
+  --master-url 'https://drive.example.com' \
+  --token-stdin --yes \
+  --database-url 'sqlite:///data/asterdrive.db?mode=rwc' <<'ASTER_ENROLLMENT_TOKEN'
+enr_xxxxx
+ASTER_ENROLLMENT_TOKEN
 ```
 
 这条命令会用 token 去主控节点兑换一次性的 bootstrap 配置，在从节点本地写入主控绑定（对象隔离前缀由 follower 自动生成），并把 enroll 回执写回主控节点。

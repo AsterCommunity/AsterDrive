@@ -450,6 +450,14 @@ pub async fn find_recoverable_by_owner<C: ConnectionTrait>(
     let now = chrono::Utc::now();
     let mut query = UploadSession::find()
         .filter(upload_session::Column::UserId.eq(user_id))
+        .filter(
+            sea_orm::Condition::any()
+                .add(upload_session::Column::SessionKind.is_not_in([
+                    UploadSessionKind::ProviderDirectResumable,
+                    UploadSessionKind::ProviderRelayResumable,
+                ]))
+                .add(upload_session::Column::ProviderSessionCiphertext.is_not_null()),
+        )
         .filter(upload_session::Column::ExpiresAt.gt(now))
         .filter(upload_session::Column::Status.is_in([
             UploadSessionStatus::Uploading,
@@ -546,6 +554,34 @@ pub async fn compare_exchange_provider_session<C: ConnectionTrait>(
         .filter(upload_session::Column::ProviderSessionCiphertext.eq(previous))
         .exec(db)
         .await?;
+    Ok(result.rows_affected == 1)
+}
+
+pub(crate) async fn install_reserved_provider_session<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    upload_id: &str,
+    temp_key: &str,
+    ciphertext: &str,
+    expires_at: chrono::DateTime<chrono::Utc>,
+) -> Result<bool> {
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, sea_query::Expr};
+    let result = upload_session::Entity::update_many()
+        .col_expr(
+            upload_session::Column::ProviderSessionCiphertext,
+            Expr::value(ciphertext),
+        )
+        .col_expr(upload_session::Column::ExpiresAt, Expr::value(expires_at))
+        .col_expr(
+            upload_session::Column::UpdatedAt,
+            Expr::value(chrono::Utc::now()),
+        )
+        .filter(upload_session::Column::Id.eq(upload_id))
+        .filter(upload_session::Column::Status.eq(UploadSessionStatus::Uploading))
+        .filter(upload_session::Column::ObjectTempKey.eq(temp_key))
+        .filter(upload_session::Column::ProviderSessionCiphertext.is_null())
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
     Ok(result.rows_affected == 1)
 }
 

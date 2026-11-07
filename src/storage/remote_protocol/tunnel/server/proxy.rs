@@ -480,10 +480,13 @@ async fn authorize_proxy_request<S: SharedRuntimeState>(
         ));
     }
     let nonce_key = format!("remote_tunnel_proxy_nonce:{nonce}");
-    if !state
-        .cache()
-        .set_bytes_if_absent(&nonce_key, Vec::new(), Some(INTERNAL_AUTH_NONCE_TTL_SECS))
-        .await
+    if !crate::db::repository::auth_once_state_repo::reserve(
+        state.writer_db(),
+        &nonce_key,
+        "",
+        chrono::Utc::now() + chrono::Duration::seconds(INTERNAL_AUTH_NONCE_TTL_SECS as i64),
+    )
+    .await?
     {
         return Err(AsterError::auth_token_invalid(
             "tunnel proxy nonce has already been used",
@@ -634,7 +637,7 @@ fn is_hop_by_hop_header(name: &str) -> bool {
 mod tests {
     use super::*;
     use crate::config::{Config, DeploymentProfile};
-    use crate::runtime::test_support::CacheOnlyState;
+    use crate::runtime::tasks::test_support::setup_primary_state;
     use crate::storage::remote_protocol::tunnel::server::RemoteTunnelOwnerLease;
     use aster_drive_migration::Migrator;
     use aster_drive_model::entities::managed_follower;
@@ -870,7 +873,7 @@ mod tests {
 
     #[actix_web::test]
     async fn proxy_auth_accepts_once_and_rejects_nonce_replay() {
-        let state = CacheOnlyState::new().await;
+        let state = setup_primary_state().await.get_ref().clone();
         let directory = claimed_directory().await;
         let timestamp = chrono::Utc::now().timestamp();
         let request = proxy_auth_request(
@@ -915,7 +918,7 @@ mod tests {
 
     #[actix_web::test]
     async fn proxy_auth_rejects_missing_expired_wrong_and_short_signatures() {
-        let state = CacheOnlyState::new().await;
+        let state = setup_primary_state().await.get_ref().clone();
         let directory = claimed_directory().await;
         let now = chrono::Utc::now().timestamp();
 
@@ -1015,7 +1018,7 @@ mod tests {
 
     #[actix_web::test]
     async fn proxy_auth_binds_runtime_identity_and_uses_cluster_wide_nonce() {
-        let state = CacheOnlyState::new().await;
+        let state = setup_primary_state().await.get_ref().clone();
         let directory = claimed_directory().await;
         let timestamp = chrono::Utc::now().timestamp();
         let signed = proxy_auth_request(
@@ -1094,7 +1097,7 @@ mod tests {
 
     #[actix_web::test]
     async fn legacy_proxy_auth_remains_rollout_compatible_without_reopening_replay() {
-        let state = CacheOnlyState::new().await;
+        let state = setup_primary_state().await.get_ref().clone();
         let directory = claimed_directory().await;
         let timestamp = chrono::Utc::now().timestamp();
         let first = proxy_auth_request_with_identity(
@@ -1137,6 +1140,77 @@ mod tests {
         .await
         .expect_err("legacy nonce must remain cluster-wide despite header changes");
         assert!(error.message().contains("already been used"));
+    }
+
+    #[actix_web::test]
+    async fn owner_proxy_does_not_follow_follower_selected_redirects() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let reached = Arc::new(AtomicUsize::new(0));
+        let reached_server = reached.clone();
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = actix_web::HttpServer::new(move || {
+            let reached = reached_server.clone();
+            actix_web::App::new().default_service(actix_web::web::to(move || {
+                reached.fetch_add(1, Ordering::SeqCst);
+                async { actix_web::HttpResponse::Ok().finish() }
+            }))
+        })
+        .listen(listener)
+        .unwrap()
+        .run();
+        let destination_handle = server.handle();
+        actix_web::rt::spawn(server);
+
+        let redirect = format!("http://{address}/private");
+        let location = redirect.clone();
+        let owner_listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let owner_address = owner_listener.local_addr().unwrap();
+        let owner_server = actix_web::HttpServer::new(move || {
+            let location = location.clone();
+            actix_web::App::new().default_service(actix_web::web::to(move || {
+                let location = location.clone();
+                async move {
+                    actix_web::HttpResponse::TemporaryRedirect()
+                        .insert_header(("location", location))
+                        .insert_header((REMOTE_TUNNEL_PROXY_RESPONSE_HEADER, "1"))
+                        .finish()
+                }
+            }))
+        })
+        .listen(owner_listener)
+        .unwrap()
+        .run();
+        let owner_handle = owner_server.handle();
+        actix_web::rt::spawn(owner_server);
+        let directory = Arc::new(claimed_directory().await);
+        let broker =
+            ClusterRemoteTunnelBroker::new(Arc::new(RemoteTunnelRegistry::new()), directory)
+                .unwrap();
+        let owner = RemoteTunnelOwnerLease {
+            remote_node_id: 7,
+            runtime_id: "runtime-owner".into(),
+            internal_endpoint: format!("http://{owner_address}"),
+            fencing_token: "fencing-token".into(),
+            lease_expires_at: chrono::Utc::now(),
+        };
+        let response = broker
+            .send_proxy_stream(
+                &owner,
+                &proxy_remote_node(),
+                Method::GET,
+                "/api/v1/internal/storage/objects/private".into(),
+                None,
+                vec![],
+                Box::new(std::io::Cursor::new(Vec::new())),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status, http::StatusCode::TEMPORARY_REDIRECT);
+        assert_eq!(response.headers.get("location").unwrap(), redirect.as_str());
+        assert_eq!(reached.load(Ordering::SeqCst), 0);
+        owner_handle.stop(true).await;
+        destination_handle.stop(true).await;
     }
 
     #[actix_web::test]

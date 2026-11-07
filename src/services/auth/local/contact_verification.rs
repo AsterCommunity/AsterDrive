@@ -311,7 +311,7 @@ pub async fn confirm_contact_verification(
     tracing::debug!(user_id, purpose = ?purpose, "loaded contact verification record");
 
     let txn = transaction::begin(state.writer_db()).await?;
-    let existing_user = user_repo::find_by_id(&txn, user_id).await?;
+    let existing_user = user_repo::lock_by_id(&txn, user_id).await?;
     if !existing_user.status.is_active() {
         return Err(AsterError::auth_forbidden("account is disabled"));
     }
@@ -354,6 +354,10 @@ pub async fn confirm_contact_verification(
             }
         }
         VerificationPurpose::ContactChange => {
+            // Issuance may predate an administrator's current deny policy.
+            // Preserve allowlist grandfathering, but never grandfather a block.
+            LocalEmailPolicy::from_runtime_config(state.runtime_config())
+                .check_not_blocked(&target)?;
             if existing_user.email != target
                 && existing_user.pending_email.as_deref() != Some(target.as_str())
             {

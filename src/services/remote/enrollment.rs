@@ -225,7 +225,16 @@ pub async fn ack_enrollment_token<S: SharedRuntimeState>(
 }
 
 pub fn build_enrollment_command(master_url: &str, token: &str) -> String {
-    format!("{ENROLL_COMMAND_BINARY} node enroll --master-url {master_url} --token {token} --yes")
+    let quoted_url = format!("'{}'", master_url.replace('\'', "'\"'\"'"));
+    let mut delimiter = "ASTER_ENROLLMENT_TOKEN".to_string();
+    while token.lines().any(|line| line == delimiter) {
+        delimiter.push('_');
+    }
+    // A quoted heredoc passes the token through stdin without expanding shell
+    // syntax or placing the credential in the enrollment process's argv.
+    format!(
+        "{ENROLL_COMMAND_BINARY} node enroll --master-url {quoted_url} --token-stdin --yes <<'{delimiter}'\n{token}\n{delimiter}"
+    )
 }
 
 fn normalize_ack_token_hash(value: &str) -> String {
@@ -262,6 +271,64 @@ fn redeem_claim_error(
 #[cfg(test)]
 mod tests {
     use super::RemoteEnrollmentBootstrap;
+
+    #[cfg(unix)]
+    #[test]
+    fn generated_enrollment_command_quotes_url_and_passes_secret_only_through_stdin() {
+        use std::io::Read;
+        let root =
+            std::env::temp_dir().join(format!("enrollment-command-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let guard = aster_forge_utils::raii::TempDirGuard::new(root, "enrollment command test");
+        let executable = guard.path().join("aster_drive");
+        std::fs::write(
+            &executable,
+            "#!/bin/sh\nprintf '%s\\0' \"$@\" > \"$ENROLL_ARGS\"\n/bin/cat > \"$ENROLL_STDIN\"\n",
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let args = guard.path().join("args");
+        let stdin = guard.path().join("stdin");
+        let url = "https://example.com/'$(touch SHOULD_NOT_EXIST);&";
+        let token = "enr_$(touch TOKEN_MUST_NOT_EXECUTE)'\nASTER_ENROLLMENT_TOKEN\nsecret";
+        let command = super::build_enrollment_command(url, token);
+        let status = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(command)
+            .env("PATH", guard.path())
+            .env("ENROLL_ARGS", &args)
+            .env("ENROLL_STDIN", &stdin)
+            .current_dir(guard.path())
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let argv = std::fs::read(args).unwrap();
+        let argv = argv
+            .split(|byte| *byte == 0)
+            .filter(|s| !s.is_empty())
+            .map(|s| std::str::from_utf8(s).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            argv,
+            [
+                "node",
+                "enroll",
+                "--master-url",
+                url,
+                "--token-stdin",
+                "--yes"
+            ]
+        );
+        let mut input = String::new();
+        std::fs::File::open(stdin)
+            .unwrap()
+            .read_to_string(&mut input)
+            .unwrap();
+        assert_eq!(input, format!("{token}\n"));
+        assert!(!guard.path().join("SHOULD_NOT_EXIST").exists());
+        assert!(!guard.path().join("TOKEN_MUST_NOT_EXECUTE").exists());
+    }
 
     #[test]
     fn enrollment_bootstrap_defaults_legacy_payloads_to_reverse_tunnel() {

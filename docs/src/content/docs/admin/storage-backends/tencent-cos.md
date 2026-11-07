@@ -92,10 +92,9 @@ AsterDrive 数据库记录了对象路径。人工移动、重命名或删除 CO
 | 上传方式 | `relay_stream` | 浏览器不需要直连 COS，少踩 CORS |
 | 下载方式 | `relay_stream` | 下载也先由 AsterDrive 中继，便于排查 |
 
-确认基本读写没问题后，再考虑切换到：
+确认基本读写没问题后，可把下载切换到 `presigned`。上传固定使用 `relay_stream`，支持服务端流式与分片续传。旧策略中保存的 `presigned` 上传也按中继执行，重新保存时归一化为中继。
 
-- 上传 `presigned`
-- 下载 `presigned`
+COS 静态身份签名不能把未签名的 copy-source header 限制为普通上传；因此 AsterDrive 不再向浏览器分发该身份的 PUT／part 写能力。下载直连、CDN、CNAME 和数据万象能力保留。升级不会撤销此前已签发的上传 URL；如需立即撤销这些能力，应在 COS 侧轮换对应凭据，否则需等待原有效期结束。
 
 :::caution[LightCOS 只能使用服务端中继]
 如果使用的是 **[轻量对象存储（Light Cloud Object Storage, LightCOS）](https://cloud.tencent.com/document/product/1722/112004)** 存储桶，请把上传和下载方式都保持为 `relay_stream`。LightCOS 没有桶级 CORS 配置入口，因此不适合浏览器 `presigned` 直传或直连下载。
@@ -119,14 +118,7 @@ flowchart LR
 
 好处是入口集中，排查简单。代价是应用节点要承接上传和下载带宽。
 
-### `presigned` 怎么工作
-
-上传时：
-
-```mermaid
-flowchart LR
-  Browser["浏览器"] --> Cos["COS"]
-```
+### `presigned` 下载怎么工作
 
 下载时：
 
@@ -141,14 +133,7 @@ flowchart LR
 
 如果你只使用 `relay_stream`，浏览器不会直接请求 COS，CORS 不是第一优先级。
 
-如果要使用 `presigned` 上传，COS bucket 需要允许浏览器跨域上传。最少关注：
-
-- `AllowedOrigin`：你的 AsterDrive 公开站点地址
-- `AllowedMethod`：包含 `PUT`
-- `AllowedHeader`：允许上传请求用到的请求头
-- `ExposeHeader`：使用 presigned multipart 时包含 `ETag`
-
-单文件 presigned PUT 完成后，AsterDrive 会在服务端校验对象 metadata 和大小，不依赖浏览器读取 `ETag`。presigned multipart 完成时仍需要每个 part 的 `ETag`，所以要支持大文件直传，CORS 规则仍必须暴露 `ETag`。
+上传使用服务端中继，无需浏览器 PUT 到 COS。浏览器直连下载或外部媒体读取仍应按实际使用的 GET／HEAD／Range 配置 CORS。
 
 如果要使用 `presigned` 下载，也要确认浏览器可以访问 COS 返回的下载地址，并且你接受下载响应头、缓存行为更多由 COS 决定。
 

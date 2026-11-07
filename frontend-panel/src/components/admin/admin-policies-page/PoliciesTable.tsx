@@ -132,7 +132,7 @@ export function PoliciesTable({
 					descriptor?.ui.badge_rgb,
 				);
 				const connectorT = (key: string) =>
-					translateStorageConnectorMessage(t, descriptor?.connector_id, key);
+					translateStorageConnectorMessage(t, descriptor, key);
 				const connectorLabel = descriptor?.ui
 					? connectorT(descriptor.ui.label_key)
 					: policy.connector_id;

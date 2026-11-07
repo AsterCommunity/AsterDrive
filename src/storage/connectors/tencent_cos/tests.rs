@@ -1,5 +1,63 @@
 use super::*;
 
+#[test]
+fn cos_descriptor_advertises_server_upload_without_browser_write_capabilities() {
+    let descriptor = TencentCosConnector::descriptor_definition();
+    assert!(descriptor.upload_workflows.stream_upload);
+    assert!(descriptor.upload_workflows.object_multipart_upload);
+    assert!(!descriptor.upload_workflows.presigned_upload);
+    assert!(
+        !descriptor
+            .upload_workflows
+            .object_multipart_upload_capabilities
+            .unwrap()
+            .presigned_part_upload
+    );
+}
+
+#[test]
+fn saved_cos_browser_upload_mode_moves_to_relay_without_accepting_invalid_modes() {
+    let values = serde_json::json!({
+        "endpoint": "https://cos.ap-guangzhou.myqcloud.com",
+        "bucket": "bucket-1250000000",
+        "base_path": "",
+        "object_storage_download_strategy": "relay_stream",
+        "object_storage_upload_strategy": "presigned"
+    });
+    let input = crate::storage::connectors::test_support::connection_config(
+        TencentCosConnector::ID,
+        1,
+        values.clone(),
+    );
+    let normalized = TencentCosConnector
+        .validate_connector_config(&input)
+        .unwrap();
+    assert_eq!(
+        normalized.values["object_storage_upload_strategy"],
+        "relay_stream"
+    );
+    let policy = crate::storage::connectors::test_support::policy(
+        TencentCosConnector::ID,
+        1,
+        values,
+        aster_drive_storage::StoragePolicyBehaviorConfig::default(),
+    );
+    assert_eq!(
+        TencentCosConnector.upload_transport(&policy).unwrap(),
+        StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::RelayStream)
+    );
+    let mut invalid = input;
+    invalid.values.insert(
+        "object_storage_upload_strategy".into(),
+        serde_json::json!("unknown"),
+    );
+    assert!(
+        TencentCosConnector
+            .validate_connector_config(&invalid)
+            .is_err()
+    );
+}
+
 fn runtime(value: &str) -> crate::config::RuntimeConfig {
     let runtime = crate::config::RuntimeConfig::new();
     runtime.apply(aster_forge_db::system_config::Model {

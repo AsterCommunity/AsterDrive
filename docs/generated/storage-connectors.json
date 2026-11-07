@@ -328,14 +328,14 @@
           "min_part_size": 5242880,
           "policy_limited_part_size": true,
           "relay_part_upload": true,
-          "presigned_part_upload": true,
+          "presigned_part_upload": false,
           "presigned_part_etag_required": true,
           "explicit_complete_required": true,
           "abort_supported": true,
           "list_parts_supported": true
         },
         "provider_resumable_upload": false,
-        "presigned_upload": true,
+        "presigned_upload": false,
         "frontend_direct_provider_resumable_upload": false
       }
     },

@@ -101,7 +101,7 @@ impl StorageRangeReader {
             let (start, bytes) = self
                 .cached
                 .remove(index)
-                .expect("cached block index exists");
+                .ok_or_else(|| io::Error::other("cached block disappeared"))?;
             let previous = std::mem::replace(&mut self.buffer, bytes);
             if !previous.is_empty() {
                 self.cached.push_back((self.buffer_start, previous));

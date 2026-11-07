@@ -56,7 +56,7 @@ export function getStorageConnectorFieldError(
 	}
 
 	const connectorT: Translate = (key, values) =>
-		translateStorageConnectorMessage(t, descriptor.connector_id, key, values);
+		translateStorageConnectorMessage(t, descriptor, key, values);
 	const label = connectorT(field.label_key);
 	const missing =
 		diagnostic.message.includes("missing") ||

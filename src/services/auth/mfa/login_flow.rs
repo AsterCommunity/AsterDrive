@@ -12,8 +12,8 @@ use crate::config::{
     branding, mail,
 };
 use crate::db::repository::{
-    mfa_email_code_repo, mfa_factor_repo, mfa_login_flow_repo, mfa_recovery_code_repo,
-    mfa_totp_setup_flow_repo, mfa_totp_used_step_repo, user_repo,
+    mfa_attempt_budget_repo, mfa_email_code_repo, mfa_factor_repo, mfa_login_flow_repo,
+    mfa_recovery_code_repo, mfa_totp_setup_flow_repo, mfa_totp_used_step_repo, user_repo,
 };
 use crate::errors::{AsterError, Result, auth_mfa_failed_with_code};
 use crate::runtime::{MailRuntimeState, SharedRuntimeState};
@@ -34,8 +34,8 @@ use aster_drive_model::types::{MfaFirstFactor, MfaMethod, MfaPersistentFactorMet
 use aster_forge_utils::numbers::{i64_to_u64, u64_to_i64};
 
 use super::{
-    EMAIL_CODE_DIGITS, MFA_LOGIN_FLOW_TTL_SECS, MFA_MAX_ATTEMPTS, MfaEmailCodeSendResponse, crypto,
-    recovery_codes, totp,
+    EMAIL_CODE_DIGITS, MFA_LOGIN_FLOW_TTL_SECS, MFA_MAX_ATTEMPTS, MfaEmailCodeSendResponse, budget,
+    crypto, recovery_codes, totp,
 };
 
 #[derive(Debug)]
@@ -261,7 +261,7 @@ pub async fn send_email_code(
     }
 
     let flow_token_hash = crypto::token_hash(normalized_flow_token);
-    validate_email_code_send(
+    let (_, preflight_user, _) = validate_email_code_send(
         state.writer_db(),
         state,
         &flow_token_hash,
@@ -278,13 +278,22 @@ pub async fn send_email_code(
         .hash_password(&code)
         .await?;
 
-    let now = Utc::now();
     let txn = transaction::begin(state.writer_db()).await?;
     let result = async {
+        mfa_attempt_budget_repo::lock_account(&txn, preflight_user.id).await?;
+        let now = Utc::now();
+
         let (flow, user, effective_expires_in) =
             validate_email_code_send(&txn, state, &flow_token_hash, &policy, browser_proof, now)
                 .await?;
 
+        budget::reserve_email_send(
+            &txn,
+            user.id,
+            now,
+            u64_to_i64(policy.resend_cooldown_secs, "email code resend cooldown")?,
+        )
+        .await?;
         mfa_email_code_repo::consume_active_for_user(&txn, user.id, now).await?;
         let ttl = u64_to_i64(effective_expires_in, "email code ttl")?;
         let record = mfa_email_code_repo::create(
@@ -445,6 +454,7 @@ async fn validate_email_code_send<C: ConnectionTrait>(
         ));
     }
 
+    budget::ensure_email_send_available(db, user.id, now).await?;
     if let Some(latest) = mfa_email_code_repo::find_latest_unconsumed_for_user(db, user.id).await? {
         let cooldown = u64_to_i64(policy.resend_cooldown_secs, "email code resend cooldown")?;
         let allowed_at = latest.created_at + Duration::seconds(cooldown);
@@ -494,6 +504,13 @@ pub async fn verify_challenge(
     )?;
     let preflight_user = user_repo::find_by_id(state.writer_db(), preflight_flow.user_id).await?;
     ensure_flow_user_valid(&preflight_user, &preflight_flow)?;
+    budget::ensure_available(
+        state.writer_db(),
+        preflight_user.id,
+        budget::Purpose::Login,
+        preflight_now,
+    )
+    .await?;
     let prepared_recovery =
         if method == MfaMethod::RecoveryCode && recovery_codes::looks_like_code(code) {
             recovery_codes::verify(state, state.writer_db(), preflight_user.id, code).await?
@@ -516,6 +533,7 @@ pub async fn verify_challenge(
 
     let txn = transaction::begin(state.writer_db()).await?;
     let attempt = async {
+        let user = mfa_attempt_budget_repo::lock_account(&txn, preflight_user.id).await?;
         // Preflight can do expensive password-hash preparation without holding a transaction,
         // but it never admits an attempt. Only the locked current row authorizes verification.
         let flow = mfa_login_flow_repo::lock_for_verification(&txn, &flow_token_hash)
@@ -528,8 +546,8 @@ pub async fn verify_challenge(
             flow.first_factor,
             RuntimeAuthPolicy::from_runtime_config(state.runtime_config()).password_login_enabled,
         )?;
-        let user = user_repo::lock_by_id(&txn, flow.user_id).await?;
         ensure_flow_user_valid(&user, &flow)?;
+        budget::ensure_available(&txn, user.id, budget::Purpose::Login, now).await?;
         let user_id = user.id;
 
         let verified = match method {
@@ -568,6 +586,9 @@ pub async fn verify_challenge(
         };
 
         if !verified {
+            let account_exhausted =
+                budget::record_failure(&txn, user.id, budget::Purpose::Login, now).await?;
+
             // Flow guard serializes admission. Conditional updates additionally fence the exact
             // admitted snapshot so a future caller cannot silently exceed the persisted budget.
             let transition = plan_transition(
@@ -595,7 +616,7 @@ pub async fn verify_challenge(
                 true => {}
                 false => return Err(flow_invalid("MFA attempt lost its lifecycle fence")),
             }
-            let error = if budget_exhausted {
+            let error = if budget_exhausted || account_exhausted {
                 auth_mfa_failed_with_code(
                     ApiErrorCode::AuthMfaAttemptsExceeded,
                     "MFA attempts exceeded",
@@ -611,6 +632,7 @@ pub async fn verify_challenge(
             });
         }
 
+        budget::reset(&txn, user.id, budget::Purpose::Login, now).await?;
         if !mfa_login_flow_repo::consume(
             &txn,
             flow.id,

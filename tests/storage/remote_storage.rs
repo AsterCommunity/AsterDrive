@@ -476,14 +476,31 @@ async fn send_signed_tunnel_json_raw(
 ) -> (reqwest::StatusCode, serde_json::Value) {
     let body = serde_json::to_vec(&value).expect("tunnel JSON body should encode");
     let url = format!("{master_url}{path}");
+    let timestamp = Utc::now().timestamp();
+    let nonce = uuid::Uuid::new_v4().to_string();
+    let digest = body_sha256_hex(&body);
+    let signature = aster_drive::storage::remote_protocol::sign_internal_request(
+        &remote_node.secret_key,
+        "POST",
+        path,
+        timestamp,
+        &nonce,
+        Some(body.len() as u64),
+        &digest,
+    );
+    let mut headers = internal_auth_headers(
+        &remote_node.access_key,
+        &timestamp.to_string(),
+        &nonce,
+        &signature,
+    );
+    headers.insert(
+        "x-aster-content-sha256",
+        reqwest::header::HeaderValue::from_str(&digest).unwrap(),
+    );
     let response = client
         .post(url)
-        .headers(signed_tunnel_http_headers(
-            remote_node,
-            "POST",
-            path,
-            Some(u64::try_from(body.len()).expect("tunnel test body length should fit u64")),
-        ))
+        .headers(headers)
         .header(reqwest::header::CONTENT_TYPE, "application/json")
         .body(body)
         .send()
@@ -2276,6 +2293,16 @@ async fn test_remote_policy_uses_selected_remote_storage_target_key() {
     )
     .await
     .expect_err("referenced remote storage target must not be deleted");
+    for key in [
+        format!(" {}", selected_target.target_key),
+        format!("{} ", selected_target.target_key),
+    ] {
+        let error = storage_target::delete_remote(&consumer_state, consumer_node.id, &key)
+            .await
+            .unwrap_err();
+        assert!(error.message().contains("canonical"));
+    }
+
     assert_eq!(
         delete_error.api_error_code(),
         ApiErrorCode::RemoteStorageTargetReferenced
@@ -9890,4 +9917,75 @@ async fn admin_remote_target_routes_record_create_update_delete_audit_snapshots(
     }
     stop_test_reverse_tunnel_worker(shutdown, worker).await;
     provider_server.stop().await;
+}
+
+#[actix_web::test]
+async fn test_reverse_tunnel_completion_rejects_tampering_before_dispatch() {
+    let state = common::setup().await;
+    let server = spawn_reverse_tunnel_primary_server(state.clone()).await;
+    let node = remote_node::create(
+        &state,
+        remote_node::CreateRemoteNodeInput {
+            name: "tamper-completion".into(),
+            base_url: String::new(),
+            transport_mode: RemoteNodeTransportMode::ReverseTunnel,
+            is_enabled: true,
+        },
+    )
+    .await
+    .unwrap();
+    let node = managed_follower_repo::find_by_id(state.writer_db(), node.id)
+        .await
+        .unwrap();
+    let honest = serde_json::to_vec(
+        &serde_json::json!({"request_id":"not-pending","status":200,"headers":[],"body":[65]}),
+    )
+    .unwrap();
+    let tampered = serde_json::to_vec(
+        &serde_json::json!({"request_id":"not-pending","status":200,"headers":[],"body":[66]}),
+    )
+    .unwrap();
+    assert_eq!(honest.len(), tampered.len());
+    let timestamp = Utc::now().timestamp();
+    let nonce = uuid::Uuid::new_v4().to_string();
+    let digest = body_sha256_hex(&honest);
+    let signature = aster_drive::storage::remote_protocol::sign_internal_request(
+        &node.secret_key,
+        "POST",
+        REMOTE_TUNNEL_COMPLETE_PATH,
+        timestamp,
+        &nonce,
+        Some(honest.len() as u64),
+        &digest,
+    );
+    let mut headers =
+        internal_auth_headers(&node.access_key, &timestamp.to_string(), &nonce, &signature);
+    headers.insert(
+        "x-aster-content-sha256",
+        reqwest::header::HeaderValue::from_str(&digest).unwrap(),
+    );
+    let response = aster_forge_http::HttpClient::builder()
+        .build()
+        .unwrap()
+        .post(format!(
+            "{}{}",
+            server.base_url, REMOTE_TUNNEL_COMPLETE_PATH
+        ))
+        .headers(headers)
+        .header("content-type", "application/json")
+        .body(tampered)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert!(body["msg"].as_str().unwrap().contains("signed digest"));
+    assert!(
+        managed_follower_repo::find_by_id(state.writer_db(), node.id)
+            .await
+            .unwrap()
+            .tunnel_last_handshake_at
+            .is_none()
+    );
+    server.stop().await;
 }

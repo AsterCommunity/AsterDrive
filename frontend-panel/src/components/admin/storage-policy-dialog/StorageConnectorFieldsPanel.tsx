@@ -169,11 +169,7 @@ function AdvancedFieldGroup({
 	t: Translate;
 }) {
 	const [open, setOpen] = useState(false);
-	const label = translateStorageConnectorMessage(
-		t,
-		descriptor?.connector_id,
-		labelKey,
-	);
+	const label = translateStorageConnectorMessage(t, descriptor, labelKey);
 	return (
 		<div className="space-y-3 border-t border-border/70 pt-4">
 			<Button
@@ -207,7 +203,7 @@ function ConnectorField({
 	field: StorageConnectorFieldDescriptor;
 }) {
 	const connectorT: Translate = (key, values) =>
-		translateStorageConnectorMessage(t, descriptor?.connector_id, key, values);
+		translateStorageConnectorMessage(t, descriptor, key, values);
 	const hasDuplicateName =
 		descriptor?.fields.some(
 			(candidate) => candidate !== field && candidate.name === field.name,

@@ -4,6 +4,7 @@ import { useAdminRemoteNodeDetailController } from "@/pages/admin/useAdminRemote
 
 const mocks = vi.hoisted(() => ({
 	addResourceBundle: vi.fn(),
+	removeResourceBundle: vi.fn(),
 	createEnrollmentCommand: vi.fn(),
 	createStorageTarget: vi.fn(),
 	deleteStorageTarget: vi.fn(),
@@ -19,6 +20,7 @@ const mocks = vi.hoisted(() => ({
 
 const testI18n = vi.hoisted(() => ({
 	addResourceBundle: (...args: unknown[]) => mocks.addResourceBundle(...args),
+	removeResourceBundle: mocks.removeResourceBundle,
 	language: "zh-CN",
 	resolvedLanguage: "zh-CN",
 }));
@@ -140,10 +142,10 @@ describe("useAdminRemoteNodeDetailController", () => {
 		await waitFor(() => {
 			expect(mocks.addResourceBundle).toHaveBeenCalledWith(
 				"zh-CN",
-				"plugin.follower-only",
+				"aster_storage_remote_21_plugin.follower-only",
 				{ driver_type_follower: "Follower 专用存储" },
-				true,
-				true,
+				false,
+				false,
 			);
 		});
 		await waitFor(() => {

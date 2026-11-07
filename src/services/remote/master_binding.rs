@@ -251,7 +251,7 @@ async fn authorize_binding_request<S: FollowerRuntimeState>(
         ));
     }
 
-    let nonce_cache_key = format!("internal_remote_nonce:{access_key}:{nonce}");
+    let nonce_state_key = format!("internal_remote_nonce:{access_key}:{nonce}");
     let binding = state
         .driver_registry()
         .find_master_binding_by_access_key(&access_key)
@@ -289,14 +289,13 @@ async fn authorize_binding_request<S: FollowerRuntimeState>(
         ));
     }
 
-    if !state
-        .cache()
-        .set_bytes_if_absent(
-            &nonce_cache_key,
-            Vec::new(),
-            Some(INTERNAL_AUTH_NONCE_TTL_SECS),
-        )
-        .await
+    if !crate::db::repository::auth_once_state_repo::reserve(
+        state.writer_db(),
+        &nonce_state_key,
+        "",
+        chrono::Utc::now() + chrono::Duration::seconds(INTERNAL_AUTH_NONCE_TTL_SECS as i64),
+    )
+    .await?
     {
         return Err(AsterError::auth_token_invalid(
             "internal auth nonce has already been used",

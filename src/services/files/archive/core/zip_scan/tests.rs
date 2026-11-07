@@ -195,16 +195,18 @@ fn metadata_open_rejects_zip64_sector_before_large_allocation() {
             let size = self.footer_start + self.footer.len() as u64;
             let length = output
                 .len()
-                .min(size.saturating_sub(self.position) as usize);
+                .min(usize::try_from(size.saturating_sub(self.position)).unwrap_or(usize::MAX));
             let output = &mut output[..length];
             output.fill(0);
             for (offset, bytes) in [(0, &self.header), (self.footer_start, &self.footer)] {
                 let start = self.position.max(offset);
                 let end = (self.position + length as u64).min(offset + bytes.len() as u64);
                 if start < end {
-                    output[(start - self.position) as usize..(end - self.position) as usize]
+                    output[usize::try_from(start - self.position).unwrap()
+                        ..usize::try_from(end - self.position).unwrap()]
                         .copy_from_slice(
-                            &bytes[(start - offset) as usize..(end - offset) as usize],
+                            &bytes[usize::try_from(start - offset).unwrap()
+                                ..usize::try_from(end - offset).unwrap()],
                         );
                 }
             }

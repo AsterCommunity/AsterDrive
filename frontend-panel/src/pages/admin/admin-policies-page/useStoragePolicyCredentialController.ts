@@ -192,11 +192,11 @@ export function useStoragePolicyCredentialController({
 		(key: string, values?: Record<string, number | string>) =>
 			translateStorageConnectorMessage(
 				t,
-				currentStorageDriverDescriptor?.connector_id,
+				currentStorageDriverDescriptor,
 				key,
 				values,
 			),
-		[currentStorageDriverDescriptor?.connector_id, t],
+		[currentStorageDriverDescriptor, t],
 	);
 
 	const startAuthorization = useCallback(() => {

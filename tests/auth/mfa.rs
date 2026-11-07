@@ -268,6 +268,414 @@ async fn audit_count(db: &sea_orm::DatabaseConnection, action: AuditAction) -> u
         .expect("audit count should succeed")
 }
 
+async fn account_budget(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i64,
+    purpose: &str,
+) -> aster_drive_model::entities::mfa_attempt_budget::Model {
+    aster_drive_model::entities::mfa_attempt_budget::Entity::find_by_id((
+        user_id,
+        purpose.to_string(),
+    ))
+    .one(db)
+    .await
+    .unwrap()
+    .unwrap()
+}
+
+#[actix_web::test]
+async fn mfa_account_login_budget_survives_new_flows_and_recovers_after_cooldown() {
+    let mut state = common::setup().await;
+    common::configure_test_password_hash_runtime(&mut state, 8, 2).await;
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state.clone());
+    register_user(
+        &app,
+        "accountbudget",
+        "accountbudget@example.com",
+        "password123",
+    )
+    .await;
+    let (access, _) = login_user!(app, "accountbudget", "password123");
+    let (_, _, recovery) = enable_totp(&app, &access).await;
+    let mut user_id = 0;
+    for index in 0..5 {
+        let response = login_raw(&app, "accountbudget", "password123").await;
+        let body: Value = test::read_body_json(response).await;
+        let token = body["data"]["flow_token"].as_str().unwrap();
+        user_id = find_mfa_flow_by_token(&db, token).await.user_id;
+        let response = verify_mfa(&app, token, "totp", "invalid").await;
+        let body: Value = test::read_body_json(response).await;
+        assert_eq!(
+            body["code"],
+            match index {
+                4 => "auth.mfa_attempts_exceeded",
+                _ => "auth.mfa_code_invalid",
+            }
+        );
+    }
+    let blocked = account_budget(&db, user_id, "login").await;
+    assert_eq!(blocked.failure_count, 5);
+    let response = login_raw(&app, "accountbudget", "password123").await;
+    let body: Value = test::read_body_json(response).await;
+    let token = body["data"]["flow_token"].as_str().unwrap();
+    let response = verify_mfa(&app, token, "recovery_code", &recovery[0]).await;
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["code"], "auth.mfa_attempts_exceeded");
+    assert_eq!(
+        account_budget(&db, user_id, "login").await,
+        blocked,
+        "denied requests never extend or write the cooldown"
+    );
+
+    let mut expired = blocked.into_active_model();
+    expired.blocked_until = Set(Some(Utc::now() - Duration::seconds(1)));
+    expired.update(&db).await.unwrap();
+    let response = verify_mfa(&app, token, "recovery_code", &recovery[0]).await;
+    let status = response.status();
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(status, StatusCode::OK, "{body:#?}");
+    assert_eq!(account_budget(&db, user_id, "login").await.failure_count, 0);
+}
+
+#[actix_web::test]
+async fn mfa_sensitive_budget_is_shared_by_actions_but_independent_of_login() {
+    let mut state = common::setup().await;
+    common::configure_test_password_hash_runtime(&mut state, 8, 2).await;
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state.clone());
+    register_user(
+        &app,
+        "sensitivebudget",
+        "sensitivebudget@example.com",
+        "password123",
+    )
+    .await;
+    let (access, _) = login_user!(app, "sensitivebudget", "password123");
+    let (factor_id, _, recovery) = enable_totp(&app, &access).await;
+    let response = login_raw(&app, "sensitivebudget", "password123").await;
+    let body: Value = test::read_body_json(response).await;
+    let flow = body["data"]["flow_token"].as_str().unwrap();
+    let user_id = find_mfa_flow_by_token(&db, flow).await.user_id;
+    for index in 0..5 {
+        let request = match index % 2 {
+            0 => test::TestRequest::delete().uri(&format!("/api/v1/auth/mfa/factors/{factor_id}")),
+            _ => test::TestRequest::post().uri("/api/v1/auth/mfa/recovery-codes/regenerate"),
+        }
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .set_json(serde_json::json!({"code":"invalid"}))
+        .to_request();
+        let response = test::call_service(&app, request).await;
+        let body: Value = test::read_body_json(response).await;
+        assert_eq!(
+            body["code"],
+            match index {
+                4 => "auth.mfa_attempts_exceeded",
+                _ => "auth.mfa_code_invalid",
+            }
+        );
+    }
+    let blocked = account_budget(&db, user_id, "sensitive").await;
+    let response = verify_mfa(&app, flow, "recovery_code", &recovery[0]).await;
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "sensitive lockout must not block login recovery"
+    );
+    let request = test::TestRequest::delete()
+        .uri(&format!("/api/v1/auth/mfa/factors/{factor_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .set_json(serde_json::json!({"code":recovery[1]}))
+        .to_request();
+    let response = test::call_service(&app, request).await;
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["code"], "auth.mfa_attempts_exceeded");
+    assert_eq!(account_budget(&db, user_id, "sensitive").await, blocked);
+    let mut expired = blocked.into_active_model();
+    expired.blocked_until = Set(Some(Utc::now() - Duration::seconds(1)));
+    expired.update(&db).await.unwrap();
+    let request = test::TestRequest::delete()
+        .uri(&format!("/api/v1/auth/mfa/factors/{factor_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .set_json(serde_json::json!({"code":recovery[1]}))
+        .to_request();
+    let response = test::call_service(&app, request).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        account_budget(&db, user_id, "sensitive")
+            .await
+            .failure_count,
+        0
+    );
+}
+
+#[actix_web::test]
+async fn mfa_email_send_cooldown_is_account_scoped_and_serializes_parallel_flows() {
+    let mut state = common::setup_with_pool_size(4).await;
+    common::configure_test_password_hash_runtime(&mut state, 8, 2).await;
+    apply_email_code_login_config(&state, false);
+    let db = state.writer_db().clone();
+    let mail_sender = state.mail_sender.clone();
+    let app = create_test_app!(state.clone());
+    register_user(
+        &app,
+        "parallelmail",
+        "parallelmail@example.com",
+        "password123",
+    )
+    .await;
+    let response = login_raw(&app, "parallelmail", "password123").await;
+    let body: Value = test::read_body_json(response).await;
+    let first = body["data"]["flow_token"].as_str().unwrap().to_string();
+    let response = login_raw(&app, "parallelmail", "password123").await;
+    let body: Value = test::read_body_json(response).await;
+    let second = body["data"]["flow_token"].as_str().unwrap().to_string();
+    let (a, b) = futures::join!(
+        send_email_code(&app, &first),
+        send_email_code(&app, &second)
+    );
+    let statuses = [a.status(), b.status()];
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|status| **status == StatusCode::OK)
+            .count(),
+        1
+    );
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|status| **status == StatusCode::TOO_MANY_REQUESTS)
+            .count(),
+        1
+    );
+    let sender = aster_forge_mail::memory_sender_ref(&mail_sender).unwrap();
+    // Registration mail, if present, is irrelevant: only one MFA code was sent.
+    let user_id = find_mfa_flow_by_token(&db, &first).await.user_id;
+    let active = aster_drive_model::entities::mfa_email_code::Entity::find()
+        .filter(aster_drive_model::entities::mfa_email_code::Column::UserId.eq(user_id))
+        .filter(aster_drive_model::entities::mfa_email_code::Column::ConsumedAt.is_null())
+        .all(&db)
+        .await
+        .unwrap();
+    assert_eq!(active.len(), 1);
+    let code = extract_email_code_from_message(&sender.last_message().unwrap());
+    let token = match active[0].flow_id == find_mfa_flow_by_token(&db, &first).await.id {
+        true => &first,
+        false => &second,
+    };
+    assert_eq!(
+        verify_mfa(&app, token, "email_code", &code).await.status(),
+        StatusCode::OK
+    );
+    let response = send_email_code(
+        &app,
+        match token == &first {
+            true => &second,
+            false => &first,
+        },
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "consuming the code must not reset account resend cooling"
+    );
+}
+
+#[actix_web::test]
+async fn mfa_account_budget_parallel_new_flows_cannot_multiply_attempts() {
+    let mut state = common::setup_with_pool_size(4).await;
+    common::configure_test_password_hash_runtime(&mut state, 8, 2).await;
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state.clone());
+    register_user(
+        &app,
+        "parallelbudget",
+        "parallelbudget@example.com",
+        "password123",
+    )
+    .await;
+    let (access, _) = login_user!(app, "parallelbudget", "password123");
+    enable_totp(&app, &access).await;
+    let mut flows = Vec::new();
+    for _ in 0..8 {
+        let response = login_raw(&app, "parallelbudget", "password123").await;
+        let body: Value = test::read_body_json(response).await;
+        flows.push(body["data"]["flow_token"].as_str().unwrap().to_string());
+    }
+    let user_id = find_mfa_flow_by_token(&db, &flows[0]).await.user_id;
+    let audit = aster_drive::services::ops::audit::AuditRequestInfo {
+        ip_address: None,
+        user_agent: None,
+    };
+    let outcomes = futures::future::join_all(flows.iter().map(|flow| {
+        aster_drive::services::auth::mfa::verify_challenge(
+            &state,
+            flow,
+            aster_drive_model::types::MfaMethod::Totp,
+            "invalid",
+            &audit,
+            None,
+        )
+    }))
+    .await;
+    let failures = outcomes
+        .iter()
+        .filter(|outcome| match outcome {
+            Err(error) => {
+                error.api_error_code()
+                    == aster_drive::api::api_error_code::ApiErrorCode::AuthMfaCodeInvalid
+            }
+            Ok(_) => false,
+        })
+        .count();
+    assert_eq!(
+        failures, 4,
+        "only four failures precede exhaustion of the fifth account attempt"
+    );
+    assert!(outcomes.into_iter().all(|outcome| outcome.is_err()));
+    let budget = account_budget(&db, user_id, "login").await;
+    assert_eq!(budget.failure_count, 5);
+    assert!(budget.blocked_until.unwrap() > Utc::now());
+}
+
+#[actix_web::test]
+async fn mfa_account_budget_window_expires_and_success_resets_only_its_scope() {
+    let mut state = common::setup().await;
+    common::configure_test_password_hash_runtime(&mut state, 8, 2).await;
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state.clone());
+    register_user(
+        &app,
+        "windowbudget",
+        "windowbudget@example.com",
+        "password123",
+    )
+    .await;
+    let (access, _) = login_user!(app, "windowbudget", "password123");
+    let (_, _, recovery) = enable_totp(&app, &access).await;
+    let response = login_raw(&app, "windowbudget", "password123").await;
+    let body: Value = test::read_body_json(response).await;
+    let token = body["data"]["flow_token"].as_str().unwrap().to_string();
+    let user_id = find_mfa_flow_by_token(&db, &token).await.user_id;
+    assert_eq!(
+        verify_mfa(&app, &token, "totp", "invalid").await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let row = account_budget(&db, user_id, "login").await;
+    let mut old_window = row.into_active_model();
+    old_window.failure_count = Set(4);
+    old_window.window_started_at = Set(Utc::now() - Duration::minutes(16));
+    old_window.update(&db).await.unwrap();
+    assert_eq!(
+        verify_mfa(&app, &token, "totp", "invalid").await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(account_budget(&db, user_id, "login").await.failure_count, 1);
+    let request = test::TestRequest::post()
+        .uri("/api/v1/auth/mfa/recovery-codes/regenerate")
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .set_json(serde_json::json!({"code":"invalid"}))
+        .to_request();
+    assert_eq!(
+        test::call_service(&app, request).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        verify_mfa(&app, &token, "recovery_code", &recovery[0])
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(account_budget(&db, user_id, "login").await.failure_count, 0);
+    assert_eq!(
+        account_budget(&db, user_id, "sensitive")
+            .await
+            .failure_count,
+        1
+    );
+}
+
+#[actix_web::test]
+async fn mfa_sensitive_budget_parallel_actions_share_the_last_attempt() {
+    use aster_drive::services::auth::mfa::{self, MfaSensitiveActionRequest};
+    let mut state = common::setup_with_pool_size(4).await;
+    common::configure_test_password_hash_runtime(&mut state, 8, 2).await;
+    let app = create_test_app!(state.clone());
+    register_user(
+        &app,
+        "parsenbudget",
+        "parsenbudget@example.com",
+        "password123",
+    )
+    .await;
+    let (access, _) = login_user!(app, "parsenbudget", "password123");
+    let (factor_id, _, _) = enable_totp(&app, &access).await;
+    let user =
+        aster_drive::db::repository::user_repo::find_by_username(state.writer_db(), "parsenbudget")
+            .await
+            .unwrap()
+            .unwrap();
+    let audit = aster_drive::services::ops::audit::AuditContext {
+        user_id: user.id,
+        ip_address: None,
+        user_agent: None,
+    };
+    for _ in 0..4 {
+        assert!(
+            mfa::delete_factor(
+                &state,
+                user.id,
+                factor_id,
+                MfaSensitiveActionRequest {
+                    code: Some("invalid".to_string())
+                },
+                &audit
+            )
+            .await
+            .is_err()
+        );
+    }
+    let (deleted, regenerated) = futures::join!(
+        mfa::delete_factor(
+            &state,
+            user.id,
+            factor_id,
+            MfaSensitiveActionRequest {
+                code: Some("invalid".to_string())
+            },
+            &audit
+        ),
+        mfa::regenerate_recovery_codes(
+            &state,
+            user.id,
+            MfaSensitiveActionRequest {
+                code: Some("invalid".to_string())
+            },
+            &audit
+        ),
+    );
+    assert!(deleted.is_err() && regenerated.is_err());
+    assert_eq!(
+        account_budget(state.writer_db(), user.id, "sensitive")
+            .await
+            .failure_count,
+        5
+    );
+    assert!(
+        mfa_factor::Entity::find_by_id(factor_id)
+            .one(state.writer_db())
+            .await
+            .unwrap()
+            .is_some()
+    );
+}
+
 #[tokio::test]
 async fn test_password_login_without_mfa_still_sets_cookies() {
     let state = common::setup().await;
@@ -591,6 +999,17 @@ async fn test_email_code_rotation_rejects_old_code_and_keeps_new_code_available(
     let mut active = current.into_active_model();
     active.created_at = Set(Utc::now() - Duration::minutes(10));
     active.update(&db).await.unwrap();
+    let mut reservation = aster_drive_model::entities::mfa_attempt_budget::Entity::find_by_id((
+        flow.user_id,
+        "email_send".to_string(),
+    ))
+    .one(&db)
+    .await
+    .unwrap()
+    .unwrap()
+    .into_active_model();
+    reservation.blocked_until = Set(Some(Utc::now() - Duration::seconds(1)));
+    reservation.update(&db).await.unwrap();
 
     let resp = send_email_code(&app, &flow_token).await;
     assert_eq!(resp.status(), StatusCode::OK);
@@ -1708,9 +2127,28 @@ async fn test_mfa_concurrent_failures_cannot_overrun_budget_or_consume_valid_fac
         .await
         .is_err()
     );
-    // A fresh first-factor flow can still use this recovery code: the denied attempt consumed none.
+    // A fresh flow shares the account cooldown. After it expires the denied
+    // verification's recovery code remains unconsumed and usable.
     let response = login_raw(&app, "parallelmfa", "password123").await;
     let body: Value = test::read_body_json(response).await;
+    let new_token = body["data"]["flow_token"].as_str().unwrap();
+    assert!(
+        mfa::verify_challenge(
+            &state,
+            new_token,
+            MfaMethod::RecoveryCode,
+            &recovery[0],
+            &audit,
+            None
+        )
+        .await
+        .is_err()
+    );
+    let mut expired = account_budget(state.writer_db(), flow.user_id, "login")
+        .await
+        .into_active_model();
+    expired.blocked_until = Set(Some(Utc::now() - Duration::seconds(1)));
+    expired.update(state.writer_db()).await.unwrap();
     mfa::verify_challenge(
         &state,
         body["data"]["flow_token"].as_str().unwrap(),

@@ -195,9 +195,19 @@ async fn test_auth_local_change_password() {
         .await
         .unwrap();
 
+    let login =
+        aster_drive::services::auth::local::login(&state, "alice", "password123", None, None)
+            .await
+            .unwrap();
+    let login = common::expect_authenticated_login(login);
+    let claims = aster_drive::services::auth::local::verify_token(
+        &login.access_token,
+        &state.config.auth.jwt_secret,
+    )
+    .unwrap();
     aster_drive::services::auth::local::change_password(
         &state,
-        user.id,
+        &claims,
         "password123",
         "newpass456",
     )

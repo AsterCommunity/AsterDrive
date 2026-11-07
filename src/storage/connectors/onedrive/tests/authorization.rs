@@ -104,6 +104,63 @@ impl Fixture {
 }
 
 #[tokio::test]
+async fn config_only_tenant_change_rebinds_saved_application_and_revokes_authorization() {
+    let fixture = Fixture::new().await;
+    let saved =
+        storage_policy_connector_credential_repo::find_by_policy(&fixture.db, fixture.policy.id)
+            .await
+            .unwrap()
+            .unwrap();
+    let old: OneDriveCredentialV1 = crate::storage::connectors::decode_typed_connector_credential(
+        KEY,
+        &saved,
+        &aster_drive_storage::ConnectorId::declared(OneDriveConnector::ID),
+        1,
+    )
+    .unwrap();
+    let mut changed = fixture.policy.clone();
+    let mut config = OneDriveConnector::decode_config(&changed).unwrap();
+    config.tenant = Some("organizations".into());
+    changed.storage_config = policy(config).storage_config;
+    let txn = fixture.db.begin().await.unwrap();
+    assert!(
+        OneDriveConnector
+            .reconcile_saved_credential(&txn, KEY, &changed)
+            .await
+            .unwrap()
+    );
+    txn.commit().await.unwrap();
+    let saved =
+        storage_policy_connector_credential_repo::find_by_policy(&fixture.db, fixture.policy.id)
+            .await
+            .unwrap()
+            .unwrap();
+    let current: OneDriveCredentialV1 =
+        crate::storage::connectors::decode_typed_connector_credential(
+            KEY,
+            &saved,
+            &aster_drive_storage::ConnectorId::declared(OneDriveConnector::ID),
+            1,
+        )
+        .unwrap();
+    assert_eq!(current.application.tenant, "organizations");
+    assert_eq!(current.application.client_id, old.application.client_id);
+    assert_eq!(
+        current.application.client_secret,
+        old.application.client_secret
+    );
+    assert!(current.authorization.is_none());
+    let txn = fixture.db.begin().await.unwrap();
+    assert!(
+        !OneDriveConnector
+            .reconcile_saved_credential(&txn, KEY, &changed)
+            .await
+            .unwrap()
+    );
+    txn.rollback().await.unwrap();
+}
+
+#[tokio::test]
 async fn callback_reports_writer_failure_without_attempting_token_exchange() {
     let fixture = Fixture::new().await;
     let flow = fixture.flow().await;

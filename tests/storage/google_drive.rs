@@ -127,6 +127,7 @@ struct GoogleSessionProbe {
     protocol_version: std::sync::atomic::AtomicU32,
     advance_calls: std::sync::atomic::AtomicUsize,
     pause: std::sync::atomic::AtomicBool,
+    pause_create: std::sync::atomic::AtomicBool,
     entered: tokio::sync::Notify,
     release: tokio::sync::Notify,
     object_size: std::sync::Mutex<Option<u64>>,
@@ -224,6 +225,10 @@ impl aster_drive_storage::ProviderResumableUploadDriver for GoogleSessionProbe {
         &self,
         _: &str,
     ) -> aster_drive_storage::Result<aster_drive_storage::ProviderResumableUploadSession> {
+        if self.pause_create.load(std::sync::atomic::Ordering::SeqCst) {
+            self.entered.notify_one();
+            self.release.notified().await;
+        }
         Ok(aster_drive_storage::ProviderResumableUploadSession {
             upload_url:
                 "https://www.googleapis.com/upload/drive/v3/files?upload_id=private-session".into(),
@@ -519,6 +524,110 @@ async fn google_drive_empty_policy_can_select_a_base_path_before_use() {
     assert_eq!(
         updated.connector_config.values["base_path"],
         "AsterDrive/blobs"
+    );
+}
+
+#[actix_web::test]
+async fn provider_creation_reserves_policy_location_before_the_external_request() {
+    use aster_drive::services::{files::upload, storage_policy::policy};
+    let (state, user, driver) = google_upload_fixture("frontend_direct", 4).await;
+    let policy_id = aster_drive::db::repository::policy_repo::find_default(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap()
+        .id;
+    driver
+        .pause_create
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let initialize = upload::init_upload(&state, user, "race.bin", 4, None, None);
+    let edit = async {
+        tokio::time::timeout(std::time::Duration::from_secs(5), driver.entered.notified())
+            .await
+            .unwrap();
+        assert!(
+            upload::list_recoverable_sessions(&state, user, None)
+                .await
+                .unwrap()
+                .is_empty(),
+            "uninitialized provider reservation is not a resumable client session"
+        );
+        // The provider is blocked, but no database transaction stays open.
+        // Its already committed reservation prevents location retargeting.
+        let candidate = serde_json::from_value(json!({"format_version":1,"connector_id":"asterdrive.storage.google_drive","schema_version":1,"values":{"root_folder_id":"other"}})).unwrap();
+        let edited = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            policy::update(
+                &state,
+                policy_id,
+                policy::UpdateStoragePolicyInput {
+                    connector_config: Some(candidate),
+                    ..Default::default()
+                },
+            ),
+        )
+        .await
+        .unwrap();
+        assert!(
+            edited
+                .unwrap_err()
+                .to_string()
+                .contains("storage location cannot change")
+        );
+        driver.release.notify_one();
+    };
+    let (initialized, ()) = tokio::join!(initialize, edit);
+    let initialized = initialized.unwrap();
+    let session = aster_drive::db::repository::upload_session_repo::find_by_id(
+        state.writer_db(),
+        &initialized.upload_id.unwrap(),
+    )
+    .await
+    .unwrap();
+    assert!(session.provider_session_ciphertext.is_some());
+    upload::cancel_upload(&state, &session.id, user)
+        .await
+        .unwrap();
+}
+
+#[actix_web::test]
+async fn provider_reservation_cancel_wins_before_the_provider_returns_a_capability() {
+    use aster_drive::services::files::upload;
+    use aster_drive_model::entities::upload_session;
+    use sea_orm::EntityTrait;
+    let (state, user, driver) = google_upload_fixture("frontend_direct", 4).await;
+    driver
+        .pause_create
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let initialize = upload::init_upload(&state, user, "cancel-init.bin", 4, None, None);
+    let cancel = async {
+        tokio::time::timeout(std::time::Duration::from_secs(5), driver.entered.notified())
+            .await
+            .unwrap();
+        let pending = upload_session::Entity::find()
+            .one(state.writer_db())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(pending.provider_session_ciphertext.is_none());
+        upload::cancel_upload(&state, &pending.id, user)
+            .await
+            .unwrap();
+        driver.release.notify_one();
+    };
+    let (initialized, ()) = tokio::join!(initialize, cancel);
+    assert!(
+        initialized
+            .err()
+            .expect("cancelled initialization must fail")
+            .to_string()
+            .contains("cancelled during initialization")
+    );
+    assert!(driver.aborts.load(std::sync::atomic::Ordering::SeqCst) > 0);
+    assert!(
+        upload::list_recoverable_sessions(&state, user, None)
+            .await
+            .unwrap()
+            .is_empty()
     );
 }
 

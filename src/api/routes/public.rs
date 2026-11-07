@@ -105,7 +105,8 @@ pub async fn get_custom_config(
     state: web::Data<PrimaryAppState>,
     req: HttpRequest,
 ) -> Result<HttpResponse> {
-    let include_authenticated = request_has_valid_access_token(state.get_ref(), &req).await?;
+    let include_authenticated =
+        request_has_unrestricted_access_token(state.get_ref(), &req).await?;
     let custom_config =
         config::get_public_custom_config(state.get_ref(), include_authenticated).await?;
     if include_authenticated {
@@ -152,7 +153,7 @@ fn public_config_response<T: serde::Serialize>(data: T) -> HttpResponse {
         .json(crate::api::response::success(data))
 }
 
-async fn request_has_valid_access_token(
+async fn request_has_unrestricted_access_token(
     state: &PrimaryAppState,
     req: &HttpRequest,
 ) -> Result<bool> {
@@ -161,8 +162,8 @@ async fn request_has_valid_access_token(
         return Ok(false);
     };
 
-    local::authenticate_access_token(state, &token).await?;
-    Ok(true)
+    let (claims, _) = local::authenticate_access_token(state, &token).await?;
+    Ok(!claims.password_change)
 }
 
 #[aster_forge_api_docs_macros::path(

@@ -2,8 +2,8 @@
 
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, ExprTrait,
-    QueryFilter, QueryOrder, sea_query::Expr,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait,
+    ExprTrait, QueryFilter, QueryOrder, QuerySelect, sea_query::Expr,
 };
 
 use crate::errors::{AsterError, Result};
@@ -34,6 +34,37 @@ pub async fn find_by_id_for_user<C: ConnectionTrait>(
         .one(db)
         .await
         .map_err(AsterError::from)
+}
+
+/// Lock the current session before a credential-changing transaction can use it.
+pub async fn lock_by_id_for_user<C: ConnectionTrait>(
+    db: &C,
+    user_id: i64,
+    id: &str,
+) -> Result<Option<auth_session::Model>> {
+    match db.get_database_backend() {
+        DbBackend::Postgres | DbBackend::MySql => AuthSession::find()
+            .filter(auth_session::Column::UserId.eq(user_id))
+            .filter(auth_session::Column::Id.eq(id))
+            .lock_exclusive()
+            .one(db)
+            .await
+            .map_err(AsterError::from),
+        DbBackend::Sqlite => {
+            AuthSession::update_many()
+                .col_expr(
+                    auth_session::Column::Id,
+                    Expr::col(auth_session::Column::Id),
+                )
+                .filter(auth_session::Column::UserId.eq(user_id))
+                .filter(auth_session::Column::Id.eq(id))
+                .exec(db)
+                .await
+                .map_err(AsterError::from)?;
+            find_by_id_for_user(db, user_id, id).await
+        }
+        _ => find_by_id_for_user(db, user_id, id).await,
+    }
 }
 
 pub async fn find_by_refresh_jti<C: ConnectionTrait>(

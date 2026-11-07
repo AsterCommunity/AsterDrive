@@ -9,6 +9,8 @@ title: "Azure Blob Storage 存储策略教程"
 这一篇按完整流程讲怎么把 AsterDrive 文件写到 Azure Blob Storage：准备 storage account 和 container、创建 `azure_blob` 存储策略、配置策略组规则、绑定用户或团队、验收上传下载，并说明怎么选择服务端中继或浏览器直传。
 :::
 
+浏览器 multipart 的 SAS 写权限覆盖整个临时 blob。完成后 AsterDrive 将已完成对象复制到从未向客户端授权写入的新 key，校验最终大小，再发布文件记录；旧上传地址不能改写已发布对象。服务端 relay 不增加这次复制。
+
 ## 适合什么时候用
 
 Azure Blob Storage 适合这些场景：

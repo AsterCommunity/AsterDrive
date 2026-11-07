@@ -88,6 +88,8 @@ mod m20261104_000001_qiniu_native;
 mod m20261105_000001_remove_expired_storage_compat;
 mod m20261105_000002_remote_target_audit_names;
 mod m20261107_000001_bind_external_recovery;
+mod m20261107_000002_auth_once_states;
+mod m20261107_000003_mfa_attempt_budgets;
 pub const BASELINE_MIGRATION_NAME: &str = "m20260512_000001_baseline_schema";
 
 const MIGRATION_TABLE: &str = "seaql_migrations";
@@ -253,6 +255,8 @@ impl MigratorTrait for CurrentMigrator {
             Box::new(m20261105_000001_remove_expired_storage_compat::Migration),
             Box::new(m20261105_000002_remote_target_audit_names::Migration),
             Box::new(m20261107_000001_bind_external_recovery::Migration),
+            Box::new(m20261107_000002_auth_once_states::Migration),
+            Box::new(m20261107_000003_mfa_attempt_budgets::Migration),
         ]
     }
 }

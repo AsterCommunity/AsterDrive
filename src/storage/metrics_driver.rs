@@ -328,6 +328,10 @@ impl StorageDriver for MetricsStorageDriver {
 
 #[async_trait]
 impl MultipartStorageDriver for MetricsMultipartStorageDriver {
+    fn completed_object_remains_client_writable(&self) -> bool {
+        self.inner.completed_object_remains_client_writable()
+    }
+
     async fn browser_part_request(
         &self,
         path: &str,

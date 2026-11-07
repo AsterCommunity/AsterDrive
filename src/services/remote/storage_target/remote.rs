@@ -88,6 +88,7 @@ pub async fn update_remote<S: RemoteProtocolRuntimeState>(
     target_key: &str,
     input: RemoteUpdateStorageTargetRequest,
 ) -> Result<RemoteStorageTargetInfo> {
+    require_canonical_target_key(target_key)?;
     let node = remote_node_for_storage_target_write(state, remote_node_id).await?;
     if let Some(connection) = input.connection.as_ref() {
         RemoteCapabilityResolver::from_remote_node(&node)
@@ -139,6 +140,7 @@ pub async fn delete_remote<S: RemoteProtocolRuntimeState>(
     remote_node_id: i64,
     target_key: &str,
 ) -> Result<()> {
+    require_canonical_target_key(target_key)?;
     tracing::debug!(
         remote_node_id,
         target_key,
@@ -174,4 +176,31 @@ async fn remote_node_for_storage_target_write<S: RemoteProtocolRuntimeState>(
     remote_node_id: i64,
 ) -> Result<managed_follower::Model> {
     remote_node::require_completed_enrollment(state, remote_node_id).await
+}
+
+fn require_canonical_target_key(key: &str) -> Result<()> {
+    if key.is_empty() || key != key.trim() || key.chars().any(char::is_control) {
+        return Err(crate::errors::AsterError::validation_error(
+            "remote storage target key must be nonempty and canonical without surrounding whitespace",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::require_canonical_target_key;
+    #[test]
+    fn target_keys_are_checked_before_reference_lookup_and_network_selection() {
+        assert!(require_canonical_target_key("rst-target").is_ok());
+        for key in [
+            "",
+            " rst-target",
+            "rst-target ",
+            "\trst-target",
+            "rst-\ntarget",
+        ] {
+            assert!(require_canonical_target_key(key).is_err());
+        }
+    }
 }

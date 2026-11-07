@@ -196,6 +196,17 @@ pub(crate) trait StorageConnector: Send + Sync {
         Ok(())
     }
 
+    /// Reconcile saved application identity after a config-only policy edit.
+    /// Returns whether runtime credentials must be reloaded after commit.
+    async fn reconcile_saved_credential(
+        &self,
+        _db: &DatabaseTransaction,
+        _encryption_key: &str,
+        _policy: &storage_policy::Model,
+    ) -> Result<bool> {
+        Ok(false)
+    }
+
     fn validate_connector_config(
         &self,
         config: &ConnectorConfigEnvelope,

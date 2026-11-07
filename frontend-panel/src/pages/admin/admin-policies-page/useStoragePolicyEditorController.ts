@@ -134,7 +134,7 @@ export function useStoragePolicyEditorController({
 							descriptor.credential_management?.created_authorize_next_key
 							? translateStorageConnectorMessage(
 									t,
-									descriptor.connector_id,
+									descriptor,
 									descriptor.credential_management.created_authorize_next_key,
 								)
 							: t("policy_created"),
@@ -162,7 +162,7 @@ export function useStoragePolicyEditorController({
 						descriptor.credential_management?.created_authorize_next_key
 							? translateStorageConnectorMessage(
 									t,
-									descriptor.connector_id,
+									descriptor,
 									descriptor.credential_management.created_authorize_next_key,
 								)
 							: t("policy_created"),

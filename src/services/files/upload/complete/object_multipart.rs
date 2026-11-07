@@ -241,6 +241,13 @@ pub(super) async fn finalize_verified_opaque_upload_session(
         cleanup_unpublished_upload_candidate(driver, verified, "opaque upload DB finalize error")
             .await;
     }
+    if result.is_ok()
+        && let Some(temp_key) = session.object_temp_key.as_deref()
+        && temp_key != verified.storage_path()
+        && let Err(error) = driver.delete(temp_key).await
+    {
+        tracing::warn!(upload_id = %session.id, "failed to delete delegated upload source after immutable publication: {error}");
+    }
     result
 }
 
@@ -418,10 +425,23 @@ async fn complete_object_multipart_upload_session(
                 )
                 .await
                 {
-                    let verified = VerifiedUploadedBlob::completed_multipart_object(
+                    let (final_key, actual_size) = finalize_multipart_object_identity(
+                        driver_ref,
+                        multipart.as_ref(),
+                        temp_key,
+                        actual_size,
+                        expected_status == UploadSessionStatus::Presigned,
+                        &state.config().server.temp_dir,
+                    )
+                    .await?;
+                    let constructor = match final_key == temp_key {
+                        true => VerifiedUploadedBlob::completed_multipart_object,
+                        false => VerifiedUploadedBlob::copied_opaque_object,
+                    };
+                    let verified = constructor(
                         actual_size,
                         policy.id,
-                        temp_key.to_string(),
+                        final_key,
                         opaque_upload_file_hash(
                             state.driver_registry().connectors(),
                             &policy,
@@ -448,10 +468,23 @@ async fn complete_object_multipart_upload_session(
             )
             .await?;
 
-            let verified = VerifiedUploadedBlob::completed_multipart_object(
+            let (final_key, actual_size) = finalize_multipart_object_identity(
+                driver_ref,
+                multipart.as_ref(),
+                temp_key,
+                actual_size,
+                expected_status == UploadSessionStatus::Presigned,
+                &state.config().server.temp_dir,
+            )
+            .await?;
+            let constructor = match final_key == temp_key {
+                true => VerifiedUploadedBlob::completed_multipart_object,
+                false => VerifiedUploadedBlob::copied_opaque_object,
+            };
+            let verified = constructor(
                 actual_size,
                 policy.id,
-                temp_key.to_string(),
+                final_key,
                 opaque_upload_file_hash(state.driver_registry().connectors(), &policy, &session)?,
             )?;
             finalize_verified_opaque_upload_session(
@@ -465,6 +498,29 @@ async fn complete_object_multipart_upload_session(
         },
     )
     .await
+}
+
+async fn finalize_multipart_object_identity(
+    driver: &dyn StorageDriver,
+    multipart: &dyn MultipartStorageDriver,
+    temp_key: &str,
+    size: i64,
+    browser_delegated: bool,
+    temp_root: &str,
+) -> Result<(String, i64)> {
+    match browser_delegated && multipart.completed_object_remains_client_writable() {
+        true => {
+            copy_presigned_object_to_final_key(
+                driver,
+                temp_key,
+                size,
+                size,
+                Some(temp_root.to_string()),
+            )
+            .await
+        }
+        false => Ok((temp_key.to_string(), size)),
+    }
 }
 
 fn should_abort_multipart_after_preflight_error(error: &AsterError) -> bool {
@@ -613,8 +669,8 @@ fn workspace_scope_from_session(session: &upload_session::Model) -> WorkspaceSto
 mod tests {
     use super::{
         copy_presigned_object_to_final_key, ensure_uploaded_object_size,
-        should_abort_multipart_after_preflight_error, sum_uploaded_part_sizes,
-        validate_uploaded_part_numbers, verify_uploaded_multipart_parts,
+        finalize_multipart_object_identity, should_abort_multipart_after_preflight_error,
+        sum_uploaded_part_sizes, validate_uploaded_part_numbers, verify_uploaded_multipart_parts,
     };
     use crate::api::api_error_code::ApiErrorCode;
     use crate::errors::{AsterError, upload_assembly_error_with_code};
@@ -766,11 +822,15 @@ mod tests {
     }
 
     struct ListingMultipartDriver {
+        writable: bool,
         parts: Vec<UploadedMultipartPart>,
     }
 
     #[async_trait]
     impl MultipartStorageDriver for ListingMultipartDriver {
+        fn completed_object_remains_client_writable(&self) -> bool {
+            self.writable
+        }
         async fn create_multipart_upload(
             &self,
             _path: &str,
@@ -845,6 +905,106 @@ mod tests {
             vec![final_key],
             "temp object metadata should be reused instead of fetched again"
         );
+    }
+
+    #[tokio::test]
+    async fn browser_writable_multipart_publishes_a_never_delegated_key_only_when_required() {
+        for (browser, writable, copied) in [
+            (true, true, true),
+            (true, false, false),
+            (false, true, false),
+        ] {
+            let driver = CountingCopyDriver::default();
+            let multipart = ListingMultipartDriver {
+                parts: vec![],
+                writable,
+            };
+            let (key, size) = finalize_multipart_object_identity(
+                &driver,
+                &multipart,
+                "delegated/temp",
+                12,
+                browser,
+                ".tmp",
+            )
+            .await
+            .unwrap();
+            assert_eq!(size, 12);
+            assert_eq!(key != "delegated/temp", copied);
+            assert_eq!(
+                driver.metadata_paths.lock().unwrap().len(),
+                usize::from(copied)
+            );
+        }
+    }
+
+    #[derive(Default)]
+    struct MutableBrowserObjectDriver(Mutex<std::collections::HashMap<String, Vec<u8>>>);
+
+    #[async_trait]
+    impl StorageDriver for MutableBrowserObjectDriver {
+        async fn put(&self, path: &str, bytes: &[u8]) -> aster_drive_storage::Result<String> {
+            self.0.lock().unwrap().insert(path.into(), bytes.to_vec());
+            Ok(path.into())
+        }
+        async fn get(&self, path: &str) -> aster_drive_storage::Result<Vec<u8>> {
+            self.0
+                .lock()
+                .unwrap()
+                .get(path)
+                .cloned()
+                .ok_or_else(|| storage_driver_error(StorageErrorKind::NotFound, "object missing"))
+        }
+        async fn get_stream(
+            &self,
+            path: &str,
+        ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
+            Ok(Box::new(std::io::Cursor::new(self.get(path).await?)))
+        }
+        async fn metadata(&self, path: &str) -> aster_drive_storage::Result<BlobMetadata> {
+            Ok(BlobMetadata {
+                size: self.get(path).await?.len() as u64,
+                content_type: None,
+            })
+        }
+        async fn exists(&self, path: &str) -> aster_drive_storage::Result<bool> {
+            Ok(self.0.lock().unwrap().contains_key(path))
+        }
+        async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
+            self.0.lock().unwrap().remove(path);
+            Ok(())
+        }
+        async fn copy_object(
+            &self,
+            source: &str,
+            dest: &str,
+            _options: aster_drive_storage::StorageCopyOptions,
+        ) -> aster_drive_storage::Result<String> {
+            self.put(dest, &self.get(source).await?).await
+        }
+    }
+
+    #[tokio::test]
+    async fn late_browser_write_to_delegated_multipart_key_cannot_change_the_final_object() {
+        let driver = MutableBrowserObjectDriver::default();
+        driver.put("browser-owned", b"good").await.unwrap();
+        let multipart = ListingMultipartDriver {
+            writable: true,
+            parts: vec![],
+        };
+        let (final_key, _) = finalize_multipart_object_identity(
+            &driver,
+            &multipart,
+            "browser-owned",
+            4,
+            true,
+            ".tmp",
+        )
+        .await
+        .unwrap();
+        driver.put("browser-owned", b"evil").await.unwrap();
+        assert_eq!(driver.get(&final_key).await.unwrap(), b"good");
+        assert_eq!(driver.get("browser-owned").await.unwrap(), b"evil");
     }
 
     #[tokio::test]
@@ -972,6 +1132,7 @@ mod tests {
             (3, "etag-3".to_string()),
         ];
         let multipart = ListingMultipartDriver {
+            writable: false,
             parts: vec![
                 UploadedMultipartPart {
                     part_number: 3,
@@ -1006,6 +1167,7 @@ mod tests {
         let session = test_session(11, 2);
         let completed_parts = vec![(1, "etag-1".to_string()), (2, "etag-2".to_string())];
         let multipart = ListingMultipartDriver {
+            writable: false,
             parts: vec![
                 UploadedMultipartPart {
                     part_number: 1,
