@@ -9,7 +9,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.7.1"
+version = "0.7.2"
 authors = [
     "AptS-1547 <apts-1547@esaps.net>",
     "AptS-1548 <apts-1548@esaps.net>",

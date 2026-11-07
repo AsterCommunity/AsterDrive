@@ -722,7 +722,7 @@ dependencies = [
 
 [[package]]
 name = "aster_drive"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "actix-governor",
  "actix-http",
@@ -849,7 +849,7 @@ dependencies = [
 
 [[package]]
 name = "aster_drive_metrics"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "aster_forge_metrics",
  "aster_forge_runtime",
@@ -861,7 +861,7 @@ dependencies = [
 
 [[package]]
 name = "aster_drive_migration"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "aster_forge_db",
  "aster_forge_db_migration",
@@ -876,7 +876,7 @@ dependencies = [
 
 [[package]]
 name = "aster_drive_model"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "aster_forge_api",
  "aster_forge_external_auth",
@@ -893,7 +893,7 @@ dependencies = [
 
 [[package]]
 name = "aster_drive_outbound"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "aster_forge_http",
  "bytes",
@@ -912,7 +912,7 @@ dependencies = [
 
 [[package]]
 name = "aster_drive_storage"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "aster_drive_model",
  "aster_forge_runtime",

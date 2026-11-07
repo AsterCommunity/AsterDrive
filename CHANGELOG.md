@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.7.2] - 2026-11-08
+
 ### Added
 
 - **Storage provider evidence** — Adds a bilingual official protocol index for every built-in connector, with source review dates, exact SDK/transport versions, field/wire drift checks in `make storage-docs-check`, and a separate weekly link report. Local protocol fixtures and real-provider acceptance remain explicit, separate evidence.
@@ -29,11 +31,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Account authentication and final checks** — Persist separate account-level MFA login/management budgets and email resend reservations, consume Passkey challenges and signed-request nonces through writer-database authority, share authentication limiter counters across HTTP workers, fence password changes against concurrent recovery/session revocation, enforce restricted optional identities and SSE token expiry, and recheck email blocklists at confirmation. MFA permits five failures per fifteen-minute window followed by a fixed fifteen-minute cooldown; denied attempts do not extend it. Cross-database CLI migration preserves one-time authentication state and account MFA budgets. Upgrade Primary/Follower writers together; in-flight pre-upgrade Passkey challenges must restart.
 
-- **Remote and provider delegation** — Validate multipart cleanup scope and signed completion body digests, canonicalize target boundaries, bind saved aria2 test secrets to their endpoint, keep enrollment tokens out of argv and quote generated commands, and isolate follower translations by local node/connector scope. Reserve provider uploads before external allocation, reconcile OneDrive tenant/cloud credential changes, and bind cached drivers to policy/credential generations. COS browser uploads use server relay to prevent copy-source delegation; Azure client-writable multipart objects publish through a fresh final key. Explicit HTTP deployment choices remain supported.
+- **Remote and provider delegation** — Validate multipart cleanup scope and signed completion body digests, canonicalize target boundaries, bind saved aria2 test secrets to their endpoint, keep enrollment tokens out of argv and quote generated commands, and isolate follower translations by local node/connector scope. Reserve provider uploads before external allocation, reconcile OneDrive tenant/cloud credential changes, and bind cached drivers to policy/credential generations. COS browser uploads use server relay to prevent copy-source delegation; Azure client-writable multipart objects publish through a fresh final key. Custom multipart drivers whose completed objects remain client-writable must declare that behavior through `completed_object_remains_client_writable`. Explicit HTTP deployment choices remain supported.
 
 - **Blob publication and cleanup ownership** — Keep content hashes as logical deduplication identities while uploads and migrations publish verified private object generations through database CAS/transactions. Warm deduplication hits reuse locked metadata without copying content; local cold candidates retain directory fanout. Failed and losing attempts clean only their own objects, legacy cross-policy aliases retain shared bytes, and delayed cleanup cannot retire another physical generation. Provider completion atomically transfers temporary cleanup authority; team archive preserves permanent objects. Doctor and maintenance recount under the blob lock and preserve cleanup claims. Upgrade all writers together. (#745)
 
-- **Resource processing budgets** — Bound tunnel response collection, WOPI discovery expansion, persisted preferences, image/TIFF processing, archive metadata and range reads, WebDAV lock discovery, and concurrent storage-event streams before expensive work. JSON/CSV previews simplify oversized content. Generic object copies stage and verify the declared length in Forge runtime scratch directories before streaming to the destination; native copies remain available. (#745)
+- **Resource processing budgets** — Bound tunnel response collection, WOPI discovery expansion, persisted preferences, image/TIFF processing, archive metadata and range reads, WebDAV lock discovery, and concurrent storage-event streams before expensive work. JSON/CSV previews simplify oversized content. Generic object copies stage and verify the declared length in Forge runtime scratch directories before streaming to the destination; native copies remain available. Custom driver overrides and callers of `StorageDriver::copy_object` must accept/pass `StorageCopyOptions` with `expected_size` and `temp_root`; the default implementation requires streaming-upload support for copies larger than 8 MiB. (#745)
 
 - **External account association** — Preserve the initiating browser through password and email recovery; defer existing-account identity links until required MFA completes, then commit the association, flow consumption, audit and session together. Existing identities obey current provider email/domain policies. Upgrade all authentication writers; pre-upgrade unbound recovery flows must restart.
 
@@ -43,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Session logout and MFA budgets** — Logout revokes the signed session even when refresh has rotated its cookie; access and refresh both stop immediately, while other devices retain access. Coordinate browser refresh/logout responses across tabs and enforce the five-failure MFA budget under concurrent verification, with factor and session changes committed together.
 
-- **Workspace and resource authorization** — Unify current actor, delegated scope and operation checks across file services, upload publication, WebDAV, WOPI, shares, tasks and governed administrator reads. Reject missing team membership, stale credential approvals, cross-mount lock operations, collection-lock bypasses and privileged task retries after demotion; bind queued uploads and recovery to their original account and workspace. Running task cancellation records intent without waiting for worker-held namespace locks, retaining current authority checks and atomic queued-folder cleanup. Clear private listings, playback and downloads on logout and reject responses from earlier accounts. Preserve protocol token/precondition behavior and existing capability lifetimes. (#745)
+- **Workspace and resource authorization** — Unify current actor, delegated scope and operation checks across file services, upload publication, WebDAV, WOPI, shares, tasks and governed administrator reads. Reject missing team membership, stale credential approvals, cross-mount lock operations, collection-lock bypasses and privileged task retries after demotion; bind queued uploads and recovery to their original account and workspace. Legacy browser upload/empty-file queue records without these bindings are discarded; reselect the files after upgrading. Running task cancellation records intent without waiting for worker-held namespace locks, retaining current authority checks and atomic queued-folder cleanup. Clear private listings, playback and downloads on logout and reject responses from earlier accounts. Preserve protocol token/precondition behavior and existing capability lifetimes. (#745)
 
 ### Changed
 
@@ -6481,7 +6483,8 @@ No new migrations.
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.7.2...HEAD
+[v0.7.2]: https://github.com/AsterCommunity/AsterDrive/compare/v0.7.1...v0.7.2
 [v0.7.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.7.0...v0.7.1
 [v0.7.0]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.3...v0.7.0
 [v0.6.3]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.2...v0.6.3

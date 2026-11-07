@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.7.2] - 2026-11-08
+
 ### Added
 
 - **存储 provider 协议证据** — 为全部内置 connector 增加中英文官方协议索引、内容复核日期与 SDK/transport 精确版本；`make storage-docs-check` 检查字段/关键协议与引用漂移，独立周检保留链接报告。本地 fixture 与真实云验收分开记录。
@@ -29,11 +31,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **账号认证预算与最终校验** — 持久化彼此独立的账号级 MFA 登录／管理预算和邮件重发资格，Passkey challenge 与签名请求 nonce 通过 writer 数据库一次消费；HTTP worker 共享认证限流，改密校验并发恢复／session 撤销，受限 optional identity 与 SSE token 到期生效，邮箱确认重新检查黑名单。MFA 在十五分钟窗口内最多失败五次，随后固定冷却十五分钟，被拒请求不延长冷却。跨数据库 CLI 迁移保留一次性认证状态和账号 MFA 预算。Primary／Follower writer 须协调升级，升级前的 Passkey 流程需重新发起。
 
-- **远端与 provider 委托边界** — 校验 multipart 清理范围和实际 completion 正文摘要，统一 target 规范边界，aria2 已保存测试密钥绑定原 endpoint，注册 token 改为 stdin 并正确转义生成命令，Follower 翻译按本地 node／connector scope 隔离。Provider 会话在外部创建前预留上传记录，OneDrive tenant／cloud 配置同步凭据身份，driver 缓存绑定策略与凭据代。COS 浏览器上传通过服务端中转阻止 copy-source 委托；Azure 客户端可写 multipart 对象复制到新 key 后发布。显式 HTTP 部署选择保留。
+- **远端与 provider 委托边界** — 校验 multipart 清理范围和实际 completion 正文摘要，统一 target 规范边界，aria2 已保存测试密钥绑定原 endpoint，注册 token 改为 stdin 并正确转义生成命令，Follower 翻译按本地 node／connector scope 隔离。Provider 会话在外部创建前预留上传记录，OneDrive tenant／cloud 配置同步凭据身份，driver 缓存绑定策略与凭据代。COS 浏览器上传通过服务端中转阻止 copy-source 委托；Azure 客户端可写 multipart 对象复制到新 key 后发布。完成后仍可被客户端修改的自定义 multipart driver 须通过 `completed_object_remains_client_writable` 声明该行为。显式 HTTP 部署选择保留。
 
 - **Blob 发布与清理所有权** — 内容 hash 保留为逻辑去重身份，上传和迁移先验证本次独占的物理对象代，再通过数据库 CAS／事务发布 metadata。去重命中直接复用锁定记录，不复制内容；本地冷路径保留两级目录分散。失败和落败请求只清理自己的对象，历史跨策略别名保留共享字节，迟到清理不能退休其他物理代。Provider 完成原子转移临时清理权，团队归档保留永久对象；Doctor 和后台维护在 blob 锁内重新计数并保留清理认领。升级时须协调全部 writer 切换。（#745）
 
-- **资源处理预算** — 在昂贵操作前限制隧道响应缓冲、WOPI discovery 展开、已保存偏好、图片／TIFF 处理、归档 metadata 与 Range 读取、WebDAV 锁发现及存储事件连接数。JSON／CSV 大内容预览降级显示。通用对象复制在 Forge runtime 临时目录中暂存并严格校验声明长度后流式上传，原生复制能力保留。（#745）
+- **资源处理预算** — 在昂贵操作前限制隧道响应缓冲、WOPI discovery 展开、已保存偏好、图片／TIFF 处理、归档 metadata 与 Range 读取、WebDAV 锁发现及存储事件连接数。JSON／CSV 大内容预览降级显示。通用对象复制在 Forge runtime 临时目录中暂存并严格校验声明长度后流式上传，原生复制能力保留。自定义 driver 的 `StorageDriver::copy_object` 实现及调用方须接收／传入含 `expected_size` 与 `temp_root` 的 `StorageCopyOptions`；默认复制超过 8 MiB 的对象需提供流式上传扩展。（#745）
 
 - **外部账号关联** — 密码及邮箱恢复全程保留发起浏览器绑定；已有账号的永久身份关联等待所需 MFA 完成，并与 flow 消费、审计及 session 一同提交。已有身份同样执行当前 provider 邮箱及域名策略。须升级全部认证 writer；升级前未绑定浏览器的恢复流程需重新发起。
 
@@ -43,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **会话登出与 MFA 次数限制** — 登出按已验签的 session 撤销，即使 refresh 已轮换 cookie，access 与 refresh 也立即失效，其他设备不受影响。浏览器跨标签页协调 refresh/logout 响应顺序；并发 MFA 验证仍严格遵守五次错误限制，因子消费与会话创建同事务提交。
 
-- **Workspace 与资源授权** — 统一文件服务、上传发布、WebDAV、WOPI、分享、任务与受控管理员读取的当前身份、委托范围和操作检查。阻止团队成员校验遗漏、旧凭据缓存继续授权、跨挂载锁操作、集合锁绕过及管理员降权后的特权任务重试；上传队列与恢复绑定原账号和 workspace。运行中任务取消先记录意图，不等待 worker 持有的 namespace 锁，同时保留当前资格检查和排队目录任务的原子清理。登出清理私有列表、播放和下载状态，拒绝旧账号的迟到响应回填。保留协议 token／前置条件及既有能力有效期契约。(#745)
+- **Workspace 与资源授权** — 统一文件服务、上传发布、WebDAV、WOPI、分享、任务与受控管理员读取的当前身份、委托范围和操作检查。阻止团队成员校验遗漏、旧凭据缓存继续授权、跨挂载锁操作、集合锁绕过及管理员降权后的特权任务重试；上传队列与恢复绑定原账号和 workspace。缺少这些绑定的旧浏览器上传／空文件队列记录会被丢弃，升级后须重新选择文件。运行中任务取消先记录意图，不等待 worker 持有的 namespace 锁，同时保留当前资格检查和排队目录任务的原子清理。登出清理私有列表、播放和下载状态，拒绝旧账号的迟到响应回填。保留协议 token／前置条件及既有能力有效期契约。(#745)
 
 ### Changed
 
@@ -6480,7 +6482,8 @@ OneDrive 存储策略新增浏览器直连能力：上传可选 Microsoft Graph 
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.7.2...HEAD
+[v0.7.2]: https://github.com/AsterCommunity/AsterDrive/compare/v0.7.1...v0.7.2
 [v0.7.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.7.0...v0.7.1
 [v0.7.0]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.3...v0.7.0
 [v0.6.3]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.2...v0.6.3
