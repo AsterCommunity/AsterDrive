@@ -1,11 +1,8 @@
 use aster_forge_tasks::TaskExecutionContext;
-use std::path::Path;
 use std::time::{Duration as StdDuration, Instant};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize, de::DeserializeOwned, ser::SerializeSeq};
-use sha2::Digest;
-use tokio::io::AsyncReadExt;
 use url::Url;
 
 use crate::config::operations;
@@ -23,7 +20,7 @@ use super::runtime::{
 use super::{
     OFFLINE_DOWNLOAD_TEMP_FILE_NAME, OfflineDownloadComplete, OfflineDownloadEngine,
     OfflineDownloadStartRequest, ensure_download_size_allowed, resolve_source_host,
-    transient_storage_error, verify_expected_sha256,
+    transient_storage_error,
 };
 
 const ARIA2_STATUS_POLL_INTERVAL: StdDuration = StdDuration::from_secs(2);
@@ -87,7 +84,7 @@ impl Aria2OfflineDownloadEngine {
         Aria2AddUriOptions {
             dir,
             out,
-            allow_overwrite: "true".to_string(),
+            allow_overwrite: "false".to_string(),
             auto_file_renaming: "false".to_string(),
             follow_torrent: "false".to_string(),
             follow_metalink: "false".to_string(),
@@ -127,7 +124,6 @@ impl OfflineDownloadEngine for Aria2OfflineDownloadEngine {
             );
         }
 
-        prepare_aria2_output_dir(&request.temp_path).await?;
         let gid = self
             .client
             .add_uri(request.url.as_str(), self.options(&request))
@@ -169,56 +165,6 @@ impl Aria2OfflineDownloadEngine {
     }
 }
 
-pub(super) async fn prepare_aria2_output_dir(temp_path: &Path) -> Result<()> {
-    let Some(dir) = temp_path.parent() else {
-        return Ok(());
-    };
-    tokio::fs::create_dir_all(dir).await.map_aster_err_ctx(
-        "create aria2 offline download output dir",
-        AsterError::storage_driver_error,
-    )?;
-    allow_external_aria2_writer_chain(dir).await
-}
-
-#[cfg(unix)]
-async fn allow_external_aria2_writer_chain(token_dir: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-
-    // aria2 may run as a different OS user from AsterDrive. The shared task
-    // leaf directories must therefore be writable by that external process.
-    // Prefer a shared owner/group or POSIX ACLs in deployments that can manage
-    // them; these broad modes are the compatibility fallback.
-    let Some(task_dir) = token_dir.parent() else {
-        return Ok(());
-    };
-    let Some(tasks_dir) = task_dir.parent() else {
-        return Ok(());
-    };
-
-    tokio::fs::set_permissions(tasks_dir, std::fs::Permissions::from_mode(0o711))
-        .await
-        .map_aster_err_ctx(
-            "set aria2 offline download tasks dir permissions",
-            AsterError::storage_driver_error,
-        )?;
-
-    for dir in [task_dir, token_dir] {
-        tokio::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o777))
-            .await
-            .map_aster_err_ctx(
-                "set aria2 offline download output dir permissions",
-                AsterError::storage_driver_error,
-            )?;
-    }
-
-    Ok(())
-}
-
-#[cfg(not(unix))]
-async fn allow_external_aria2_writer_chain(_dir: &Path) -> Result<()> {
-    Ok(())
-}
-
 impl Aria2OfflineDownloadEngine {
     async fn poll_until_complete(
         &self,
@@ -236,7 +182,7 @@ impl Aria2OfflineDownloadEngine {
         let mut declared_content_length = None;
         let mut consecutive_rpc_errors = 0_u8;
 
-        loop {
+        let completed_size = loop {
             context.ensure_active()?;
             if started_at.elapsed() > self.download_timeout {
                 return Err(AsterError::storage_driver_error(
@@ -285,7 +231,7 @@ impl Aria2OfflineDownloadEngine {
 
             match &status.status {
                 Aria2DownloadStatus::Complete => {
-                    break;
+                    break completed;
                 }
                 Aria2DownloadStatus::Active
                 | Aria2DownloadStatus::Waiting
@@ -336,9 +282,9 @@ impl Aria2OfflineDownloadEngine {
             context
                 .sleep_or_shutdown(ARIA2_STATUS_POLL_INTERVAL)
                 .await?;
-        }
+        };
 
-        let bytes_written = downloaded_file_size(&request.temp_path).await?;
+        let bytes_written = completed_size;
         ensure_download_size_allowed(bytes_written, self.max_bytes)?;
         if bytes_written <= 0 {
             return Err(AsterError::validation_error(
@@ -352,8 +298,6 @@ impl Aria2OfflineDownloadEngine {
                 "transient: offline download size mismatch: declared {length}, received {bytes_written}"
             )));
         }
-        let sha256 = sha256_file(&request.temp_path).await?;
-        verify_expected_sha256(request.expected_sha256.as_deref(), &sha256)?;
         if let Err(error) = self.client.remove_download_result(gid).await {
             tracing::warn!(
                 gid,
@@ -365,7 +309,7 @@ impl Aria2OfflineDownloadEngine {
             request.url.clone(),
             None,
             bytes_written,
-            sha256,
+            String::new(),
             declared_content_length,
         ))
     }
@@ -941,35 +885,4 @@ pub(super) fn parse_aria2_length(value: &str, field: &str) -> Result<i64> {
         .parse::<u64>()
         .map_aster_err_ctx(&format!("parse {field}"), AsterError::storage_driver_error)?;
     Ok(u64_to_i64(parsed, field)?)
-}
-
-async fn downloaded_file_size(path: &Path) -> Result<i64> {
-    let metadata = tokio::fs::metadata(path).await.map_aster_err_ctx(
-        "stat offline download temp file",
-        AsterError::storage_driver_error,
-    )?;
-    Ok(u64_to_i64(
-        metadata.len(),
-        "offline download temp file size",
-    )?)
-}
-
-async fn sha256_file(path: &Path) -> Result<String> {
-    let mut file = tokio::fs::File::open(path).await.map_aster_err_ctx(
-        "open offline download temp file",
-        AsterError::storage_driver_error,
-    )?;
-    let mut hasher = aster_forge_crypto::new_sha256();
-    let mut buffer = vec![0_u8; 64 * 1024];
-    loop {
-        let read = file.read(&mut buffer).await.map_aster_err_ctx(
-            "read offline download temp file",
-            AsterError::storage_driver_error,
-        )?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
-    }
-    Ok(aster_forge_crypto::sha256_digest_to_hex(&hasher.finalize()))
 }

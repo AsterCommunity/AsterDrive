@@ -34,6 +34,12 @@ Doctor、自动 reconcile 和后台 blob 维护共用 `reconcile_blob_reference_
 
 全量 repair 仍按页批量读取观察值；只有疑似漂移进入逐 blob 的锁内复核，避免健康库变成逐条 COUNT。
 
+## 配额修复与当前准入
+
+配额报告同样只是观察值。`repair_storage_usage` 对疑似漂移的 owner 在短事务内锁定配额计数行，再统计当前文件和历史 revision 后更新；与上传发布共用 owner 锁，不能用旧报告覆盖并发提交。健康 owner 按页聚合，PostgreSQL/MySQL fixture 中 1 个和 64 个健康 owner 均为 5 条 SQL。
+
+覆盖写保留已有 blob 的存储目的地，但在 provider I/O 前和最终发布事务中检查当前组的启用状态、大小、扩展名与类别准入。流式接收先执行当前上限再哈希／写入；准入从策略快照读取，不新增逐文件数据库查询。
+
 ## 性能和升级边界
 
 慢速 I/O 不持有数据库写事务。哈希使用 64 KiB 缓冲，跨盘 promotion 使用固定 1 MiB 缓冲；候选和 staging 源在事务完成前保留以支持重试。去重命中的发布阶段在 SQLite fixture 中，1 KiB 与 1 MiB 样本均为 29 条 SQL、0 次 connector 调用、0 个拷贝字节；这不是生产延迟或 RSS 基准。

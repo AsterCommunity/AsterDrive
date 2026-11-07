@@ -865,25 +865,34 @@ pub async fn audit_revision_ledger_with_limit<C: ConnectionTrait>(
     Ok(issues)
 }
 
-pub async fn fix_storage_usage_drifts<C: ConnectionTrait>(
-    db: &C,
-    drifts: &[StorageUsageDrift],
-) -> Result<()> {
-    for drift in drifts {
-        match drift.owner_kind {
-            StorageOwnerKind::User => {
-                user_repo::set_storage_used(db, drift.owner_id, drift.actual_bytes).await?;
-            }
-            StorageOwnerKind::Team => {
-                team_repo::set_storage_used(db, drift.owner_id, drift.actual_bytes).await?;
-            }
+/// Recount one suspected drift after acquiring the same owner row lock used by charges.
+async fn reconcile_storage_owner(db: &DatabaseConnection, owner: StorageOwner) -> Result<bool> {
+    aster_forge_db::transaction::with_transaction(db, async |txn| {
+        let recorded = match owner {
+            StorageOwner::User(id) => user_repo::lock_storage_used(txn, id).await?,
+            StorageOwner::Team(id) => team_repo::lock_storage_used(txn, id).await?,
+        };
+        let Some(recorded) = recorded else {
+            return Ok(false);
+        };
+        let actual = load_actual_storage_usage_for_owners(txn, &[owner])
+            .await?
+            .get(&owner)
+            .copied()
+            .unwrap_or(0);
+        if recorded == actual {
+            return Ok(false);
         }
-    }
-
-    Ok(())
+        match owner {
+            StorageOwner::User(id) => user_repo::set_storage_used(txn, id, actual).await?,
+            StorageOwner::Team(id) => team_repo::set_storage_used(txn, id, actual).await?,
+        }
+        Ok(true)
+    })
+    .await
 }
 
-pub async fn fix_storage_usage_all<C: ConnectionTrait>(db: &C) -> Result<usize> {
+pub async fn repair_storage_usage(db: &DatabaseConnection) -> Result<usize> {
     let mut fixed = 0;
     let mut last_user_id = None;
     loop {
@@ -912,8 +921,9 @@ pub async fn fix_storage_usage_all<C: ConnectionTrait>(db: &C) -> Result<usize> 
         let actual = load_actual_storage_usage_for_owners(db, &owners).await?;
         for (id, recorded) in rows {
             let actual_bytes = actual.get(&StorageOwner::User(id)).copied().unwrap_or(0);
-            if recorded != actual_bytes {
-                user_repo::set_storage_used(db, id, actual_bytes).await?;
+            if recorded != actual_bytes
+                && reconcile_storage_owner(db, StorageOwner::User(id)).await?
+            {
                 fixed += 1;
             }
         }
@@ -946,8 +956,9 @@ pub async fn fix_storage_usage_all<C: ConnectionTrait>(db: &C) -> Result<usize> 
         let actual = load_actual_storage_usage_for_owners(db, &owners).await?;
         for (id, recorded) in rows {
             let actual_bytes = actual.get(&StorageOwner::Team(id)).copied().unwrap_or(0);
-            if recorded != actual_bytes {
-                team_repo::set_storage_used(db, id, actual_bytes).await?;
+            if recorded != actual_bytes
+                && reconcile_storage_owner(db, StorageOwner::Team(id)).await?
+            {
                 fixed += 1;
             }
         }

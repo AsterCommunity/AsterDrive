@@ -486,6 +486,28 @@ pub async fn set_storage_used<C: ConnectionTrait>(db: &C, id: i64, value: i64) -
     Ok(())
 }
 
+/// Lock only the quota counter before reconciliation's first consistent read.
+/// An UPDATE also takes SQLite's writer lock; unlike quota charging it does not
+/// reject accounts whose recorded usage already exceeds their quota.
+pub(crate) async fn lock_storage_used<C: ConnectionTrait>(db: &C, id: i64) -> Result<Option<i64>> {
+    User::update_many()
+        .col_expr(
+            user::Column::StorageUsed,
+            Expr::col(user::Column::StorageUsed),
+        )
+        .filter(user::Column::Id.eq(id))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    User::find_by_id(id)
+        .select_only()
+        .column(user::Column::StorageUsed)
+        .into_tuple::<i64>()
+        .one(db)
+        .await
+        .map_err(AsterError::from)
+}
+
 /// Atomically advances the account generation without wrapping, saturating, or overwriting a
 /// concurrent revocation. Call inside the transaction containing the security change and purge.
 ///

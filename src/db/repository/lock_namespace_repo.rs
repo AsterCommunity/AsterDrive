@@ -1,7 +1,7 @@
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, IntoActiveModel, QueryFilter,
-    QuerySelect, Set,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DbBackend, EntityTrait, IntoActiveModel,
+    QueryFilter, QuerySelect, Set,
 };
 
 use crate::errors::{AsterError, Result};
@@ -67,6 +67,17 @@ pub async fn lock_by_id<C: ConnectionTrait>(
     db: &C,
     namespace_id: i64,
 ) -> Result<resource_lock_namespace::Model> {
+    if db.get_database_backend() == DbBackend::Sqlite {
+        resource_lock_namespace::Entity::update_many()
+            .col_expr(
+                resource_lock_namespace::Column::Generation,
+                sea_orm::sea_query::Expr::col(resource_lock_namespace::Column::Generation),
+            )
+            .filter(resource_lock_namespace::Column::Id.eq(namespace_id))
+            .exec(db)
+            .await
+            .map_err(AsterError::from)?;
+    }
     resource_lock_namespace::Entity::find_by_id(namespace_id)
         .lock_exclusive()
         .one(db)

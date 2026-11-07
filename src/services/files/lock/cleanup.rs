@@ -1,14 +1,68 @@
 use std::collections::BTreeSet;
 
 use aster_forge_db::transaction;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use sea_orm::ConnectionTrait;
 
 use crate::db::repository::{lock_namespace_repo, lock_repo};
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
 use crate::services::ops::audit::{self, AuditContext};
-use aster_drive_model::types::LockWorkspaceType;
+use aster_drive_model::entities::resource_lock;
+use aster_drive_model::types::{EntityType, LockWorkspaceType};
+
+/// Normal reads stay one query. Only an expired projection enters namespace-
+/// serialized cleanup; SQL rechecks the current timeout, so a completed renewal wins.
+pub(crate) async fn load_after_expiry_cleanup(
+    state: &impl SharedRuntimeState,
+    entity_type: EntityType,
+    entity_id: i64,
+    cutoff: DateTime<Utc>,
+) -> Result<Vec<resource_lock::Model>> {
+    let locks = lock_repo::find_all_by_entity(state.writer_db(), entity_type, entity_id).await?;
+    let namespaces = locks
+        .iter()
+        .filter(|lock| lock.timeout_at.is_some_and(|expires| expires <= cutoff))
+        .map(|lock| lock.namespace_id)
+        .collect::<BTreeSet<_>>();
+    if namespaces.is_empty() {
+        return Ok(locks);
+    }
+    cleanup_expired_entity_namespaces(state, entity_type, entity_id, cutoff, namespaces).await?;
+    lock_repo::find_all_by_entity(state.writer_db(), entity_type, entity_id).await
+}
+
+pub(super) async fn cleanup_expired_entity_namespaces(
+    state: &impl SharedRuntimeState,
+    entity_type: EntityType,
+    entity_id: i64,
+    cutoff: DateTime<Utc>,
+    namespaces: BTreeSet<i64>,
+) -> Result<()> {
+    for id in namespaces {
+        transaction::with_transaction(state.writer_db(), async |txn| {
+            let namespace = match lock_namespace_repo::lock_by_id(txn, id).await {
+                Ok(namespace) => namespace,
+                Err(crate::errors::AsterError::RecordNotFound(_)) => return Ok(()),
+                Err(error) => return Err(error),
+            };
+            let removed = lock_repo::delete_expired_entity_in_namespace_before(
+                txn,
+                id,
+                entity_type,
+                entity_id,
+                cutoff,
+            )
+            .await?;
+            if removed != 0 {
+                lock_namespace_repo::increment_generation(txn, namespace).await?;
+            }
+            Ok::<_, crate::errors::AsterError>(())
+        })
+        .await?;
+    }
+    Ok(())
+}
 
 /// Remove expired locks in short namespace-serialized transactions.
 pub async fn cleanup_expired(state: &impl SharedRuntimeState) -> Result<u64> {

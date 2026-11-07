@@ -124,6 +124,21 @@ pub(super) async fn prepare_store_from_temp(
             .to_string()
     });
 
+    if existing_file_id.is_some() {
+        crate::services::workspace::storage::ensure_blob_write_admission(
+            &state.policy_snapshot,
+            &BlobPolicyRequest {
+                scope,
+                folder_id,
+                folder_hint: None,
+                filename: &filename,
+                file_size: size,
+                mime_type: &mime_type,
+                existing_file_id,
+            },
+        )?;
+    }
+
     let policy = match resolved_policy {
         Some(policy) => policy,
         None => {

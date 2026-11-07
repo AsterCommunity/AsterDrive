@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createMeResponse } from "@/test/fixtures";
 import { ApiErrorCode } from "@/types/api-helpers";
 
 const mockState = vi.hoisted(() => ({
@@ -449,6 +450,53 @@ describe("useAuthStore edge cases", () => {
 
 		expect(mockState.warn).toHaveBeenCalledWith("refreshUser failed", failure);
 	});
+
+	it.each([false, true])(
+		"does not install a previous account's late current-user response after logout (new login: %s)",
+		async (newLogin) => {
+			const previous = createMeResponse({
+				id: 11,
+				username: "previous-user",
+				email: "previous-private@example.com",
+			});
+			const current = createMeResponse({
+				id: 22,
+				username: "current-user",
+				email: "current@example.com",
+			});
+			let finishPrevious!: (value: typeof previous) => void;
+			mockState.me.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						finishPrevious = resolve;
+					}),
+			);
+			mockState.logout.mockResolvedValue(undefined);
+			const { useAuthStore } = await loadStore();
+			useAuthStore.setState({ user: previous, isAuthenticated: true });
+			const staleRequest = useAuthStore.getState().refreshUser();
+			expect(mockState.me).toHaveBeenCalledTimes(1);
+			await useAuthStore.getState().logout();
+
+			if (newLogin) {
+				mockState.login.mockResolvedValue({
+					status: "authenticated",
+					expiresIn: 900,
+				});
+				mockState.me.mockResolvedValueOnce(current);
+				await useAuthStore.getState().login("current-user", "secret");
+			}
+			finishPrevious(previous);
+			await staleRequest;
+
+			expect(useAuthStore.getState().user).toEqual(newLogin ? current : null);
+			expect(useAuthStore.getState().isAuthenticated).toBe(newLogin);
+			expect(localStorage.getItem("aster-cached-user") ?? "").not.toContain(
+				"previous",
+			);
+			useAuthStore.getState().stopAutoRefresh();
+		},
+	);
 
 	it("does not refresh an already fresh session", async () => {
 		const { SESSION_REFRESH_THRESHOLD_MS, useAuthStore } = await loadStore();

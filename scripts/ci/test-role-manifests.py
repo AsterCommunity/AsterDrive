@@ -4,6 +4,7 @@
 Requires PyYAML 6.0.3, Helm and kubectl. Does not contact a Kubernetes cluster.
 """
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -41,6 +42,45 @@ def check_split(test, docs):
 
 
 class RoleManifests(unittest.TestCase):
+    def test_managed_environment_aliases_are_rejected_before_rendering(self):
+        for key in [
+            "ASTER__AUTH.JWT_SECRET",
+            "aster__auth__jwt_secret",
+            "ASTER__Auth.Jwt_Secret",
+            "ASTER__deployment.profile",
+            "ASTER__SERVER.START_MODE",
+            "ASTER__CACHE.ENDPOINT.PASSWORD",
+        ]:
+            for source in ["config.extra", "extraEnv"]:
+                with self.subTest(key=key, source=source), tempfile.NamedTemporaryFile(mode="w", suffix=".yaml") as values:
+                    data = {"config": {"extra": {key: "attacker"}}} if source == "config.extra" else {"extraEnv": [{"name": key, "value": "attacker"}]}
+                    yaml.safe_dump(data, values)
+                    values.flush()
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        helm("-f", values.name)
+
+    def test_supplemental_envfrom_keeps_explicit_managed_sources(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml") as values:
+            yaml.safe_dump({"extraEnvFrom": [{"configMapRef": {"name": "supplemental"}}]}, values)
+            values.flush()
+            workloads = [doc for doc in helm("-f", values.name) if doc["kind"] == "StatefulSet"]
+        container = workloads[0]["spec"]["template"]["spec"]["containers"][0]
+        self.assertIn({"configMapRef": {"name": "supplemental"}}, container["envFrom"])
+        jwt = next(entry for entry in container["env"] if entry["name"] == "ASTER__AUTH__JWT_SECRET")
+        self.assertEqual(jwt["valueFrom"]["secretKeyRef"]["key"], "ASTER__AUTH__JWT_SECRET")
+        # Unknown imported keys cannot be inspected by Helm; loader collision
+        # rejection tests cover their resolved process environment before startup.
+
+    def test_nonmanaged_supplemental_configuration_is_preserved(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml") as values:
+            yaml.safe_dump({"config": {"extra": {"ASTER__LOGGING.LEVEL": "info"}}, "extraEnv": [{"name": "ASTER__AUTH__PASSWORD_HASH_MAX_CONCURRENCY", "value": "2"}]}, values)
+            values.flush()
+            docs = helm("-f", values.name)
+        config = next(doc for doc in docs if doc["kind"] == "ConfigMap")
+        self.assertEqual(config["data"]["ASTER__LOGGING.LEVEL"], "info")
+        workload = next(doc for doc in docs if doc["kind"] == "StatefulSet")
+        self.assertIn({"name": "ASTER__AUTH__PASSWORD_HASH_MAX_CONCURRENCY", "value": "2"}, workload["spec"]["template"]["spec"]["containers"][0]["env"])
+
     def test_default_remains_all_in_one(self):
         docs = helm()
         workloads = [doc for doc in docs if doc["kind"] == "StatefulSet"]

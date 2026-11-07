@@ -48,8 +48,20 @@ pub(crate) async fn stream_request_body_to_temp_upload(
     payload: &mut Payload,
     resolved_policy_hint: Option<aster_drive_model::entities::storage_policy::Model>,
     declared_size: Option<i64>,
+    maximum_size: i64,
     source: aster_drive_metrics::TransferSource,
 ) -> Result<StreamedTempUpload> {
+    let maximum_size = resolved_policy_hint
+        .as_ref()
+        .filter(|policy| policy.max_file_size > 0)
+        .map_or(maximum_size, |policy| {
+            maximum_size.min(policy.max_file_size)
+        });
+    if declared_size.is_some_and(|size| size > maximum_size) {
+        return Err(AsterError::file_too_large(format!(
+            "file size exceeds limit {maximum_size}"
+        )));
+    }
     let local_projection = resolved_policy_hint
         .as_ref()
         .map(|policy| {
@@ -114,14 +126,7 @@ pub(crate) async fn stream_request_body_to_temp_upload(
                 )
             })?;
             transfer.bytes(chunk.len() as u64);
-            if let Some(hasher) = hasher.as_mut() {
-                hasher.update(&chunk);
-            }
-            temp_file
-                .write_all(&chunk)
-                .await
-                .map_aster_err_ctx("write temp", upload_temp_file_write_failed)?;
-            size = size
+            let projected = size
                 .checked_add(usize_to_i64(chunk.len(), "request body chunk length")?)
                 .ok_or_else(|| {
                     file_upload_error_with_code(
@@ -129,6 +134,19 @@ pub(crate) async fn stream_request_body_to_temp_upload(
                         "accumulated request body size overflows i64",
                     )
                 })?;
+            if projected > maximum_size {
+                return Err(AsterError::file_too_large(format!(
+                    "file size exceeds limit {maximum_size}"
+                )));
+            }
+            if let Some(hasher) = hasher.as_mut() {
+                hasher.update(&chunk);
+            }
+            temp_file
+                .write_all(&chunk)
+                .await
+                .map_aster_err_ctx("write temp", upload_temp_file_write_failed)?;
+            size = projected;
         }
         temp_file
             .flush()
@@ -461,6 +479,18 @@ pub(crate) async fn update_content_stream_in_scope(
         payload,
         resolved_policy_hint,
         declared_size,
+        storage::ensure_blob_write_admission(
+            &state.policy_snapshot,
+            &storage::BlobPolicyRequest {
+                scope,
+                folder_id: f.folder_id,
+                folder_hint: None,
+                filename: &f.name,
+                file_size: declared_size.unwrap_or(0),
+                mime_type: &f.mime_type,
+                existing_file_id: Some(f.id),
+            },
+        )?,
         transfer_source,
     )
     .await?;

@@ -66,8 +66,13 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 {{- end }}
 
+{{/* Match config::Environment's case folding and __ / dotted path equivalence. */}}
+{{- define "asterdrive.canonicalEnvKey" -}}
+{{- replace "." "__" (upper .) -}}
+{{- end }}
+
 {{- define "asterdrive.isSensitiveEnvKey" -}}
-{{- $key := upper . -}}
+{{- $key := include "asterdrive.canonicalEnvKey" . -}}
 {{- $sensitiveKeys := list
   "ASTER__DEPLOYMENT__INTERNAL_PROXY_SECRET"
   "ASTER__AUTH__JWT_SECRET"
@@ -134,7 +139,7 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- range $key, $_ := .Values.config.extra }}
 {{- if eq (include "asterdrive.isSensitiveEnvKey" $key) "true" }}
 {{- fail (printf "config.extra must not contain sensitive key %s; provide it through existingSecret" $key) }}
-{{- else if has (upper $key) $chartManagedEnvKeys }}
+{{- else if has (include "asterdrive.canonicalEnvKey" $key) $chartManagedEnvKeys }}
 {{- fail (printf "config.extra must not override chart-managed key %s" $key) }}
 {{- end }}
 {{- end }}
@@ -142,7 +147,7 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- $name := get $entry "name" | default "" }}
 {{- if eq (include "asterdrive.isSensitiveEnvKey" $name) "true" }}
 {{- fail (printf "extraEnv must not define sensitive key %s; provide it through existingSecret" $name) }}
-{{- else if has (upper $name) $chartManagedEnvKeys }}
+{{- else if has (include "asterdrive.canonicalEnvKey" $name) $chartManagedEnvKeys }}
 {{- fail (printf "extraEnv must not override chart-managed key %s" $name) }}
 {{- end }}
 {{- end }}

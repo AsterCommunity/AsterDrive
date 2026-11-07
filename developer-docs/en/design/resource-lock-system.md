@@ -139,6 +139,8 @@ Token/id release may perform an unlocked snapshot read to locate the namespace. 
 
 Expiration cleanup groups candidates by namespace, rechecks expiration inside a short writer transaction, increments generation only when rows were actually removed, and reports the actual affected-row count.
 
+WOPI expiry uses this conditional cleanup as well: a stale read cannot force-unlock a lock renewed before namespace serialization. Administrator force-unlock remains an explicit, separate operation.
+
 Resource mutations use a transaction-aware evaluator:
 
 ```rust

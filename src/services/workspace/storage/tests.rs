@@ -2178,6 +2178,7 @@ async fn slow_nondedup_preupload_does_not_block_task_listing() {
 #[tokio::test]
 async fn conditional_overwrite_rejects_file_changed_while_body_is_staged() {
     let (state, temp_root, policy, user) = build_test_state().await;
+    let policy = replace_test_policy(&state, &policy, policy.clone()).await;
     let scope = WorkspaceStorageScope::Personal { user_id: user.id };
 
     let initial_temp = temp_root.join("conditional-existing-initial.bin");
@@ -2655,6 +2656,7 @@ async fn conditional_team_create_rejects_file_appearing_while_body_is_staged() {
 #[tokio::test]
 async fn missing_precondition_rejects_overwrite_context() {
     let (state, temp_root, policy, user) = build_test_state().await;
+    let policy = replace_test_policy(&state, &policy, policy.clone()).await;
     let scope = WorkspaceStorageScope::Personal { user_id: user.id };
     let initial_temp = temp_root.join("missing-overwrite-initial.bin");
     let payload = b"initial missing overwrite payload";

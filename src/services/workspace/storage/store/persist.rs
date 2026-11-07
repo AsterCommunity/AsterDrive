@@ -121,8 +121,8 @@ async fn publish_temp_store(
         folder_id,
         filename,
         temp_path: _,
-        size: _,
-        existing_file_id: _,
+        size,
+        existing_file_id,
         policy: _,
         driver,
         blob_plan: _,
@@ -157,6 +157,7 @@ async fn publish_temp_store(
     let transaction_revision_etag = revision_etag;
     let transaction_complete_upload_id = complete_upload_id;
     let transaction_now = now;
+    let transaction_policy_snapshot = state.policy_snapshot.clone();
     let create_result = aster_forge_db::transaction::with_transaction_retry(
         state.writer_db(),
         &aster_forge_db::retry::RetryConfig::deadlock(),
@@ -175,6 +176,7 @@ async fn publish_temp_store(
             let revision_etag = transaction_revision_etag.clone();
             let complete_upload_id = transaction_complete_upload_id.clone();
             let now = transaction_now;
+            let policy_snapshot = transaction_policy_snapshot.clone();
             let publication = task_publication.clone();
             Box::pin(async move {
                 // 每次重试重新授权，绝不把第一次事务的授权证明带进重试事务。
@@ -185,6 +187,20 @@ async fn publish_temp_store(
                     &access_constraints,
                 )
                 .await?;
+                if existing_file_id.is_some() {
+                    crate::services::workspace::storage::ensure_blob_write_admission(
+                        &policy_snapshot,
+                        &crate::services::workspace::storage::BlobPolicyRequest {
+                            scope,
+                            folder_id,
+                            folder_hint: None,
+                            filename: &filename,
+                            file_size: size,
+                            mime_type: &mime,
+                            existing_file_id,
+                        },
+                    )?;
+                }
                 if let Some(publication) = &publication {
                     publication.lock_owner(txn).await?;
                     if let Some(file) = publication.find_file(txn).await? {

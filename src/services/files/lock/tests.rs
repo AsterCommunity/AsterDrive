@@ -583,6 +583,89 @@ async fn expired_cleanup_is_idempotent_and_empty_database_needs_no_namespace() {
 }
 
 #[tokio::test]
+async fn expiry_cleanup_rechecks_a_lock_renewed_after_the_candidate_snapshot() {
+    let fixture = build_lock_test_fixture_with_pool_size(4).await;
+    let acquired = lock(
+        &fixture.state,
+        EntityType::File,
+        fixture.file.id,
+        Some(fixture.user.id),
+        None,
+        Some(Duration::minutes(5)),
+    )
+    .await
+    .unwrap();
+    let cutoff = Utc::now();
+    let mut expired: resource_lock::ActiveModel = acquired.clone().into();
+    expired.timeout_at = Set(Some(cutoff - Duration::seconds(1)));
+    let snapshot = expired.update(fixture.state.writer_db()).await.unwrap();
+
+    // The old GET_LOCK expiry projection has already been selected. The real
+    // holder renews successfully before cleanup obtains the namespace lock.
+    let renewed = refresh_by_token_on(
+        fixture.state.writer_db(),
+        &acquired.token,
+        Some(cutoff + Duration::minutes(10)),
+    )
+    .await
+    .unwrap();
+    let generation =
+        namespace_generation(&fixture, LockWorkspaceType::Personal, fixture.user.id).await;
+    super::cleanup::cleanup_expired_entity_namespaces(
+        &fixture.state,
+        EntityType::File,
+        fixture.file.id,
+        cutoff,
+        [snapshot.namespace_id].into_iter().collect(),
+    )
+    .await
+    .unwrap();
+    let current = lock_repo::find_by_token(fixture.state.writer_db(), &renewed.token)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(current.timeout_at, renewed.timeout_at);
+    assert_eq!(
+        namespace_generation(&fixture, LockWorkspaceType::Personal, fixture.user.id).await,
+        generation
+    );
+}
+
+#[tokio::test]
+async fn active_entity_lock_projection_stays_one_query() {
+    let mut fixture = build_lock_test_fixture().await;
+    lock(
+        &fixture.state,
+        EntityType::File,
+        fixture.file.id,
+        Some(fixture.user.id),
+        None,
+        Some(Duration::minutes(5)),
+    )
+    .await
+    .unwrap();
+    let queries = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let observed = queries.clone();
+    let mut db = fixture.state.writer_db().clone();
+    db.set_metric_callback(move |info| observed.lock().unwrap().push(info.statement.sql.clone()));
+    fixture.state.db_handles = aster_forge_db::DbHandles::single(db);
+    let current = super::cleanup::load_after_expiry_cleanup(
+        &fixture.state,
+        EntityType::File,
+        fixture.file.id,
+        Utc::now(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(current.len(), 1);
+    assert_eq!(
+        queries.lock().unwrap().len(),
+        1,
+        "normal WOPI lock projection must not add per-lock queries or transactions"
+    );
+}
+
+#[tokio::test]
 async fn holder_cleanup_advances_generation_for_surviving_namespace() {
     let fixture = build_lock_test_fixture().await;
     let target = LockTarget {

@@ -84,7 +84,7 @@ impl OfflineDownloadEngine for BuiltinHttpOfflineDownloadEngine {
         let response_filename = response_filename(response.headers());
         let final_url = response.url().clone();
         let mut stream = response.bytes_stream();
-        let mut file = tokio::fs::File::create(&request.temp_path)
+        let mut file = super::staging::create_source(&request.temp_path)
             .await
             .map_aster_err_ctx(
                 "create offline download temp file",

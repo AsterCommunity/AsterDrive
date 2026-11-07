@@ -13,7 +13,7 @@ pub(in crate::cli::commands::doctor) async fn doctor_storage_usage_check(
     let mut fixed = 0usize;
 
     if fix && detected > 0 {
-        fixed = integrity::fix_storage_usage_all(db).await?;
+        fixed = integrity::repair_storage_usage(db).await?;
         drifts = integrity::audit_storage_usage_with_limit(db, SAMPLE_LIMIT).await?;
     }
 

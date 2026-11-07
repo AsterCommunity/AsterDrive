@@ -356,7 +356,7 @@ jobs:
             echo '  --signature checksums.txt.sig \'
             echo '  --certificate checksums.txt.pem \'
             echo '  --certificate-oidc-issuer https://token.actions.githubusercontent.com \'
-            echo "  --certificate-identity-regexp 'github.com/AsterCommunity/AsterDrive'"
+            printf '  --certificate-identity %q\n' "https://github.com/${GITHUB_WORKFLOW_REF}"
             echo ""
             echo "# Verify archive integrity"
             echo "sha256sum -c checksums.txt"

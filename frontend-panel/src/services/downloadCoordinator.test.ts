@@ -269,6 +269,60 @@ describe("downloadCoordinator", () => {
 		expect(mocks.resolveResourceHandle).not.toHaveBeenCalled();
 	});
 
+	it("account cleanup clears completed and failed history and aborts active transfer without late resurrection", async () => {
+		mocks.resolveResourceHandle.mockResolvedValue({
+			request: {
+				url: "https://objects.example.test/private",
+				credentials: "omit",
+			},
+		});
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response(responseBody(["complete"]), { status: 200 }),
+			)
+			.mockResolvedValueOnce(new Response("failed", { status: 503 }));
+		let activeSignal!: AbortSignal;
+		let rejectActive!: (reason: Error) => void;
+		fetchMock.mockImplementationOnce((_url, options: RequestInit) => {
+			activeSignal = options.signal as AbortSignal;
+			return new Promise((_resolve, reject) => {
+				rejectActive = reject;
+			});
+		});
+		vi.stubGlobal("fetch", fetchMock);
+		await startProxyFileDownload(
+			{ kind: "personal" },
+			{ id: 1, name: "completed-private.txt" },
+		);
+		await startProxyFileDownload(
+			{ kind: "personal" },
+			{ id: 2, name: "failed-private.txt" },
+		);
+		expect(
+			useDownloadStore.getState().tasks.map((task) => task.status),
+		).toEqual(["failed", "completed"]);
+		useDownloadStore.getState().requestSelection(selection());
+		const active = startProxyFileDownload(
+			{ kind: "personal" },
+			{ id: 3, name: "active-private.txt" },
+		);
+		await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+		const taskIds = useDownloadStore.getState().tasks.map((task) => task.id);
+
+		clearAccountDownloads();
+		expect(activeSignal.aborted).toBe(true);
+		expect(useDownloadStore.getState()).toMatchObject({
+			tasks: [],
+			pendingSelection: null,
+		});
+		rejectActive(new DOMException("account changed", "AbortError"));
+		await active;
+		for (const id of taskIds) retryDownloadTask(id);
+		expect(fetchMock).toHaveBeenCalledTimes(3);
+		expect(useDownloadStore.getState().tasks).toEqual([]);
+	});
+
 	it("saves a CDN Blob download under the current file name without response overrides", async () => {
 		const cdnUrl =
 			"https://cdn.example.test/Tenant/objects/resource.bin?auth_key=test-token";

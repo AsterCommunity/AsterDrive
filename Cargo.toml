@@ -311,6 +311,9 @@ lofty = "0.25.5"
 inquire = { version = "0.9.4", default-features = false, features = ["crossterm", "fuzzy"], optional = true }
 clap_complete = "4.6.11"
 
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", features = ["fs", "process"] }
+
 [dev-dependencies]
 jsonwebtoken = { version = "11", features = ["aws_lc_rs"] }
 aes-gcm = "0.11"

@@ -30,7 +30,7 @@ pub(crate) use crate::services::workspace::scope::{
 pub(crate) use crate::services::workspace::storage_core::{
     BlobPolicyRequest, CreateFileFromBlobParams, FinalizeUploadSessionFileParams, NewFileNameMode,
     ParsedUploadPath, VerifiedFolderPolicyHint, check_quota, create_file_from_blob,
-    create_nondedup_blob_with_key, create_opaque_nondedup_blob,
+    create_nondedup_blob_with_key, create_opaque_nondedup_blob, ensure_blob_write_admission,
     ensure_policy_available_for_folder_binding, ensure_upload_parent_path_on,
     ensure_upload_parent_path_with_created, finalize_upload_session_blob_with_actor_username,
     finalize_upload_session_file, load_storage_limits, local_content_dedup_enabled,

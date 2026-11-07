@@ -19,12 +19,16 @@ The UI usually says "link import", while config keys and task types say `offline
 AsterDrive applies basic protections before dispatching a task:
 
 - Only HTTP/HTTPS URLs are accepted
-- HTTP redirects are not followed; if the source responds with a redirect, use the final real download URL instead
+- The built-in engine does not follow HTTP redirects; if the source responds with a redirect, use the final real download URL instead
 - Hosts resolving to loopback, private networks, link-local, multicast, documentation-reserved ranges, or cloud metadata addresses are rejected
 - The built-in downloader streams to a temp file and never reads the whole file into memory first
 - SHA-256 verification and workspace import happen only after the download completes
 
-With aria2 enabled, AsterDrive still performs these URL checks itself, but actual DNS resolution and outbound connections are made by the aria2 daemon. In production, isolate aria2 at the network layer and restrict the JSON-RPC endpoint to AsterDrive only.
+With aria2 enabled, AsterDrive checks the initial URL and resolved addresses, but the daemon owns actual DNS resolution, redirects and outbound connections. This does not pin its connection addresses. By product decision, AsterDrive does not replace aria2's network mechanism or add a built-in egress proxy; deployments own aria2 network isolation and must restrict its JSON-RPC endpoint to AsterDrive.
+
+AsterDrive owns staging. Every engine attempt uses a fresh directory without a world-writable fallback. Same-UID deployments use private mode `0700`. Different-UID aria2 must share an explicitly trusted GID with AsterDrive; provision `offline_download_temp_dir` as a service-owned group-rwx, non-world-writable root, such as mode `2770`. ACLs may supplement that shared-group boundary. Both services still need the same absolute paths on the shared filesystem.
+
+Completion verifies a regular, single-linked output without following symbolic links, then atomically moves the same inode into private import staging on the same filesystem before hashing/import. It performs no additional whole-file copy. The engine and explicitly authorized group members remain trusted service identities.
 
 ## Engine Registry
 

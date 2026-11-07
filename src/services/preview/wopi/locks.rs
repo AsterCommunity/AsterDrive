@@ -3,7 +3,6 @@
 use chrono::{Duration, Utc};
 
 use crate::config::wopi;
-use crate::db::repository::lock_repo;
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
@@ -377,12 +376,7 @@ pub(crate) async fn load_active_lock(
     let mut active_locks = Vec::new();
     let now = Utc::now();
 
-    for lock in lock_repo::find_all_by_entity(state.writer_db(), EntityType::File, file_id).await? {
-        if lock.timeout_at.is_some_and(|timeout_at| timeout_at < now) {
-            lock::force_unlock(state, lock.id).await?;
-            continue;
-        }
-
+    for lock in lock::load_after_expiry_cleanup(state, EntityType::File, file_id, now).await? {
         active_locks.push(ActiveWopiLock {
             payload: parse_wopi_lock_payload(&lock)?,
             lock,

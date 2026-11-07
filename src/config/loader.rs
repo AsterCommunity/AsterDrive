@@ -6,6 +6,7 @@ use super::paths::{
 use super::schema::Config;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use config::{Config as RawConfig, Environment, File, FileFormat};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use toml_edit::{DocumentMut, Item, Table, value};
 
@@ -96,6 +97,39 @@ fn map_static_config_error(error: config::ConfigError) -> AsterError {
     }
 }
 
+/// config::Environment folds case and replaces `__` with `.` before merging.
+/// Reject colliding spellings instead of allowing process-environment iteration
+/// order to choose authentication or deployment authority. Values are never read.
+fn validate_environment_key_collisions(keys: impl IntoIterator<Item = String>) -> Result<()> {
+    let mut seen = HashSet::new();
+    for key in keys {
+        let folded = key.to_lowercase();
+        let Some(key) = folded.strip_prefix("aster__") else {
+            continue;
+        };
+        let key = key.replace("__", ".");
+        if !seen.insert(key.clone()) {
+            let diagnostic_key = key
+                .chars()
+                .take(96)
+                .filter(|character| {
+                    character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-')
+                })
+                .collect::<String>();
+            return Err(AsterError::config_error(format!(
+                "multiple environment variables normalize to configuration key '{diagnostic_key}' (values redacted)"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_process_environment_keys() -> Result<()> {
+    validate_environment_key_collisions(
+        std::env::vars_os().filter_map(|(key, _)| key.into_string().ok()),
+    )
+}
+
 pub fn load() -> Result<LoadedConfig> {
     let base_dir = std::env::current_dir()
         .map_aster_err_ctx("failed to resolve current dir", AsterError::config_error)?;
@@ -114,6 +148,9 @@ fn load_from_path(
     env_database_url: Option<&str>,
     include_env: bool,
 ) -> Result<LoadedConfig> {
+    if include_env {
+        validate_process_environment_keys()?;
+    }
     let default_created = ensure_default_config_exists(config_path, &Config::default())?;
     let stable_defaults_config = ensure_stable_default_config_keys(config_path, None)?;
     let stable_defaults_added = stable_defaults_config.is_some();
@@ -163,6 +200,9 @@ fn load_read_only_from_path(
     config_path: &Path,
     include_env: bool,
 ) -> Result<Config> {
+    if include_env {
+        validate_process_environment_keys()?;
+    }
     let mut builder = RawConfig::builder().add_source(File::from(config_path).required(false));
     if include_env {
         builder = builder.add_source(
@@ -400,7 +440,10 @@ impl ConfigLocation {
 
 #[cfg(test)]
 mod tests {
-    use super::{ensure_default_config_exists, load_from_path, load_read_only_from_path};
+    use super::{
+        ensure_default_config_exists, load_from_path, load_read_only_from_path,
+        validate_environment_key_collisions,
+    };
     use crate::config::paths::{
         DEFAULT_CONFIG_PATH, DEFAULT_SQLITE_DATABASE_PATH, DEFAULT_SQLITE_DATABASE_URL,
         DEFAULT_TEMP_DIR, DEFAULT_UPLOAD_TEMP_DIR,
@@ -461,6 +504,86 @@ mod tests {
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+
+    #[test]
+    fn environment_paths_follow_parser_case_and_dot_normalization() {
+        for alias in [
+            "aster__auth__jwt_secret",
+            "ASTER__AUTH.JWT_SECRET",
+            "AsTeR__AuTh.Jwt_SeCrEt",
+        ] {
+            let source = config::Environment::with_prefix("ASTER")
+                .separator("__")
+                .source(Some(
+                    [(alias.to_string(), "alias-value".to_string())]
+                        .into_iter()
+                        .collect(),
+                ));
+            let parsed = config::Config::builder()
+                .add_source(source)
+                .build()
+                .unwrap();
+            assert_eq!(parsed.get_string("auth.jwt_secret").unwrap(), "alias-value");
+            let error = validate_environment_key_collisions([
+                "ASTER__AUTH__JWT_SECRET".into(),
+                alias.into(),
+            ])
+            .unwrap_err();
+            assert!(error.to_string().contains("auth.jwt_secret"));
+        }
+        validate_environment_key_collisions([
+            "ASTER__AUTH__JWT_SECRET".into(),
+            "ASTER__SERVER__PORT".into(),
+            "UNRELATED_ENVIRONMENT".into(),
+            "ASTER_CONFIG_FILE".into(),
+        ])
+        .unwrap();
+    }
+
+    #[test]
+    fn conflicting_environment_aliases_fail_closed_before_config_writes() {
+        if !is_isolated_environment_child() {
+            for alias in [
+                "aster__auth__jwt_secret",
+                "ASTER__AUTH.JWT_SECRET",
+                "AsTeR__AuTh.Jwt_SeCrEt",
+            ] {
+                if cfg!(windows) && alias.eq_ignore_ascii_case("ASTER__AUTH__JWT_SECRET") {
+                    // Windows already collapses case-only environment names.
+                    continue;
+                }
+                run_in_isolated_environment(
+                    "config::loader::tests::conflicting_environment_aliases_fail_closed_before_config_writes",
+                    &AUTH_SECRET_ENV_NAMES,
+                    &[
+                        (
+                            "ASTER__AUTH__JWT_SECRET",
+                            "canonical-secret-0123456789-0123456789",
+                        ),
+                        (alias, "attacker-secret-0123456789-0123456789"),
+                    ],
+                );
+            }
+            return;
+        }
+        let dir = make_temp_dir("conflicting-env-alias");
+        let path = dir.join(DEFAULT_CONFIG_PATH);
+        for result in [
+            load_from_path(&dir, &path, None, true).map(|loaded| loaded.config),
+            load_read_only_from_path(&dir, &path, true),
+        ] {
+            let error = result.unwrap_err().to_string();
+            assert!(error.contains("multiple environment variables normalize"));
+            assert!(error.contains("auth.jwt_secret"));
+            assert!(!error.contains("canonical-secret"));
+            assert!(!error.contains("attacker-secret"));
+        }
+        assert!(
+            !path.exists(),
+            "rejected environment must not persist generated credentials"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

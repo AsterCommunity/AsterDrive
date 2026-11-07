@@ -1522,7 +1522,7 @@ async fn test_integrity_fix_repairs_storage_usage_and_blob_ref_counts() {
         .await
         .unwrap();
     assert_eq!(usage_drifts.len(), 1);
-    integrity::fix_storage_usage_drifts(state.writer_db(), &usage_drifts)
+    integrity::repair_storage_usage(state.writer_db())
         .await
         .unwrap();
     assert!(
@@ -1544,6 +1544,197 @@ async fn test_integrity_fix_repairs_storage_usage_and_blob_ref_counts() {
             .await
             .unwrap()
             .is_empty()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn quota_repair_recounts_after_a_concurrent_upload_commits() {
+    use aster_drive::db::repository::user_repo;
+    use aster_drive::services::ops::integrity;
+    use std::sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    let state = common::setup_with_pool_size(4).await;
+    if state.writer_db().get_database_backend() == sea_orm::DbBackend::Sqlite {
+        eprintln!(
+            "concurrent quota interleaving requires PostgreSQL/MySQL; SQLite has one writer connection"
+        );
+        return;
+    }
+    let user =
+        common::create_test_account(&state, "quotarace", "quotarace@example.com", "pass1234")
+            .await
+            .unwrap();
+    store_test_file(&state, user.id, "first.txt", b"first").await;
+    user_repo::set_storage_used(state.writer_db(), user.id, 0)
+        .await
+        .unwrap();
+    let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+    let entered_tx = Arc::new(Mutex::new(Some(entered_tx)));
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let release_rx = Arc::new(Mutex::new(release_rx));
+    let paused = Arc::new(AtomicBool::new(false));
+    let gate = paused.clone();
+    let mut db = state.writer_db().clone();
+    db.set_metric_callback(move |info| {
+        let sql = info.statement.sql.to_ascii_lowercase();
+        if sql.contains("sum(")
+            && sql.contains("files")
+            && !sql.contains("file_revisions")
+            && !gate.swap(true, Ordering::SeqCst)
+        {
+            entered_tx.lock().unwrap().take().unwrap().send(()).unwrap();
+            release_rx
+                .lock()
+                .unwrap()
+                .recv_timeout(std::time::Duration::from_secs(20))
+                .unwrap();
+        }
+    });
+    // Keep the synchronous metric gate off the runtime's worker threads. The
+    // observed connection is private to repair; uploads use the unobserved clone.
+    let handle = tokio::runtime::Handle::current();
+    let repair = std::thread::spawn(move || {
+        handle.block_on(async move { integrity::repair_storage_usage(&db).await })
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(20), entered_rx)
+        .await
+        .unwrap()
+        .unwrap();
+    let upload = store_test_file(&state, user.id, "later.txt", b"later upload").await;
+    release_tx.send(()).unwrap();
+    assert!(repair.join().unwrap().is_ok());
+    assert!(paused.load(Ordering::SeqCst));
+    assert_eq!(upload.size, 12);
+    assert_eq!(
+        user_repo::find_by_id(state.writer_db(), user.id)
+            .await
+            .unwrap()
+            .storage_used,
+        17,
+        "reconciliation must lock then recount current files, not replace a charge with a pre-lock total"
+    );
+    assert!(
+        integrity::audit_storage_usage(state.writer_db())
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn healthy_quota_repair_keeps_query_count_constant_with_more_owners() {
+    use aster_drive::services::ops::integrity;
+    use aster_drive_model::{
+        entities::user,
+        types::{UserRole, UserStatus},
+    };
+    use std::sync::{Arc, Mutex};
+    let mut count = None;
+    for owners in [1, 64] {
+        let state = common::setup().await;
+        for i in 0..owners {
+            user::ActiveModel {
+                username: Set(format!("healthy-{i}")),
+                email: Set(format!("healthy-{i}@example.com")),
+                password_hash: Set("unused".into()),
+                role: Set(UserRole::User),
+                status: Set(UserStatus::Active),
+                storage_used: Set(0),
+                storage_quota: Set(0),
+                created_at: Set(Utc::now()),
+                updated_at: Set(Utc::now()),
+                ..Default::default()
+            }
+            .insert(state.writer_db())
+            .await
+            .unwrap();
+        }
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let queries = observed.clone();
+        let mut db = state.writer_db().clone();
+        db.set_metric_callback(move |info| {
+            queries.lock().unwrap().push(info.statement.sql.clone())
+        });
+        assert_eq!(integrity::repair_storage_usage(&db).await.unwrap(), 0);
+        let queries = observed.lock().unwrap();
+        assert!(queries.iter().all(|sql| !sql.starts_with("UPDATE")));
+        match count {
+            Some(previous) => assert_eq!(
+                queries.len(),
+                previous,
+                "healthy pages must not run one recount per owner"
+            ),
+            None => count = Some(queries.len()),
+        }
+        eprintln!("healthy_quota_owners={owners} queries={}", queries.len());
+    }
+}
+
+#[tokio::test]
+async fn quota_repair_reconciles_team_and_personal_owners_even_above_quota() {
+    use aster_drive::db::repository::{file_repo, team_repo, user_repo};
+    use aster_drive::services::{ops::integrity, workspace::team};
+
+    let state = common::setup().await;
+    let user =
+        common::create_test_account(&state, "quotateam", "quotateam@example.com", "pass1234")
+            .await
+            .unwrap();
+    let team = team::create_team(
+        &state,
+        user.id,
+        team::CreateTeamInput {
+            name: "Quota repair team".into(),
+            description: None,
+        },
+    )
+    .await
+    .unwrap();
+    let stored = store_test_file(&state, user.id, "team.txt", b"team contents").await;
+    // Simulate an owner migration whose counters were left out of sync.
+    let mut file = file_repo::find_by_id(state.writer_db(), stored.id)
+        .await
+        .unwrap()
+        .into_active_model();
+    file.owner_user_id = Set(None);
+    file.team_id = Set(Some(team.id));
+    file.update(state.writer_db()).await.unwrap();
+    let mut active = team_repo::find_by_id(state.writer_db(), team.id)
+        .await
+        .unwrap()
+        .into_active_model();
+    active.storage_quota = Set(1);
+    active.storage_used = Set(99);
+    let team = active.update(state.writer_db()).await.unwrap();
+
+    assert_eq!(
+        integrity::repair_storage_usage(state.writer_db())
+            .await
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        team_repo::find_by_id(state.writer_db(), team.id)
+            .await
+            .unwrap()
+            .storage_used,
+        13
+    );
+    assert_eq!(
+        user_repo::find_by_id(state.writer_db(), user.id)
+            .await
+            .unwrap()
+            .storage_used,
+        0
+    );
+    assert_eq!(
+        integrity::repair_storage_usage(state.writer_db())
+            .await
+            .unwrap(),
+        0
     );
 }
 

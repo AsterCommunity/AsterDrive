@@ -40,6 +40,7 @@ mod engine;
 mod naming;
 mod runtime;
 mod source;
+mod staging;
 mod transfer;
 
 pub(crate) use aria2::{ProbeAria2RpcInput, probe_aria2_rpc};
@@ -259,7 +260,7 @@ pub(super) async fn process_offline_download_task(
                 .as_ref()
                 .map(|value| value.as_ref().to_string()),
         };
-        let downloaded = download_with_enabled_engines(
+        let mut downloaded = download_with_enabled_engines(
             state,
             &context,
             &mut steps,
@@ -329,7 +330,7 @@ pub(super) async fn process_offline_download_task(
                 scope,
                 payload.target_folder_id,
                 &filename,
-                &temp_path.to_string_lossy(),
+                &downloaded.source_path()?.to_string_lossy(),
                 downloaded.bytes_written,
             ),
             storage::StoreFromTempHints {
@@ -349,6 +350,8 @@ pub(super) async fn process_offline_download_task(
             true,
         )
         .await?;
+        // Keep result metadata, but close the sealed source before directory cleanup (Windows).
+        drop(downloaded.source.take());
         cleanup_task_temp_dir_for_lease(&scratch_roots, lease_guard.lease()).await?;
         set_task_step_succeeded(
             &mut steps,

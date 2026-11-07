@@ -71,3 +71,6 @@ jobs:
 
       - name: Validate Docker release channel metadata
         run: node scripts/github/test-docker-image-tags.mjs
+
+      - name: Validate release certificate identity instructions
+        run: node scripts/github/test-release-verification.mjs

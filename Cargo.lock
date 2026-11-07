@@ -815,6 +815,7 @@ dependencies = [
  "russh",
  "russh-sftp",
  "rust-embed",
+ "rustix",
  "sea-orm",
  "secrecy",
  "serde",

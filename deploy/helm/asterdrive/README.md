@@ -31,6 +31,7 @@ helm upgrade --install asterdrive deploy/helm/asterdrive \
 - `/data` 与 `/tmp` 是 Pod 本地 `emptyDir`；`/data/avatar` 必须使用 Chart 创建或外部提供的 RWX PVC，`avatarPersistence.enabled=false` 会在模板校验阶段被拒绝。
 - `networkPolicy.enabled=false`，因为 Chart 不知道实际 Ingress Namespace。启用后始终允许 AsterDrive Primary 互访；`allowSameNamespace` 只控制是否额外放行整个 Namespace，入口来源通过 `networkPolicy.ingressFrom` 增加。
 - `config.extra`、`extraEnv` 和 `extraEnvFrom` 可补充非权威配置，但 deployment、数据库、Redis、内部代理和认证密钥等 Chart 管理项始终由 ConfigMap、Secret 与每 Pod endpoint 显式注入，不能被覆盖。数据库 URL、Redis endpoint 及其结构化用户名/密码、应用密钥会在模板校验阶段被拒绝进入 ConfigMap 或普通 `extraEnv`，统一通过 `existingSecret` 提供。
+- 环境变量的大小写和 `__`／`.` 路径拼写按应用解析规则视为同一配置项。Chart 会拒绝 `config.extra`／`extraEnv` 中的管理字段别名；`extraEnvFrom` 引用的外部内容无法在模板阶段读取，应用启动及只读配置加载会拒绝归一化冲突，且错误不包含值。旧部署若同时使用不同拼写定义同一项，升级前应移除别名、保留 Chart 注入的规范变量。
 - `podLabels` 只能增加非 selector 标签，不能设置 `app.kubernetes.io/name`、`app.kubernetes.io/instance` 或 `app.kubernetes.io/component`；这些键由 Chart 固定生成，避免 StatefulSet selector 与 Pod template 漂移。
 - NetworkPolicy 不限制出站。生产环境启用出站默认拒绝前，必须完整列出 DNS、数据库、Redis、对象存储、OAuth/OIDC、SMTP 和远端节点依赖。
 - 默认 topology spread 是软约束。多节点生产集群可设置 `topologySpread.whenUnsatisfiable=DoNotSchedule`，防止两个 Primary 落在同一节点。

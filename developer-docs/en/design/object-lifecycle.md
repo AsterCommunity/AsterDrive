@@ -16,6 +16,10 @@ Provider-resumable completion atomically commits Completed/file_id and clears `o
 
 Doctor, automatic reconcile and background blob maintenance share the same locked recount implementation. MySQL locks before establishing a consistent read snapshot; SQLite obtains its write lock through a no-value-change UPDATE. Full repair keeps healthy scans batched and locks only suspected drifts. Old audit counts are never accepted as write authority.
 
+Quota reports are observations too. `repair_storage_usage` locks a suspected owner's quota counter in a short transaction, recounts current files and historical revisions, then updates it. Publication uses the same owner lock, so repair cannot overwrite a concurrent commit with an old report. Healthy owners remain batched: both 1-owner and 64-owner PostgreSQL/MySQL fixtures use 5 SQL statements.
+
+Replacement writes retain the existing blob's storage destination but enforce current group enabled/size/extension/category admission before provider I/O and again in the publication transaction. Streaming receive limits apply before hashing or writing. Admission reads the policy snapshot without extra per-file database queries.
+
 Slow I/O stays outside database write transactions. Hashing uses a 64 KiB buffer; cross-device promotion uses a fixed 1 MiB buffer. In the SQLite fixture, the warm publication phase used 29 SQL statements, no connector calls and no copied bytes for both 1 KiB and 1 MiB inputs. This is structural/query evidence, not a production latency or RSS benchmark.
 
 Existing objects remain readable by their persisted paths without moving stored content. Upgrade all writers together so old writers cannot recreate shared hash paths. Real-provider and production rollout acceptance remain separate.

@@ -426,6 +426,18 @@ pub(crate) async fn store_relative_target_from_stream(
         payload,
         resolved_policy_hint,
         declared_size,
+        storage::ensure_blob_write_admission(
+            &state.policy_snapshot,
+            &storage::BlobPolicyRequest {
+                scope,
+                folder_id,
+                folder_hint: None,
+                filename,
+                file_size: declared_size.unwrap_or(0),
+                mime_type: "application/octet-stream",
+                existing_file_id,
+            },
+        )?,
         aster_drive_metrics::TransferSource::Wopi,
     )
     .await?;

@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **离线暂存与存储最终条件** — 每个下载引擎使用独立尝试目录，拒绝符号链接／非普通输出，并将同一 inode 原子移入私有导入目录，不增加整文件复制。移除 aria2 的 world-writable 暂存；不同服务用户需由部署者预设可信共享组。aria2 DNS／建连行为按部署边界保留，不增加代理。配额漂移在既有 owner 锁内重新计数，文件替换及接收限额执行当前组准入，WOPI 过期清理在 namespace 串行化后按当前条件删除。健康配额扫描保持批量处理。
+
+- **发布验签与管理环境变量别名** — 生成的 cosign 验证命令精确绑定 workflow／ref 身份，移除仓库子串匹配。Helm 拒绝管理字段的大小写／点号别名；启动时在写配置前拒绝归一化到同一路径的环境变量，涵盖外部 `envFrom` 导入的别名。升级前移除冲突别名，补充配置能力保留。
+
 - **账号认证预算与最终校验** — 持久化彼此独立的账号级 MFA 登录／管理预算和邮件重发资格，Passkey challenge 与签名请求 nonce 通过 writer 数据库一次消费；HTTP worker 共享认证限流，改密校验并发恢复／session 撤销，受限 optional identity 与 SSE token 到期生效，邮箱确认重新检查黑名单。MFA 在十五分钟窗口内最多失败五次，随后固定冷却十五分钟，被拒请求不延长冷却。Primary／Follower writer 须协调升级，升级前的 Passkey 流程需重新发起。
 
 - **远端与 provider 委托边界** — 校验 multipart 清理范围和实际 completion 正文摘要，统一 target 规范边界，aria2 已保存测试密钥绑定原 endpoint，注册 token 改为 stdin 并正确转义生成命令，Follower 翻译按本地 node／connector scope 隔离。Provider 会话在外部创建前预留上传记录，OneDrive tenant／cloud 配置同步凭据身份，driver 缓存绑定策略与凭据代。COS 浏览器上传通过服务端中转阻止 copy-source 委托；Azure 客户端可写 multipart 对象复制到新 key 后发布。显式 HTTP 部署选择保留。

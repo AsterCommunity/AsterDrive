@@ -14,7 +14,9 @@ mod projection;
 mod tests;
 
 pub use cleanup::{cleanup_expired, cleanup_expired_with_audit};
-pub(crate) use cleanup::{delete_all_held_by_on, delete_workspace_namespace_on};
+pub(crate) use cleanup::{
+    delete_all_held_by_on, delete_workspace_namespace_on, load_after_expiry_cleanup,
+};
 pub use domain::{LockRoot, LockRootSummary, LockTarget, LockWorkspace, ResourceLockState};
 pub(crate) use enforcement::lock_overlaps_target_on;
 pub use enforcement::{

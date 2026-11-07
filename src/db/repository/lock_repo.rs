@@ -370,6 +370,24 @@ pub async fn delete_expired_by_entity_before<C: ConnectionTrait>(
     Ok(res.rows_affected)
 }
 
+pub(crate) async fn delete_expired_entity_in_namespace_before<C: ConnectionTrait>(
+    db: &C,
+    namespace_id: i64,
+    entity_type: EntityType,
+    entity_id: i64,
+    cutoff: chrono::DateTime<Utc>,
+) -> Result<u64> {
+    let result = ResourceLock::delete_many()
+        .filter(resource_lock::Column::NamespaceId.eq(namespace_id))
+        .filter(entity_condition(entity_type, entity_id))
+        .filter(resource_lock::Column::TimeoutAt.is_not_null())
+        .filter(resource_lock::Column::TimeoutAt.lte(cutoff))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(result.rows_affected)
+}
+
 /// 删除路径前缀匹配的所有锁
 pub async fn delete_by_path_prefix<C: ConnectionTrait>(db: &C, prefix: &str) -> Result<u64> {
     let res = ResourceLock::delete_many()

@@ -23,6 +23,7 @@ mod thumbnail;
 mod trash;
 mod trash_coordination;
 mod upload;
+mod write_admission;
 
 mod activities;
 
