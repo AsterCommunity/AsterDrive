@@ -20,9 +20,7 @@ use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     files::{batch, download_headers::DownloadDisposition, folder as folder_ops},
-    share::{
-        load_valid_folder_share_root, reserve_share_download_count, rollback_share_download_count,
-    },
+    share::{initialize_share_download, load_usable_folder_share_root_ignoring_download_limit},
     task::types::CreateArchiveTaskParams,
     workspace::storage::{self, WorkspaceResourceScope, WorkspaceStorageScope},
 };
@@ -198,28 +196,19 @@ pub(crate) async fn stream_shared_archive_download(
     let resolved = resolve_shared_archive_download(state, token, &params).await?;
     let archive_name = resolved.archive_name.clone();
     let limits = ArchiveBuildLimits::from_runtime_config(state.runtime_config());
-    reserve_share_download_count(state, &resolved.share).await?;
-    let collected_result = collect_archive_entries_from_shared_selection(
+    let collected = collect_archive_entries_from_shared_selection(
         state,
         resolved.scope,
         &resolved.selection,
         limits,
     )
-    .await;
-    let collected = match collected_result {
-        Ok(collected) => collected,
-        Err(error) => {
-            rollback_share_download_count(state, resolved.share.id).await;
-            return Err(error);
-        }
-    };
+    .await?;
     let total_bytes = collected.total_source_bytes();
 
     let handle = tokio::runtime::Handle::current();
     let db = state.writer_db().clone();
     let driver_registry = state.driver_registry().clone();
     let policy_snapshot = state.policy_snapshot().clone();
-    let rollback_queue = state.share_download_rollback.clone();
     let share_id = resolved.share.id;
     let archive_name_for_worker = archive_name.clone();
 
@@ -243,7 +232,6 @@ pub(crate) async fn stream_shared_archive_download(
         .and_then(|(writer, _)| flush_archive_download_sink(writer, "shared archive download"));
         if let Err(error) = &result {
             let error_text = error.to_string();
-            rollback_queue.enqueue(share_id);
             if is_archive_sink_disconnect_error_text(&error_text) {
                 tracing::info!(
                     share_id,
@@ -331,6 +319,7 @@ pub(crate) async fn prepare_shared_archive_download(
         limits,
     )
     .await?;
+    initialize_share_download(state, &resolved.share).await?;
     Ok(PreparedArchiveDownload {
         file_ids: resolved.selection.file_ids,
         folder_ids: resolved.selection.folder_ids,
@@ -391,7 +380,8 @@ async fn resolve_shared_archive_download(
     params: &CreateArchiveTaskParams,
 ) -> Result<ResolvedSharedArchiveDownload> {
     batch::validate_batch_ids(&params.file_ids, &params.folder_ids)?;
-    let (share, root_folder_id) = load_valid_folder_share_root(state, token).await?;
+    let (share, root_folder_id) =
+        load_usable_folder_share_root_ignoring_download_limit(state, token).await?;
     let scope = match share.team_id {
         Some(team_id) => WorkspaceResourceScope::Team { team_id },
         None => WorkspaceResourceScope::Personal {

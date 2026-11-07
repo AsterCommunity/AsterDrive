@@ -1203,6 +1203,13 @@ async fn test_share_stream_session_counts_once_across_ranges_and_survives_limit(
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
     let stream_path = body["data"]["path"].as_str().unwrap().to_string();
+    let req = test::TestRequest::get()
+        .uri("/api/v1/shares")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .to_request();
+    let response = test::call_service(&app, req).await;
+    let initialized: Value = test::read_body_json(response).await;
+    assert_eq!(initialized["data"]["items"][0]["download_count"], 1);
 
     let req = test::TestRequest::get()
         .uri(&stream_path)
@@ -1439,6 +1446,13 @@ async fn test_folder_share_archive_download_counts_against_download_limit() {
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
     let first_ticket = body["data"]["token"].as_str().unwrap().to_string();
+    let req = test::TestRequest::get()
+        .uri("/api/v1/shares")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let initialized: Value = test::read_body_json(resp).await;
+    assert_eq!(initialized["data"]["items"][0]["download_count"], 1);
 
     let req = test::TestRequest::get()
         .uri(&format!(
@@ -1456,12 +1470,8 @@ async fn test_folder_share_archive_download_counts_against_download_limit() {
         ))
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 403);
-    let body: Value = test::read_body_json(resp).await;
-    assert_eq!(
-        body["code"],
-        ApiErrorCode::ShareDownloadLimitReached.as_ref()
-    );
+    assert_eq!(resp.status(), 200);
+    assert!(!test::read_body(resp).await.is_empty());
 
     let req = test::TestRequest::post()
         .uri(&format!("/api/v1/s/{share_token}/archive-download"))
@@ -1492,7 +1502,7 @@ async fn test_folder_share_archive_download_counts_against_download_limit() {
 }
 
 #[actix_web::test]
-async fn test_folder_share_archive_download_rolls_back_when_client_drops_stream() {
+async fn test_folder_share_archive_download_keeps_init_charge_when_client_drops_stream() {
     let state = common::setup().await;
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
@@ -1562,25 +1572,13 @@ async fn test_folder_share_archive_download_rolls_back_when_client_drops_stream(
     assert_eq!(resp.status(), 200);
     drop(resp);
 
-    let rollback_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
-    loop {
-        let req = test::TestRequest::get()
-            .uri("/api/v1/shares")
-            .insert_header(("Cookie", common::access_cookie_header(&token)))
-            .insert_header(common::csrf_header_for(&token))
-            .to_request();
-        let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), 200);
-        let body: Value = test::read_body_json(resp).await;
-        if body["data"]["items"][0]["download_count"] == 0 {
-            break;
-        }
-        assert!(
-            tokio::time::Instant::now() < rollback_deadline,
-            "share archive stream abort should roll back download_count"
-        );
-        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-    }
+    let req = test::TestRequest::get()
+        .uri("/api/v1/shares")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["items"][0]["download_count"], 1);
 
     let req = test::TestRequest::post()
         .uri(&format!("/api/v1/s/{share_token}/archive-download"))
@@ -1591,7 +1589,7 @@ async fn test_folder_share_archive_download_rolls_back_when_client_drops_stream(
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.status(), 403);
 }
 
 #[actix_web::test]
@@ -1803,6 +1801,13 @@ async fn test_folder_share_stream_session_counts_once_across_ranges() {
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
     let stream_path = body["data"]["path"].as_str().unwrap().to_string();
+    let req = test::TestRequest::get()
+        .uri("/api/v1/shares")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .to_request();
+    let response = test::call_service(&app, req).await;
+    let initialized: Value = test::read_body_json(response).await;
+    assert_eq!(initialized["data"]["items"][0]["download_count"], 1);
 
     let req = test::TestRequest::get()
         .uri(&stream_path)

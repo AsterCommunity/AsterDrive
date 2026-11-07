@@ -45,7 +45,7 @@ pub(super) async fn render_thumbnail_with_vips_cli(
         source_file_name,
         source_mime_type,
         temp_dir.path(),
-        false,
+        blob.size,
     )
     .await?;
 
@@ -75,6 +75,7 @@ pub(super) async fn render_thumbnail_with_vips_cli(
                 "--size",
                 "down",
             ],
+            None,
             thumbnail_render_failed,
         )?;
         if !output.status.success() {
@@ -135,7 +136,7 @@ pub(super) async fn render_image_preview_with_vips_cli(
         source_file_name,
         source_mime_type,
         temp_dir.path(),
-        false,
+        blob.size,
     )
     .await?;
 
@@ -165,6 +166,7 @@ pub(super) async fn render_image_preview_with_vips_cli(
                 "--size",
                 "down",
             ],
+            None,
             thumbnail_render_failed,
         )?;
         if !output.status.success() {
@@ -221,18 +223,23 @@ pub(super) async fn render_thumbnail_with_ffmpeg_cli(
     let temp_dir = TempDirGuard::new(temp_dir, "ffmpeg thumbnail temp dir");
 
     let output_path = temp_dir.path().join("thumbnail.png");
-    let prepared_input = prepare_cli_source(
-        driver,
-        storage_path,
-        source_file_name,
-        source_mime_type,
-        temp_dir.path(),
-        true,
-    )
-    .await?;
-
+    let (source_path, input_source) = match driver.extensions().local_path {
+        Some(local) => (local.resolve_local_path(storage_path)?, "local_file"),
+        None => {
+            let prepared = prepare_cli_source(
+                driver,
+                storage_path,
+                source_file_name,
+                source_mime_type,
+                temp_dir.path(),
+                blob.size,
+            )
+            .await?;
+            (PathBuf::from(prepared.input_arg()), "streamed_temp_file")
+        }
+    };
+    let input = crate::services::media::processing::ffmpeg_input::open_source(&source_path)?;
     let command = command.to_string();
-    let input_arg = prepared_input.input_arg().to_string();
     let output_arg = output_path.to_string_lossy().to_string();
     let filter_arg = format!(
         "thumbnail={FFMPEG_THUMBNAIL_BATCH_SIZE}:log=quiet,scale=min(iw\\,{max_dim}):min(ih\\,{max_dim}):force_original_aspect_ratio=decrease"
@@ -241,36 +248,30 @@ pub(super) async fn render_thumbnail_with_ffmpeg_cli(
         blob_id = blob.id,
         processor = "ffmpeg_cli",
         command,
-        input_source = prepared_input.kind().as_str(),
+        input_source,
         output_path = "<redacted>",
         max_dim,
         "starting ffmpeg CLI thumbnail render"
     );
     tokio::task::spawn_blocking(move || {
-        let output = run_cli_command_with_timeout(
-            &command,
-            &[
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-nostdin",
-                "-i",
-                &input_arg,
-                "-map",
-                "0:v:0",
-                "-vf",
-                &filter_arg,
-                "-frames:v",
-                "1",
-                "-an",
-                "-sn",
-                "-c:v",
-                "png",
-                "-y",
-                &output_arg,
-            ],
-            thumbnail_render_failed,
-        )?;
+        let mut args = vec!["-hide_banner", "-loglevel", "error", "-nostdin"];
+        args.extend_from_slice(crate::services::media::processing::ffmpeg_input::INPUT_OPTIONS);
+        args.extend_from_slice(&[
+            "-map",
+            "0:v:0",
+            "-vf",
+            &filter_arg,
+            "-frames:v",
+            "1",
+            "-an",
+            "-sn",
+            "-c:v",
+            "png",
+            "-y",
+            &output_arg,
+        ]);
+        let output =
+            run_cli_command_with_timeout(&command, &args, Some(input), thumbnail_render_failed)?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
             let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();

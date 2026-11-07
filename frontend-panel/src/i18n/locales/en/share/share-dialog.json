@@ -20,7 +20,7 @@
 	"share_expiry_30d": "30 days",
 	"share_download_limit": "Download limit (optional)",
 	"share_download_limit_placeholder": "0 = unlimited",
-	"share_download_limit_hint": "Online previews are not counted. This limit cannot prevent viewed content from being saved.",
+	"share_download_limit_hint": "Downloads, archive tickets and playback sessions count when initialized; failures or cancellation do not refund them. Online previews are not counted.",
 	"share_create_button": "Create link",
 	"share_creating": "Creating...",
 	"share_done": "Done"

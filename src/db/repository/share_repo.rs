@@ -9,7 +9,6 @@ use aster_drive_model::entities::share::{self, Entity as Share};
 use aster_forge_api::SortOrder;
 use aster_forge_db::pagination::fetch_offset_page;
 use aster_forge_db::sort::{order_by_column_with_id, order_by_id};
-use aster_forge_utils::numbers::u64_to_i64;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, EntityTrait,
     ExprTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select, sea_query::Expr,
@@ -455,33 +454,6 @@ pub async fn increment_download_count<C: ConnectionTrait>(db: &C, id: i64) -> Re
         .filter(share::Column::Id.eq(id))
         // 只在未达上限时递增（max_downloads=0 表示不限）
         .filter(available_downloads_condition())
-        .exec(db)
-        .await
-        .map_err(AsterError::from)?;
-    Ok(result.rows_affected > 0)
-}
-
-/// 回滚多次 `download_count` 递增。
-/// 返回 false 表示分享不存在或计数已经是 0。
-pub async fn decrement_download_count_by<C: ConnectionTrait>(
-    db: &C,
-    id: i64,
-    count: u64,
-) -> Result<bool> {
-    if count == 0 {
-        return Ok(false);
-    }
-
-    let decrement_by = u64_to_i64(count, "share download rollback count")?;
-    let result = Share::update_many()
-        .col_expr(
-            share::Column::DownloadCount,
-            Expr::case(Expr::col(share::Column::DownloadCount).lt(decrement_by), 0)
-                .finally(Expr::col(share::Column::DownloadCount).sub(decrement_by))
-                .into(),
-        )
-        .filter(share::Column::Id.eq(id))
-        .filter(share::Column::DownloadCount.gt(0))
         .exec(db)
         .await
         .map_err(AsterError::from)?;

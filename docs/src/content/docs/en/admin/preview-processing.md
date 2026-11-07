@@ -251,3 +251,9 @@ Check first:
 ### Built-in Microsoft / Google previewers fail to open
 
 They usually require the external service to reach the file preview link. Private intranets, `localhost`, untrusted certificates, or plain HTTP deployments can all fail. For private deployments that need online editing, connecting your own WOPI service is the recommended route.
+
+## FFmpeg input boundary
+
+FFmpeg thumbnails and ffprobe metadata process only the current object. Referenced files, playlists and network sources are rejected. Local objects provide an open seekable file directly; remote objects stream through the storage client into temporary files with exact size checks. Child processes receive no presigned URL.
+
+Installed FFmpeg/ffprobe builds must support the `fd` input protocol (check with `ffmpeg -h protocol=fd`); official images meet this requirement. Unsupported builds fail without falling back to unrestricted file/network protocols. Ordinary MP4 files with trailing metadata remain seekable.

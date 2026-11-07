@@ -230,12 +230,6 @@ pub trait MetricsRecorder: Send + Sync {
     /// Adjusts the number of streaming attempts in the data plane.
     fn adjust_stream_upload_active(&self, delta: i64) {}
 
-    /// Records events emitted by the share-download rollback queue.
-    fn record_share_download_rollback_event(&self, event: &'static str, count: u64) {}
-
-    /// Sets the number of pending share-download rollback operations.
-    fn set_share_download_rollback_pending(&self, pending: u64) {}
-
     /// Builds the optional Forge system-metrics updater task.
     ///
     /// The returned future owns its cancellation token and is intended to be
@@ -412,14 +406,6 @@ mod product {
                 "Total avatar upload rejections by boundary.",
                 &["reason"],
             ).with_unit("{event}"),
-            share_download_rollback_events: counter("aster.drive.share.download.rollback", "events",
-                "Total shared download rollback queue events.",
-                &["event"],
-            ).with_unit("{event}"),
-            share_download_rollback_pending: gauge("aster.drive.share.download.rollback", "pending",
-                "Pending shared download rollback operations.",
-                &[],
-            ).with_unit("{count}"),
         }
     }
 }
@@ -882,22 +868,6 @@ impl MetricsRecorder for DriveMetricsRecorder {
         }
     }
 
-    fn record_share_download_rollback_event(&self, event: &'static str, count: u64) {
-        {
-            let product = &self.product;
-            product.share_download_rollback_events.inc(&[event], count);
-        }
-    }
-
-    fn set_share_download_rollback_pending(&self, pending: u64) {
-        {
-            let product = &self.product;
-            product
-                .share_download_rollback_pending
-                .set(&[], pending as f64);
-        }
-    }
-
     fn system_metrics_updater_task(
         &self,
         shutdown_token: CancellationToken,
@@ -922,7 +892,7 @@ mod tests {
             .unwrap();
         super::product::DriveProductMetrics::register(&provider).unwrap();
         let descriptors = provider.descriptors();
-        assert_eq!(descriptors.len(), 49);
+        assert_eq!(descriptors.len(), 47);
         let mut names = std::collections::BTreeSet::new();
         for descriptor in descriptors {
             assert!(descriptor.subsystem.starts_with("aster.drive."));
@@ -1249,8 +1219,6 @@ mod tests {
         metrics.record_storage_routing("default", "selected");
         metrics.record_storage_routing_detail("profile", "rule", "policy", "default", "selected");
         metrics.record_storage_driver_operation("local", "read", "success", "stream", 0.5);
-        metrics.record_share_download_rollback_event("retried", 2);
-        metrics.set_share_download_rollback_pending(1);
         let body = metrics
             .forge_recorder()
             .provider()
@@ -1268,8 +1236,6 @@ mod tests {
             "aster_drive_file_uploads_total{mode=\"stream\",status=\"success\"} 1",
             "aster_drive_file_downloads_total{outcome=\"success\",range=\"range\",source=\"share\"} 1",
             "aster_drive_storage_driver_operations_total{driver=\"local\",kind=\"stream\",operation=\"read\",status=\"success\"} 1",
-            "aster_drive_share_download_rollback_events_total{event=\"retried\"} 2",
-            "aster_drive_share_download_rollback_pending 1",
         ] {
             assert!(
                 body.lines().any(|line| line == expected),

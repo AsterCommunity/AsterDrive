@@ -25,13 +25,11 @@ pub use access::{
     verify_password_and_sign, verify_share_cookie,
 };
 pub use content::{
-    ShareDownloadRollbackQueue, ShareDownloadRollbackWorker, build_share_download_rollback_queue,
     download_shared_file_with_range_header, download_shared_folder_file_with_range_header,
     get_shared_folder_file_image_preview, get_shared_folder_file_media_metadata,
     get_shared_folder_file_thumbnail, get_shared_image_preview, get_shared_media_metadata,
     get_shared_subfolder_ancestors, get_shared_thumbnail, list_shared_folder,
-    list_shared_subfolder, share_download_rollback_worker_task,
-    spawn_detached_share_download_rollback_queue,
+    list_shared_subfolder,
 };
 pub use management::{
     admin_delete_share, batch_delete_shares, batch_delete_team_shares, create_share, delete_share,
@@ -51,10 +49,9 @@ pub(crate) use cache::{
 };
 pub(crate) use content::{
     download_shared_file_with_disposition_and_range_header,
-    download_shared_folder_file_with_disposition_and_range_header, load_preview_shared_file,
-    load_preview_shared_folder_file, load_shared_file_ignoring_download_limit,
-    load_shared_folder_file_ignoring_download_limit, reserve_share_download_count,
-    rollback_share_download_count,
+    download_shared_folder_file_with_disposition_and_range_header, initialize_share_download,
+    load_preview_shared_file, load_preview_shared_folder_file,
+    load_shared_file_ignoring_download_limit, load_shared_folder_file_ignoring_download_limit,
 };
 pub(crate) use management::{
     batch_delete_shares_in_scope, create_share_in_scope, delete_share_in_scope,
@@ -62,7 +59,7 @@ pub(crate) use management::{
 };
 pub(crate) use models::share_target_for_share;
 use shared::load_share_in_scope;
-pub(crate) use shared::load_valid_folder_share_root;
+pub(crate) use shared::load_usable_folder_share_root_ignoring_download_limit;
 
 // audit 包装放在入口层，而不是塞进 management 核心逻辑里。
 // 这样基础 share service 仍然可以在测试和其他内部流程里被纯粹复用。

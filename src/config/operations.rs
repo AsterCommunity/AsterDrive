@@ -35,9 +35,8 @@ pub use crate::config::definitions::{
     OFFLINE_DOWNLOAD_MAX_CONCURRENCY_KEY, OFFLINE_DOWNLOAD_MAX_FILE_SIZE_BYTES_KEY,
     OFFLINE_DOWNLOAD_MAX_MB_PER_SEC_KEY, OFFLINE_DOWNLOAD_REQUEST_TIMEOUT_SECS_KEY,
     OFFLINE_DOWNLOAD_TEMP_DIR_KEY, REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY,
-    SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY, SHARE_STREAM_SESSION_TTL_SECS_KEY,
-    TASK_LIST_MAX_LIMIT_KEY, TEAM_MEMBER_LIST_MAX_LIMIT_KEY, THUMBNAIL_MAX_DIMENSION_KEY,
-    THUMBNAIL_MAX_SOURCE_BYTES_KEY,
+    SHARE_STREAM_SESSION_TTL_SECS_KEY, TASK_LIST_MAX_LIMIT_KEY, TEAM_MEMBER_LIST_MAX_LIMIT_KEY,
+    THUMBNAIL_MAX_DIMENSION_KEY, THUMBNAIL_MAX_SOURCE_BYTES_KEY,
 };
 
 pub const DEFAULT_MAIL_OUTBOX_DISPATCH_INTERVAL_SECS: u64 = 5;
@@ -51,7 +50,6 @@ pub const DEFAULT_BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY: usize = 1;
 pub const DEFAULT_BACKGROUND_TASK_STORAGE_MIGRATION_MAX_CONCURRENCY: usize = 1;
 const MAX_BACKGROUND_TASK_CONCURRENCY: usize = 16;
 pub const DEFAULT_BACKGROUND_TASK_MAX_ATTEMPTS: i32 = 3;
-pub const DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY: usize = 1024;
 pub const DEFAULT_SHARE_STREAM_SESSION_TTL_SECS: u64 = 3 * 60 * 60;
 pub const MIN_SHARE_STREAM_SESSION_TTL_SECS: u64 = 5 * 60;
 pub const MAX_SHARE_STREAM_SESSION_TTL_SECS: u64 = 24 * 60 * 60;
@@ -201,10 +199,6 @@ pub fn normalize_concurrency_config_value(key: &str, value: &str) -> Result<Stri
         )));
     }
     Ok(parsed.to_string())
-}
-
-pub fn normalize_queue_capacity_config_value(key: &str, value: &str) -> Result<String> {
-    normalize_positive_u64_config_value(key, value)
 }
 
 pub fn normalize_attempts_config_value(key: &str, value: &str) -> Result<String> {
@@ -416,26 +410,6 @@ pub fn background_task_max_attempts(runtime_config: &RuntimeConfig) -> i32 {
         BACKGROUND_TASK_MAX_ATTEMPTS_KEY,
         DEFAULT_BACKGROUND_TASK_MAX_ATTEMPTS,
     )
-}
-
-pub fn share_download_rollback_queue_capacity(runtime_config: &RuntimeConfig) -> usize {
-    let default_value = usize_to_u64(
-        DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY,
-        SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY,
-    )
-    .unwrap_or(u64::MAX);
-    usize::try_from(read_positive_u64(
-        runtime_config,
-        SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY,
-        default_value,
-    ))
-    .unwrap_or_else(|_| {
-        tracing::warn!(
-            key = SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY,
-            "share download rollback queue capacity exceeds usize; using default"
-        );
-        DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY
-    })
 }
 
 pub fn share_stream_session_ttl_secs(runtime_config: &RuntimeConfig) -> u64 {
@@ -1081,16 +1055,15 @@ mod tests {
         DEFAULT_BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY, DEFAULT_BLOB_RECONCILE_INTERVAL_SECS,
         DEFAULT_IMAGE_PREVIEW_MAX_DIMENSION, DEFAULT_OFFLINE_DOWNLOAD_MAX_CONCURRENCY,
         DEFAULT_OFFLINE_DOWNLOAD_MAX_MB_PER_SEC, DEFAULT_REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS,
-        DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY, DEFAULT_SHARE_STREAM_SESSION_TTL_SECS,
-        DEFAULT_TASK_LIST_MAX_LIMIT, DEFAULT_TEAM_MEMBER_LIST_MAX_LIMIT,
-        DEFAULT_THUMBNAIL_MAX_DIMENSION, FRONTEND_IMAGE_PREVIEW_PREFERENCE_KEY,
-        IMAGE_PREVIEW_MAX_DIMENSION_KEY, MAX_AVATAR_UPLOAD_SIZE_BYTES,
-        MAX_BACKGROUND_TASK_CONCURRENCY, MAX_BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS,
-        MAX_DERIVATIVE_MAX_DIMENSION, MAX_SHARE_STREAM_SESSION_TTL_SECS,
-        MIN_SHARE_STREAM_SESSION_TTL_SECS, OFFLINE_DOWNLOAD_ENGINE_KEY,
-        OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY, OFFLINE_DOWNLOAD_MAX_CONCURRENCY_KEY,
-        OFFLINE_DOWNLOAD_MAX_MB_PER_SEC_KEY, OFFLINE_DOWNLOAD_TEMP_DIR_KEY,
-        REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY, SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY,
+        DEFAULT_SHARE_STREAM_SESSION_TTL_SECS, DEFAULT_TASK_LIST_MAX_LIMIT,
+        DEFAULT_TEAM_MEMBER_LIST_MAX_LIMIT, DEFAULT_THUMBNAIL_MAX_DIMENSION,
+        FRONTEND_IMAGE_PREVIEW_PREFERENCE_KEY, IMAGE_PREVIEW_MAX_DIMENSION_KEY,
+        MAX_AVATAR_UPLOAD_SIZE_BYTES, MAX_BACKGROUND_TASK_CONCURRENCY,
+        MAX_BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS, MAX_DERIVATIVE_MAX_DIMENSION,
+        MAX_SHARE_STREAM_SESSION_TTL_SECS, MIN_SHARE_STREAM_SESSION_TTL_SECS,
+        OFFLINE_DOWNLOAD_ENGINE_KEY, OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY,
+        OFFLINE_DOWNLOAD_MAX_CONCURRENCY_KEY, OFFLINE_DOWNLOAD_MAX_MB_PER_SEC_KEY,
+        OFFLINE_DOWNLOAD_TEMP_DIR_KEY, REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY,
         SHARE_STREAM_SESSION_TTL_SECS_KEY, TASK_LIST_MAX_LIMIT_KEY, TEAM_MEMBER_LIST_MAX_LIMIT_KEY,
         THUMBNAIL_MAX_DIMENSION_KEY, archive_compress_enabled, archive_download_share_enabled,
         archive_download_user_enabled, archive_extract_max_staging_bytes,
@@ -1105,12 +1078,12 @@ mod tests {
         normalize_concurrency_config_value, normalize_derivative_dimension_config_value,
         normalize_frontend_image_preview_preference_config_value, normalize_interval_config_value,
         normalize_list_max_limit_config_value, normalize_non_negative_u64_config_value,
-        normalize_offline_download_temp_dir_config_value, normalize_queue_capacity_config_value,
+        normalize_offline_download_temp_dir_config_value, normalize_positive_u64_config_value,
         normalize_share_stream_session_ttl_config_value, offline_download_enabled_engines,
         offline_download_max_bytes_per_sec, offline_download_max_concurrency,
         offline_download_temp_dir, read_concurrency, remote_node_health_test_interval_secs,
-        share_download_rollback_queue_capacity, share_stream_session_ttl_secs, task_list_max_limit,
-        team_member_list_max_limit, thumbnail_max_dimension,
+        share_stream_session_ttl_secs, task_list_max_limit, team_member_list_max_limit,
+        thumbnail_max_dimension,
     };
     use crate::config::RuntimeConfig;
     use crate::config::definitions::{ALL_CONFIGS, CONFIG_CATEGORY_RUNTIME_MAINTENANCE};
@@ -1665,33 +1638,6 @@ mod tests {
     }
 
     #[test]
-    fn share_download_rollback_queue_capacity_reader_uses_runtime_value_and_default() {
-        let runtime_config = RuntimeConfig::new();
-        assert_eq!(
-            share_download_rollback_queue_capacity(&runtime_config),
-            DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY
-        );
-
-        runtime_config.apply(config_model(
-            SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY,
-            "2048",
-        ));
-        assert_eq!(
-            share_download_rollback_queue_capacity(&runtime_config),
-            2048
-        );
-
-        runtime_config.apply(config_model(
-            SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY,
-            "0",
-        ));
-        assert_eq!(
-            share_download_rollback_queue_capacity(&runtime_config),
-            DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY
-        );
-    }
-
-    #[test]
     fn share_stream_session_ttl_reader_uses_bounded_runtime_value_and_default() {
         let runtime_config = RuntimeConfig::new();
         assert_eq!(
@@ -1791,12 +1737,8 @@ mod tests {
             .is_err()
         );
         assert_eq!(
-            normalize_queue_capacity_config_value(
-                SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY,
-                &DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY.to_string()
-            )
-            .unwrap(),
-            DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY.to_string()
+            normalize_positive_u64_config_value("test_queue", &1024.to_string()).unwrap(),
+            1024.to_string()
         );
         assert_eq!(
             normalize_attempts_config_value("test_attempts", "3").unwrap(),
@@ -1828,10 +1770,7 @@ mod tests {
         );
         assert!(normalize_interval_config_value("test_interval", "0").is_err());
         assert!(normalize_concurrency_config_value("test_concurrency", "0").is_err());
-        assert!(
-            normalize_queue_capacity_config_value(SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY, "0")
-                .is_err()
-        );
+        assert!(normalize_positive_u64_config_value("test_queue", "0").is_err());
         assert!(normalize_attempts_config_value("test_attempts", "0").is_err());
         assert!(normalize_bytes_config_value("test_bytes", "-1").is_err());
         assert!(normalize_list_max_limit_config_value("test_limit", "1001").is_err());

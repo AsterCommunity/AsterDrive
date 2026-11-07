@@ -3066,7 +3066,7 @@ async fn test_share_service_batch_delete_validates_ids_before_scope_work() {
 }
 
 #[actix_web::test]
-async fn test_share_download_failure_rolls_back_download_quota() {
+async fn test_share_download_failure_keeps_initialized_download_quota() {
     let state = common::setup().await;
     let user = common::create_test_account(
         &state,
@@ -3117,7 +3117,7 @@ async fn test_share_download_failure_rolls_back_download_quota() {
     let reloaded = aster_drive::db::repository::share_repo::find_by_id(state.writer_db(), share.id)
         .await
         .unwrap();
-    assert_eq!(reloaded.download_count, 0);
+    assert_eq!(reloaded.download_count, 1);
 
     let err = aster_drive::services::share::download_shared_file_with_range_header(
         &state,
@@ -3127,16 +3127,16 @@ async fn test_share_download_failure_rolls_back_download_quota() {
     )
     .await
     .unwrap_err();
-    assert_ne!(err.code(), "E053");
+    assert_eq!(err.code(), "E053");
 
     let reloaded = aster_drive::db::repository::share_repo::find_by_id(state.writer_db(), share.id)
         .await
         .unwrap();
-    assert_eq!(reloaded.download_count, 0);
+    assert_eq!(reloaded.download_count, 1);
 }
 
 #[actix_web::test]
-async fn test_share_download_abort_rolls_back_download_quota() {
+async fn test_share_download_abort_keeps_initialized_download_quota() {
     use actix_web::test;
 
     let state = common::setup().await;
@@ -3172,16 +3172,16 @@ async fn test_share_download_abort_rolls_back_download_quota() {
     assert_eq!(resp.status(), 200);
     drop(resp);
 
-    wait_for_share_download_count(&state, share.id, 0).await;
+    wait_for_share_download_count(&state, share.id, 1).await;
 
     let req = test::TestRequest::get()
         .uri(&format!("/api/v1/s/{}/download", share.token))
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.status(), 403);
     drop(resp);
 
-    wait_for_share_download_count(&state, share.id, 0).await;
+    wait_for_share_download_count(&state, share.id, 1).await;
 }
 
 #[actix_web::test]

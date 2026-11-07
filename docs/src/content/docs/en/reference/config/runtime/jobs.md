@@ -25,7 +25,6 @@ You can also tune:
 - Thumbnail generation task concurrency limit
 - Storage policy migration task concurrency limit
 - Maximum background task attempts
-- Share download rollback queue capacity
 - Share streaming playback session TTL
 - System health check interval
 - Team member list page size limit

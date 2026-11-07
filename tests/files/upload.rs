@@ -3751,6 +3751,15 @@ async fn test_s3_presigned_download_redirects_and_share_counts() {
         shared_location.contains("response-content-disposition="),
         "shared presigned URL should preserve attachment filename"
     );
+    // Issuing the capability counts, even if the redirect is abandoned before
+    // the browser contacts the storage provider.
+    drop(resp);
+    let initialized = test::TestRequest::get()
+        .uri(&format!("/api/v1/s/{share_token}"))
+        .to_request();
+    let initialized = test::call_service(&app, initialized).await;
+    let initialized: Value = test::read_body_json(initialized).await;
+    assert_eq!(initialized["data"]["download_count"], 1);
     let shared_response = aster_forge_http::HttpClient::builder()
         .no_proxy()
         .build()

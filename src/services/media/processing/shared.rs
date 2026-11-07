@@ -21,10 +21,12 @@ pub(crate) use aster_forge_utils::raii::TempDirGuard;
 pub(crate) fn run_cli_command_with_timeout(
     command: &str,
     args: &[&str],
+    input: Option<std::fs::File>,
     error: impl Fn(String) -> AsterError,
 ) -> Result<Output> {
     let mut child = Command::new(command)
         .args(args)
+        .stdin(input.map_or_else(Stdio::null, Stdio::from))
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

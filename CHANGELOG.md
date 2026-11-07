@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Media input confinement** — FFmpeg thumbnails and ffprobe metadata read only the supplied seekable object descriptor, with standalone demuxers and the `fd` protocol permitted. Referenced local files, playlists and network URLs are rejected. Remote inputs use exact-size streaming scratch files; local FFmpeg inputs avoid copying. Host installations require `fd` protocol support; official images provide it.
+
 - **Local inputs and diagnostics** — Remove source/capability URLs before formatting offline-download and OneDrive transport errors, escape untrusted text-log fields, and reject control characters in account email and queued recipients. Create generated configuration with private Unix permissions and tighten permissions before backfilling keys, rejecting link aliases; benchmark runs use fresh private output directories. Existing configuration files without a backfill are not rewritten.
 
 - **Internal drag selection** — Accept move/trash selections only from a live drag registered in the same tab, bound to its current account and workspace. Consume the recorded selection once and clear it on drag end, logout or workspace change; external file uploads retain their separate path.
@@ -42,6 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Workspace and resource authorization** — Unify current actor, delegated scope and operation checks across file services, upload publication, WebDAV, WOPI, shares, tasks and governed administrator reads. Reject missing team membership, stale credential approvals, cross-mount lock operations, collection-lock bypasses and privileged task retries after demotion; bind queued uploads and recovery to their original account and workspace. Clear private listings, playback and downloads on logout and reject responses from earlier accounts. Preserve protocol token/precondition behavior and existing capability lifetimes. (#745)
 
 ### Changed
+
+- **Share download accounting** — Charge when a download/presigned URL is issued or an archive ticket/playback session is initialized. Later failure or cancellation does not refund the count; valid paid capabilities continue without per-GET/Range charges. Keep online document previews uncounted. Remove the refund worker, abort hooks, count-marker cache, queue setting and related metrics. Upgrade all Primary/API writers together; pre-upgrade stream sessions and archive tickets must restart.
 
 - **Storage object naming** — Centralize object and staging names, multipart parts and image derivative paths in `aster_drive_storage::object_path`, migrating callers and removing superseded factories. Existing persisted object paths remain readable without relocating content.
 

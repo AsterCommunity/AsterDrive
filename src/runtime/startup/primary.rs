@@ -4,15 +4,8 @@ use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use std::sync::Arc;
 
-pub struct PreparedPrimaryRuntime {
-    pub state: PrimaryAppState,
-    pub share_download_rollback_worker: crate::services::share::ShareDownloadRollbackWorker,
-}
-
 /// 准备主节点运行时（配置和日志应在此之前初始化）
-pub async fn prepare_primary(
-    role: crate::runtime::role::ServeRole,
-) -> Result<PreparedPrimaryRuntime> {
+pub async fn prepare_primary(role: crate::runtime::role::ServeRole) -> Result<PrimaryAppState> {
     let common = prepare_common(NodeRuntimeMode::Primary, role).await?;
 
     let runtime_config = Arc::new(
@@ -24,14 +17,6 @@ pub async fn prepare_primary(
     let mail_sender = crate::services::mail::sender::runtime_sender(runtime_config.clone());
     let storage_change_bus =
         crate::services::events::storage_change::build_storage_change_bus(&common.cfg.config_sync)?;
-    let rollback_queue_capacity =
-        crate::config::operations::share_download_rollback_queue_capacity(&runtime_config);
-    let (share_download_rollback, share_download_rollback_worker) =
-        crate::services::share::build_share_download_rollback_queue(
-            common.database.clone(),
-            rollback_queue_capacity,
-            common.metrics.clone(),
-        );
 
     let remote_protocol = crate::runtime::PrimaryAppState::new_remote_protocol();
     remote_protocol.set_metrics(common.metrics.clone());
@@ -51,24 +36,20 @@ pub async fn prepare_primary(
         "primary runtime state prepared"
     );
 
-    Ok(PreparedPrimaryRuntime {
-        state: PrimaryAppState {
-            db_handles: common.db_handles,
-            audit_writer: common.audit_writer,
-            driver_registry: common.driver_registry,
-            runtime_config,
-            policy_snapshot: common.policy_snapshot,
-            config: common.cfg,
-            cache: common.cache,
-            config_sync: common.config_sync,
-            metrics: common.metrics,
-            mail_sender,
-            storage_change_bus,
-            storage_event_streams: Default::default(),
-            share_download_rollback,
-            background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
-            remote_protocol,
-        },
-        share_download_rollback_worker,
+    Ok(PrimaryAppState {
+        db_handles: common.db_handles,
+        audit_writer: common.audit_writer,
+        driver_registry: common.driver_registry,
+        runtime_config,
+        policy_snapshot: common.policy_snapshot,
+        config: common.cfg,
+        cache: common.cache,
+        config_sync: common.config_sync,
+        metrics: common.metrics,
+        mail_sender,
+        storage_change_bus,
+        storage_event_streams: Default::default(),
+        background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
+        remote_protocol,
     })
 }

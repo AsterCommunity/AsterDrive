@@ -806,7 +806,6 @@ Remote policy 的 `remote_node_id`、`remote_storage_target_key` 和 `base_path`
 - `background_task_archive_max_concurrency`
 - `background_task_thumbnail_max_concurrency`
 - `background_task_storage_migration_max_concurrency`
-- `share_download_rollback_queue_capacity`
 - `share_stream_session_ttl_secs`
 - `offline_download_engine`
 - `offline_download_engine_registry_json`

@@ -358,6 +358,5 @@ pub(crate) async fn build_stream_outcome_with_disposition_and_range(
         },
         range,
         body: reader_stream,
-        on_abort: None,
     }))
 }

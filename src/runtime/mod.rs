@@ -9,9 +9,7 @@ pub mod startup;
 pub mod tasks;
 
 use crate::config::{Config, RuntimeConfig};
-use crate::services::{
-    events::storage_change::StorageChangeBus, share::ShareDownloadRollbackQueue,
-};
+use crate::services::events::storage_change::StorageChangeBus;
 use crate::storage::{DriverRegistry, PolicySnapshot, remote_protocol::RemoteProtocolRuntime};
 use aster_drive_metrics::SharedMetricsRecorder;
 use aster_forge_db::DbHandles;
@@ -34,8 +32,6 @@ pub struct PrimaryAppState {
     /// Local storage-change broadcast with an optional cross-instance transport.
     pub storage_change_bus: StorageChangeBus,
     pub storage_event_streams: crate::services::events::storage_streams::StorageEventStreams,
-    /// 公开分享下载中途断连时的 download_count 回滚队列
-    pub share_download_rollback: ShareDownloadRollbackQueue,
     /// 后台任务 dispatcher 唤醒信号。任务创建/重试后用它打断空闲退避 sleep。
     pub background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup,
     /// Remote storage protocol runtime, including reverse tunnel state.
@@ -96,10 +92,6 @@ pub trait MailRuntimeState: SharedRuntimeState {
 
 pub trait StorageChangeRuntimeState: SharedRuntimeState {
     fn storage_change_bus(&self) -> &StorageChangeBus;
-}
-
-pub trait ShareDownloadRuntimeState: SharedRuntimeState {
-    fn share_download_rollback(&self) -> &ShareDownloadRollbackQueue;
 }
 
 pub trait RemoteProtocolRuntimeState: SharedRuntimeState {
@@ -241,12 +233,6 @@ impl MailRuntimeState for PrimaryAppState {
 impl StorageChangeRuntimeState for PrimaryAppState {
     fn storage_change_bus(&self) -> &StorageChangeBus {
         &self.storage_change_bus
-    }
-}
-
-impl ShareDownloadRuntimeState for PrimaryAppState {
-    fn share_download_rollback(&self) -> &ShareDownloadRollbackQueue {
-        &self.share_download_rollback
     }
 }
 
@@ -408,7 +394,6 @@ pub(crate) mod test_support {
 mod tests {
     use super::{PrimaryAppState, SharedRuntimeState, StorageConnectorRuntimeState};
     use crate::config::{Config, RuntimeConfig};
-    use crate::services::share::build_share_download_rollback_queue;
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use aster_drive_migration::Migrator;
     use aster_forge_cache::CacheConfig;
@@ -435,11 +420,6 @@ mod tests {
         let storage_change_bus = crate::services::events::storage_change::StorageChangeBus::new(
             crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
-        let (share_download_rollback, _worker) = build_share_download_rollback_queue(
-            db.clone(),
-            1,
-            aster_drive_metrics::NoopMetrics::arc(),
-        );
 
         let state = PrimaryAppState {
             audit_writer: crate::runtime::test_support::audit_writer(&db).await,
@@ -456,7 +436,6 @@ mod tests {
             mail_sender: aster_forge_mail::memory_sender(),
             storage_change_bus,
             storage_event_streams: Default::default(),
-            share_download_rollback,
             background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
             remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
         };

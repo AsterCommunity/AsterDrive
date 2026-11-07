@@ -4635,7 +4635,7 @@ async fn test_disable_user_rejects_old_tokens_with_memory_cache() {
         mail_sender: base.mail_sender,
         storage_change_bus: base.storage_change_bus,
         storage_event_streams: base.storage_event_streams,
-        share_download_rollback: base.share_download_rollback,
+
         background_task_dispatch_wakeup: base.background_task_dispatch_wakeup,
         remote_protocol: base.remote_protocol,
     };

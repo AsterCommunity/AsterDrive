@@ -165,7 +165,7 @@ async fn render_thumbnail_with_lofty(
         source_file_name,
         source_mime_type,
         temp_dir.path(),
-        false,
+        blob.size,
     )
     .await?;
     let source_path = std::path::PathBuf::from(prepared_input.input_arg());

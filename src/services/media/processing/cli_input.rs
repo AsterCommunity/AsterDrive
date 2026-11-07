@@ -1,12 +1,10 @@
 use std::path::Path;
-use std::time::Duration;
 
 use tokio::io::AsyncWriteExt;
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::api::constants::HOUR_SECS;
 use crate::errors::{AsterError, MapAsterErr, Result, thumbnail_generation_error_with_code};
-use aster_drive_storage::{DirectDownloadOptions, StorageDriver};
+use aster_drive_storage::StorageDriver;
 
 use super::shared::cli_source_temp_path;
 
@@ -29,7 +27,6 @@ fn thumbnail_source_temp_copy_failed(message: String) -> AsterError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PreparedCliSourceKind {
     LocalPath,
-    PresignedUrl,
     StreamedTempFile,
 }
 
@@ -37,7 +34,6 @@ impl PreparedCliSourceKind {
     pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::LocalPath => "local_path",
-            Self::PresignedUrl => "presigned_url",
             Self::StreamedTempFile => "streamed_temp_file",
         }
     }
@@ -65,7 +61,7 @@ pub(crate) async fn prepare_cli_source(
     source_file_name: &str,
     source_mime_type: &str,
     temp_dir: &Path,
-    allow_presigned_url: bool,
+    source_size: i64,
 ) -> Result<PreparedCliSource> {
     if let Some(local_path_driver) = driver.extensions().local_path {
         let path = local_path_driver.resolve_local_path(storage_path)?;
@@ -77,30 +73,18 @@ pub(crate) async fn prepare_cli_source(
         });
     }
 
-    if allow_presigned_url && let Some(direct_driver) = driver.extensions().direct_download {
-        let request = direct_driver
-            .resolve_download_url(
-                storage_path,
-                Duration::from_secs(HOUR_SECS),
-                DirectDownloadOptions::default(),
-            )
-            .await?;
-        if let Some(request) = request {
-            return Ok(PreparedCliSource {
-                input_arg: request.url,
-                kind: PreparedCliSourceKind::PresignedUrl,
-            });
-        }
-    }
-
     let input_path = cli_source_temp_path(temp_dir, source_file_name, source_mime_type);
-    let mut input_file = tokio::fs::File::create(&input_path)
-        .await
-        .map_aster_err_ctx(
-            "create media source temp file",
-            thumbnail_source_temp_create_failed,
-        )?;
-    let mut input_stream = driver.get_stream(storage_path).await?;
+    let mut options = tokio::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut input_file = options.open(&input_path).await.map_aster_err_ctx(
+        "create media source temp file",
+        thumbnail_source_temp_create_failed,
+    )?;
+    let size = aster_forge_utils::numbers::i64_to_u64(source_size, "media source size")?;
+    let mut input_stream =
+        aster_drive_storage::ExactSizeReader::new(driver.get_stream(storage_path).await?, size);
     tokio::io::copy(&mut input_stream, &mut input_file)
         .await
         .map_aster_err_ctx(
@@ -207,7 +191,7 @@ mod tests {
             &self,
             _path: &str,
         ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
-            unreachable!()
+            Ok(Box::new(std::io::Cursor::new(b"streamed-source".to_vec())))
         }
 
         async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
@@ -235,13 +219,13 @@ mod tests {
         async fn resolve_download_url(
             &self,
             _path: &str,
-            expires: std::time::Duration,
+            _expires: std::time::Duration,
             _options: DirectDownloadOptions,
         ) -> aster_drive_storage::Result<Option<DirectDownloadRequest>> {
-            Ok(Some(DirectDownloadRequest::temporary_url(
-                self.url.clone(),
-                expires,
-            )))
+            panic!(
+                "media input must not delegate network access via {}",
+                self.url
+            );
         }
     }
 
@@ -322,7 +306,7 @@ mod tests {
             "avatar.heic",
             "image/heic",
             &temp_dir,
-            true,
+            15,
         )
         .await
         .unwrap();
@@ -352,7 +336,7 @@ mod tests {
             "dataset.csv",
             "text/csv",
             &temp_dir,
-            true,
+            15,
         )
         .await
         .unwrap();
@@ -365,7 +349,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn prepare_cli_source_uses_presigned_url_when_enabled() {
+    async fn prepare_cli_source_streams_even_when_provider_supports_presigned_urls() {
         let temp_dir = std::env::temp_dir().join(format!(
             "aster-media-cli-input-url-{}",
             rand::random::<u64>()
@@ -380,15 +364,15 @@ mod tests {
             "video.mp4",
             "video/mp4",
             &temp_dir,
-            true,
+            15,
         )
         .await
         .unwrap();
 
-        assert_eq!(prepared.kind(), PreparedCliSourceKind::PresignedUrl);
+        assert_eq!(prepared.kind(), PreparedCliSourceKind::StreamedTempFile);
         assert_eq!(
-            prepared.input_arg(),
-            "https://example.com/presigned-source.mp4"
+            tokio::fs::read(prepared.input_arg()).await.unwrap(),
+            b"streamed-source"
         );
         aster_forge_utils::fs::cleanup_temp_dir(temp_dir.to_string_lossy().as_ref()).await;
     }
@@ -409,7 +393,7 @@ mod tests {
             "video.mp4",
             "video/mp4",
             &temp_dir,
-            false,
+            15,
         )
         .await
         .unwrap();
@@ -419,5 +403,29 @@ mod tests {
         let stored = tokio::fs::read(prepared.input_arg()).await.unwrap();
         assert_eq!(stored, b"streamed-source");
         aster_forge_utils::fs::cleanup_temp_dir(temp_dir.to_string_lossy().as_ref()).await;
+    }
+
+    #[tokio::test]
+    async fn remote_media_staging_rejects_declared_size_mismatch_before_unbounded_disk_writes() {
+        for expected in [14, 16] {
+            let root =
+                std::env::temp_dir().join(format!("aster-media-size-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir(&root).unwrap();
+            let guard = aster_forge_utils::raii::TempDirGuard::new(root, "media size test");
+            let result = prepare_cli_source(
+                &StreamingDriver {
+                    bytes: b"streamed-source".to_vec(),
+                },
+                "blob/source",
+                "video.mp4",
+                "video/mp4",
+                guard.path(),
+                expected,
+            )
+            .await;
+            assert!(result.is_err());
+            let file = guard.path().join("source.mp4");
+            assert!(std::fs::metadata(file).unwrap().len() <= u64::try_from(expected).unwrap());
+        }
     }
 }

@@ -13,8 +13,6 @@
 	"settings_item_background_task_storage_migration_max_concurrency_desc": "The maximum number of storage policy migration tasks each worker process may execute at the same time. Keep this conservative to avoid saturating source storage, target storage, and the database with large object-copy batches.",
 	"settings_item_background_task_max_attempts_label": "Background task max attempts",
 	"settings_item_background_task_max_attempts_desc": "How many times regular workspace background tasks may be attempted before they become permanently failed. New tasks use this value, and manual retries reset failed tasks to the current setting; system periodic runtime events always stay fixed at 1.",
-	"settings_item_share_download_rollback_queue_capacity_label": "Share download rollback queue capacity",
-	"settings_item_share_download_rollback_queue_capacity_desc": "Maximum buffered shared download rollback jobs before overflow aggregation is used.",
 	"settings_item_share_stream_session_ttl_secs_label": "Share stream session lifetime",
 	"settings_item_share_stream_session_ttl_secs_desc": "How long one temporary Range-capable stream session stays valid for shared audio and video playback. Longer values work better for background music, but also extend the replay window if a link leaks.",
 	"settings_item_maintenance_cleanup_interval_secs_label": "Periodic maintenance scan interval",

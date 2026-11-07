@@ -908,11 +908,6 @@ mod tests {
         let storage_change_bus = crate::services::events::storage_change::StorageChangeBus::new(
             crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
-        let share_download_rollback =
-            crate::services::share::spawn_detached_share_download_rollback_queue(
-                database.clone(),
-                crate::config::operations::share_download_rollback_queue_capacity(&runtime_config),
-            );
 
         crate::runtime::PrimaryAppState {
             audit_writer: crate::runtime::test_support::audit_writer(&database).await,
@@ -929,7 +924,6 @@ mod tests {
             mail_sender: crate::services::mail::sender::runtime_sender(runtime_config),
             storage_change_bus,
             storage_event_streams: Default::default(),
-            share_download_rollback,
             background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
             remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
         }
