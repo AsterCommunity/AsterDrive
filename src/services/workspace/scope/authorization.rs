@@ -397,7 +397,10 @@ pub(crate) async fn authorize_workspace_on<'db, C: ConnectionTrait>(
     constraints: &WorkspaceAccessConstraints,
 ) -> Result<AuthorizedWorkspaceAccess<'db, C>> {
     let mutates = operation.mutates();
-    if mutates {
+    // Cancellation records task intent while a worker may hold the namespace.
+    // Keep current actor/member locking; queued folder cleanup locks its namespace
+    // in the cancellation service before acquiring these authority rows.
+    if mutates && operation != WorkspaceOperation::CancelTask {
         let workspace = match scope {
             WorkspaceStorageScope::Personal { user_id } => {
                 crate::services::files::lock::LockWorkspace::Personal { user_id }

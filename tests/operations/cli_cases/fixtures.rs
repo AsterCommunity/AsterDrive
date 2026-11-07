@@ -1,5 +1,6 @@
 //! Product migration fixture construction and assertions.
 use super::*;
+use aster_drive_model::entities::{auth_once_state, mfa_attempt_budget};
 
 pub(super) async fn seed_migration_fixture(database_url: &str) -> i64 {
     let state = common::setup_with_database_url(database_url).await;
@@ -211,6 +212,36 @@ async fn seed_mfa_fixture(db: &DatabaseConnection) {
         .unwrap()
         .expect("seed user should exist");
     let now = Utc::now();
+    let state_time = chrono::DateTime::parse_from_rfc3339("2026-11-07T01:02:03Z")
+        .unwrap()
+        .with_timezone(&Utc);
+
+    // Synthetic nonempty state exercises string/composite keys, nullable timestamps
+    // and opaque Unicode payloads through every database copy and resume path.
+    auth_once_state::ActiveModel {
+        key_hash: Set("e".repeat(64)),
+        payload: Set(serde_json::json!({"fixture": "迁移认证状态", "version": 1}).to_string()),
+        expires_at: Set(state_time + Duration::minutes(10)),
+    }
+    .insert(db)
+    .await
+    .unwrap();
+    for (purpose, failure_count, blocked_until) in [
+        ("login", 5, Some(state_time + Duration::minutes(15))),
+        ("management", 2, None),
+    ] {
+        mfa_attempt_budget::ActiveModel {
+            user_id: Set(user.id),
+            purpose: Set(purpose.to_string()),
+            failure_count: Set(failure_count),
+            window_started_at: Set(state_time),
+            blocked_until: Set(blocked_until),
+            updated_at: Set(state_time + Duration::minutes(1)),
+        }
+        .insert(db)
+        .await
+        .unwrap();
+    }
 
     mfa_factor_repo::create(
         db,
@@ -681,6 +712,33 @@ pub(super) async fn assert_migrated_fixture(
         .await
         .unwrap()
         .expect("migrated passkey should exist");
+    let state_time = chrono::DateTime::parse_from_rfc3339("2026-11-07T01:02:03Z")
+        .unwrap()
+        .with_timezone(&Utc);
+    let auth_state = auth_once_state::Entity::find_by_id("e".repeat(64))
+        .one(&target_db)
+        .await
+        .unwrap()
+        .expect("one-time authentication state should migrate");
+    assert_eq!(
+        auth_state.payload,
+        serde_json::json!({"fixture": "迁移认证状态", "version": 1}).to_string()
+    );
+    assert_eq!(auth_state.expires_at, state_time + Duration::minutes(10));
+    for (purpose, failure_count, blocked_until) in [
+        ("login", 5, Some(state_time + Duration::minutes(15))),
+        ("management", 2, None),
+    ] {
+        let budget = mfa_attempt_budget::Entity::find_by_id((passkey.user_id, purpose.to_string()))
+            .one(&target_db)
+            .await
+            .unwrap()
+            .expect("account MFA attempt budget should migrate");
+        assert_eq!(budget.failure_count, failure_count);
+        assert_eq!(budget.window_started_at, state_time);
+        assert_eq!(budget.blocked_until, blocked_until);
+        assert_eq!(budget.updated_at, state_time + Duration::minutes(1));
+    }
     let managed_followers_has_namespace =
         column_exists(&target_db, target_backend, "managed_followers", "namespace").await;
     let master_bindings_has_namespace =

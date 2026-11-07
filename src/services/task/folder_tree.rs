@@ -2598,6 +2598,69 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn queued_cancellation_releases_resumable_staging_and_operation_lock() {
+        let state = build_test_state().await;
+        let (user, root) = insert_test_user_and_root(&state, "queued-cancel", None).await;
+        let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+        let info = super::create_folder_tree_mutation_task_in_scope(
+            &state,
+            scope,
+            root.id,
+            FolderTreeMutationOperation::Delete,
+        )
+        .await
+        .unwrap();
+        let (task, context) = claim_task_with_context(&state, info.id).await;
+        super::ensure_operation_lock(&state, &task, context.lease_guard(), scope, &root)
+            .await
+            .unwrap();
+        crate::db::repository::folder_tree_operation_repo::stage_ids(
+            state.writer_db(),
+            task.id,
+            EntityType::Folder,
+            &[root.id],
+        )
+        .await
+        .unwrap();
+        let mut retry: background_task::ActiveModel = task.clone().into();
+        retry.status = Set(BackgroundTaskStatus::Retry);
+        retry.processing_started_at = Set(None);
+        retry.lease_expires_at = Set(None);
+        retry.update(state.writer_db()).await.unwrap();
+        let audit = crate::services::ops::audit::AuditContext {
+            user_id: user.id,
+            ip_address: None,
+            user_agent: None,
+        };
+
+        for _ in 0..2 {
+            let canceled = crate::services::task::cancel::request(&state, scope, task.id, &audit)
+                .await
+                .unwrap();
+            assert_eq!(canceled.status, BackgroundTaskStatus::Canceled);
+        }
+        assert_eq!(
+            crate::db::repository::folder_tree_operation_repo::count(state.writer_db(), task.id)
+                .await
+                .unwrap(),
+            0
+        );
+        assert!(
+            lock_repo::find_all_by_entity(state.writer_db(), EntityType::Folder, root.id)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            folder_repo::find_by_id(state.writer_db(), root.id)
+                .await
+                .unwrap()
+                .deleted_at
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
     async fn admin_terminal_cleanup_releases_staging_and_operation_lock() {
         let state = build_test_state().await;
         let now = Utc::now();

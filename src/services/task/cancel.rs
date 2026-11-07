@@ -27,75 +27,107 @@ pub(crate) async fn request(
     id: i64,
     ctx: &AuditContext,
 ) -> Result<TaskInfo> {
-    let changed = transaction::with_transaction(state.writer_db(), async |txn| {
-        crate::services::workspace::scope::authorize_workspace_on(
-            txn,
-            scope,
-            crate::services::workspace::scope::WorkspaceOperation::CancelTask,
-            &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
-        )
-        .await?;
-        let mut query = background_task::Entity::find_by_id(id);
-        if txn.get_database_backend() != sea_orm::DbBackend::Sqlite {
-            query = query.lock_exclusive();
-        }
-        let task = query
-            .one(txn)
-            .await?
-            .ok_or_else(|| AsterError::record_not_found("task not found"))?;
-        super::ensure_task_in_scope(&task, scope)?;
-        if task.kind == BackgroundTaskKind::SystemRuntime {
-            return Err(crate::errors::precondition_failed_with_code(
-                ApiErrorCode::TaskCancelNotAllowed,
-                "system maintenance cannot be canceled through a workspace",
-            ));
-        }
-        crate::services::workspace::scope::require_task_control_on(
-            txn,
-            scope.actor_user_id(),
-            task.kind,
-        )
-        .await?;
-        let queued = matches!(
-            task.status,
-            BackgroundTaskStatus::Pending | BackgroundTaskStatus::Retry
-        );
-        match task.status {
-            BackgroundTaskStatus::Canceled | BackgroundTaskStatus::Canceling => return Ok(false),
-            BackgroundTaskStatus::Succeeded | BackgroundTaskStatus::Failed => {
-                return Err(AsterError::conflict("task has already finished")
-                    .with_api_error_code(ApiErrorCode::TaskCancelNotAllowed));
+    let changed = loop {
+        let changed = transaction::with_transaction(state.writer_db(), async |txn| {
+            let cleanup_namespace = background_task::Entity::find_by_id(id)
+                .select_only()
+                .columns([
+                    background_task::Column::Kind,
+                    background_task::Column::Status,
+                ])
+                .into_tuple::<(BackgroundTaskKind, BackgroundTaskStatus)>()
+                .one(txn)
+                .await?
+                .is_some_and(|(kind, status)| {
+                    kind == BackgroundTaskKind::FolderTreeMutation
+                        && matches!(
+                            status,
+                            BackgroundTaskStatus::Pending | BackgroundTaskStatus::Retry
+                        )
+                });
+            if cleanup_namespace {
+                crate::services::files::trash::coordination::lock_scope_on(txn, scope.into())
+                    .await?;
             }
-            _ => {}
-        }
-        let mut update = task.clone().into_active_model();
-        update.updated_at = Set(Utc::now());
-        update.status = Set(if queued {
-            BackgroundTaskStatus::Canceled
-        } else {
-            BackgroundTaskStatus::Canceling
-        });
-        update.status_text = Set(Some(
-            if queued {
-                "Canceled"
+            crate::services::workspace::scope::authorize_workspace_on(
+                txn,
+                scope,
+                crate::services::workspace::scope::WorkspaceOperation::CancelTask,
+                &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+            )
+            .await?;
+            let mut query = background_task::Entity::find_by_id(id);
+            if txn.get_database_backend() != sea_orm::DbBackend::Sqlite {
+                query = query.lock_exclusive();
+            }
+            let task = query
+                .one(txn)
+                .await?
+                .ok_or_else(|| AsterError::record_not_found("task not found"))?;
+            super::ensure_task_in_scope(&task, scope)?;
+            if task.kind == BackgroundTaskKind::SystemRuntime {
+                return Err(crate::errors::precondition_failed_with_code(
+                    ApiErrorCode::TaskCancelNotAllowed,
+                    "system maintenance cannot be canceled through a workspace",
+                ));
+            }
+            crate::services::workspace::scope::require_task_control_on(
+                txn,
+                scope.actor_user_id(),
+                task.kind,
+            )
+            .await?;
+            let queued = matches!(
+                task.status,
+                BackgroundTaskStatus::Pending | BackgroundTaskStatus::Retry
+            );
+            if queued && task.kind == BackgroundTaskKind::FolderTreeMutation && !cleanup_namespace {
+                // The worker requeued after the snapshot. Release authority/task rows,
+                // then retry with namespace -> authority -> task lock ordering.
+                return Ok(None);
+            }
+            match task.status {
+                BackgroundTaskStatus::Canceled | BackgroundTaskStatus::Canceling => {
+                    return Ok(Some(false));
+                }
+                BackgroundTaskStatus::Succeeded | BackgroundTaskStatus::Failed => {
+                    return Err(AsterError::conflict("task has already finished")
+                        .with_api_error_code(ApiErrorCode::TaskCancelNotAllowed));
+                }
+                _ => {}
+            }
+            let mut update = task.clone().into_active_model();
+            update.updated_at = Set(Utc::now());
+            update.status = Set(if queued {
+                BackgroundTaskStatus::Canceled
             } else {
-                "Cancellation requested"
+                BackgroundTaskStatus::Canceling
+            });
+            update.status_text = Set(Some(
+                if queued {
+                    "Canceled"
+                } else {
+                    "Cancellation requested"
+                }
+                .to_string(),
+            ));
+            if queued {
+                update.finished_at = Set(Some(Utc::now()));
+                update.expires_at = Set(super::task_expiration_from(state, Utc::now()));
+                update.processing_started_at = Set(None);
+                update.last_heartbeat_at = Set(None);
+                update.lease_expires_at = Set(None);
+                update.failure_can_retry = Set(Some(true));
+                super::folder_tree::cleanup_terminal_operation_on(txn, &task).await?;
             }
-            .to_string(),
-        ));
-        if queued {
-            update.finished_at = Set(Some(Utc::now()));
-            update.expires_at = Set(super::task_expiration_from(state, Utc::now()));
-            update.processing_started_at = Set(None);
-            update.last_heartbeat_at = Set(None);
-            update.lease_expires_at = Set(None);
-            update.failure_can_retry = Set(Some(true));
-            super::folder_tree::cleanup_terminal_operation_on(txn, &task).await?;
+            update.update(txn).await?;
+            Ok(Some(true))
+        })
+        .await?;
+        if let Some(changed) = changed {
+            break changed;
         }
-        update.update(txn).await?;
-        Ok(true)
-    })
-    .await?;
+    };
     let result = super::get_task_in_scope(state, scope, id).await?;
     if changed {
         audit::log_with_details(

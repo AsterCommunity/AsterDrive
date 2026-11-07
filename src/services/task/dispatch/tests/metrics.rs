@@ -149,21 +149,34 @@ async fn handler_return_metrics_preserve_success_and_error_results() {
 async fn dropped_handler_future_releases_active_once_and_records_no_return() {
     use sea_orm::TransactionTrait;
     let (state, provider) = state_with_metrics().await;
-    let (task, lease) = claimed_empty_trash_task(&state).await;
+    let info = crate::services::task::blob_maintenance::create_blob_maintenance_task_for_admin(
+        &state,
+        1,
+        crate::services::task::types::BlobMaintenanceAction::IntegrityCheck,
+        None,
+    )
+    .await
+    .unwrap();
+    let mut claimed = claim_due_for_lane(&state, test_lane_config(TaskLane::Fallback, 1, false), 1)
+        .await
+        .unwrap();
+    let (task, lease) = claimed.pop().unwrap();
+    assert_eq!(task.id, info.id);
     let transaction = state.writer_db().begin().await.unwrap();
     let store = BackgroundTaskExecutionStore::new(state.clone());
     let mut handler = store.process_task(
         &task,
         TaskExecutionContext::new(lease, Duration::from_secs(60), CancellationToken::new()),
     );
-    // The one-connection writer is held. Poll through the guard creation until
-    // the real handler waits on its first database write, then cancel by drop.
+    // System maintenance reaches the metrics guard without a workspace preflight
+    // query. The held writer blocks the real handler's first write; a user task
+    // would instead block before the guard, during workspace authorization.
     assert!(futures::poll!(handler.as_mut()).is_pending());
     assert_eq!(
         sample(
             &provider,
             "aster_task_handler_active",
-            &["kind=\"trash_purge_all\""]
+            &["kind=\"blob_maintenance\""]
         )
         .await,
         1.0
@@ -173,7 +186,7 @@ async fn dropped_handler_future_releases_active_once_and_records_no_return() {
         sample(
             &provider,
             "aster_task_handler_active",
-            &["kind=\"trash_purge_all\""]
+            &["kind=\"blob_maintenance\""]
         )
         .await,
         0.0
@@ -182,7 +195,7 @@ async fn dropped_handler_future_releases_active_once_and_records_no_return() {
         sample(
             &provider,
             "aster_task_handler_duration_seconds_count",
-            &["kind=\"trash_purge_all\"", "result=\"dropped\""]
+            &["kind=\"blob_maintenance\"", "result=\"dropped\""]
         )
         .await,
         1.0

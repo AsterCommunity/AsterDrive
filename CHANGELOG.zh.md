@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **发布验签与管理环境变量别名** — 生成的 cosign 验证命令精确绑定 workflow／ref 身份，移除仓库子串匹配。Helm 拒绝管理字段的大小写／点号别名；启动时在写配置前拒绝归一化到同一路径的环境变量，涵盖外部 `envFrom` 导入的别名。升级前移除冲突别名，补充配置能力保留。
 
-- **账号认证预算与最终校验** — 持久化彼此独立的账号级 MFA 登录／管理预算和邮件重发资格，Passkey challenge 与签名请求 nonce 通过 writer 数据库一次消费；HTTP worker 共享认证限流，改密校验并发恢复／session 撤销，受限 optional identity 与 SSE token 到期生效，邮箱确认重新检查黑名单。MFA 在十五分钟窗口内最多失败五次，随后固定冷却十五分钟，被拒请求不延长冷却。Primary／Follower writer 须协调升级，升级前的 Passkey 流程需重新发起。
+- **账号认证预算与最终校验** — 持久化彼此独立的账号级 MFA 登录／管理预算和邮件重发资格，Passkey challenge 与签名请求 nonce 通过 writer 数据库一次消费；HTTP worker 共享认证限流，改密校验并发恢复／session 撤销，受限 optional identity 与 SSE token 到期生效，邮箱确认重新检查黑名单。MFA 在十五分钟窗口内最多失败五次，随后固定冷却十五分钟，被拒请求不延长冷却。跨数据库 CLI 迁移保留一次性认证状态和账号 MFA 预算。Primary／Follower writer 须协调升级，升级前的 Passkey 流程需重新发起。
 
 - **远端与 provider 委托边界** — 校验 multipart 清理范围和实际 completion 正文摘要，统一 target 规范边界，aria2 已保存测试密钥绑定原 endpoint，注册 token 改为 stdin 并正确转义生成命令，Follower 翻译按本地 node／connector scope 隔离。Provider 会话在外部创建前预留上传记录，OneDrive tenant／cloud 配置同步凭据身份，driver 缓存绑定策略与凭据代。COS 浏览器上传通过服务端中转阻止 copy-source 委托；Azure 客户端可写 multipart 对象复制到新 key 后发布。显式 HTTP 部署选择保留。
 
@@ -43,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **会话登出与 MFA 次数限制** — 登出按已验签的 session 撤销，即使 refresh 已轮换 cookie，access 与 refresh 也立即失效，其他设备不受影响。浏览器跨标签页协调 refresh/logout 响应顺序；并发 MFA 验证仍严格遵守五次错误限制，因子消费与会话创建同事务提交。
 
-- **Workspace 与资源授权** — 统一文件服务、上传发布、WebDAV、WOPI、分享、任务与受控管理员读取的当前身份、委托范围和操作检查。阻止团队成员校验遗漏、旧凭据缓存继续授权、跨挂载锁操作、集合锁绕过及管理员降权后的特权任务重试；上传队列与恢复绑定原账号和 workspace。登出清理私有列表、播放和下载状态，拒绝旧账号的迟到响应回填。保留协议 token／前置条件及既有能力有效期契约。(#745)
+- **Workspace 与资源授权** — 统一文件服务、上传发布、WebDAV、WOPI、分享、任务与受控管理员读取的当前身份、委托范围和操作检查。阻止团队成员校验遗漏、旧凭据缓存继续授权、跨挂载锁操作、集合锁绕过及管理员降权后的特权任务重试；上传队列与恢复绑定原账号和 workspace。运行中任务取消先记录意图，不等待 worker 持有的 namespace 锁，同时保留当前资格检查和排队目录任务的原子清理。登出清理私有列表、播放和下载状态，拒绝旧账号的迟到响应回填。保留协议 token／前置条件及既有能力有效期契约。(#745)
 
 ### Changed
 

@@ -1572,12 +1572,9 @@ async fn test_migrated_remote_target_audit_supports_filters_presentation_and_csv
     .await
     .unwrap();
     let migration = aster_drive_migration::CurrentMigrator::migrations()
-        .pop()
-        .unwrap();
-    assert_eq!(
-        migration.name(),
-        "m20261105_000002_remote_target_audit_names"
-    );
+        .into_iter()
+        .find(|migration| migration.name() == "m20261105_000002_remote_target_audit_names")
+        .expect("remote-target audit rename migration should be registered");
     migration
         .up(&SchemaManager::new(state.writer_db()))
         .await
