@@ -143,7 +143,7 @@ docker compose --profile aria2 up -d
 
 如果只用 Compose 启动 aria2，而 AsterDrive 自己用 `cargo run` 跑在宿主机上，RPC 地址要改成 `http://127.0.0.1:6800/jsonrpc`。这种混合开发模式仍然要求 `offline_download_temp_dir` 是双方都能访问的同一个绝对路径，例如把宿主机的 `./data/offline-download-temp` 挂到 aria2 容器里的 `/srv/asterdrive/offline-download-temp`，并在 AsterDrive 里填写这个宿主机绝对路径。
 
-当 aria2 以不同的 OS 用户运行时，AsterDrive 必须允许这个外部写入者在每个任务的 `token_dir` 下创建下载临时文件。`allow_external_aria2_writer_chain` 的兼容路径会把每个任务的目录设为可写，同时让共享的 tasks 父目录仅可穿越。这在单租户、临时卷不与不可信本地用户共享的隔离 Compose 部署里是可以接受的。更稳妥的生产做法是：让两个进程跑在同一个 UID 下、分配共享组并使用 `0o770`，或者为 aria2 用户在 `token_dir` 上配置 POSIX ACL。
+Compose 示例让两个服务使用同一 UID/GID `10001:10001`，任务暂存目录保持私有 `0700`。宿主机混合开发时，把 aria2 的 `PUID`／`PGID` 改成运行 AsterDrive 的宿主机用户 ID。不同 UID 部署必须显式共享一个可信 GID，并预先把 `offline_download_temp_dir` 根配置为服务账号拥有、共享组可读写执行且非 world-writable 的目录，例如 `2770`。AsterDrive 不再自动开放 `0777`；ACL 可以补充共享组授权，但不能替代它。详情见[链接导入的暂存目录要求](/admin/offline-download/)。
 
 保存后可以在“链接导入引擎注册表”里点“测试 aria2”。服务端会用当前 RPC 地址和密钥调用 `aria2.getVersion`，用于确认 AsterDrive 到 aria2 JSON-RPC 的连通性。
 

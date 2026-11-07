@@ -269,10 +269,20 @@ async fn start_aria2_context(temp_dir: &str) -> Aria2TestContext {
     let rpc_secret = format!("asterdrive-{}", uuid::Uuid::new_v4().simple());
     let config_dir = prepare_aria2_test_config(&host_temp_dir, &rpc_secret)
         .expect("aria2 test config should be created");
+    // Private staging requires the engine to run as the test service identity.
+    // Docker bind mounts preserve numeric ownership on Linux CI.
+    #[cfg(unix)]
+    let (uid, gid) = (
+        rustix::process::geteuid().as_raw(),
+        rustix::process::getegid().as_raw(),
+    );
+    #[cfg(not(unix))]
+    let (uid, gid) = (0_u32, 0_u32);
     let container = GenericImage::new("p3terx/aria2-pro", ARIA2_TEST_IMAGE_TAG)
         .with_exposed_port(IntoContainerPort::tcp(6800))
-        .with_env_var("PUID", "0")
-        .with_env_var("PGID", "0")
+        .with_env_var("PUID", uid.to_string())
+        .with_env_var("PGID", gid.to_string())
+        .with_env_var("UMASK_SET", "022")
         .with_env_var("RPC_SECRET", rpc_secret.as_str())
         .with_env_var("UPDATE_TRACKERS", "false")
         .with_mount(Mount::bind_mount(
@@ -299,6 +309,24 @@ async fn start_aria2_context(temp_dir: &str) -> Aria2TestContext {
             "aria2 RPC did not become ready at {rpc_url}: {last_error}; stdout={}; stderr={}",
             String::from_utf8_lossy(&stdout),
             String::from_utf8_lossy(&stderr)
+        );
+    }
+
+    #[cfg(unix)]
+    {
+        let output = container
+            .exec(testcontainers::core::ExecCommand::new([
+                "id", "-u", "p3terx",
+            ]))
+            .await
+            .expect("aria2 service user should be inspectable")
+            .stdout_to_vec()
+            .await
+            .expect("aria2 service UID should be readable");
+        assert_eq!(
+            String::from_utf8(output).unwrap().trim(),
+            uid.to_string(),
+            "aria2 must adopt the test service UID before creating private staging files"
         );
     }
 
@@ -1344,6 +1372,7 @@ async fn test_offline_download_aria2_engine_imports_example_com_e2e() {
             .as_deref()
             .is_some_and(|error| error.contains("blocked address"))
     {
+        eprintln!("aria2 public-network E2E skipped: example.com resolves to a blocked address");
         return;
     }
     assert_eq!(
