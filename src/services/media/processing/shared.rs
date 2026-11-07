@@ -18,15 +18,41 @@ const MAX_CLI_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
 
 pub(crate) use aster_forge_utils::raii::TempDirGuard;
 
+pub(crate) enum CliInput {
+    File(std::fs::File),
+    ObjectProxy(String),
+}
+
 pub(crate) fn run_cli_command_with_timeout(
     command: &str,
     args: &[&str],
-    input: Option<std::fs::File>,
+    input: Option<CliInput>,
     error: impl Fn(String) -> AsterError,
 ) -> Result<Output> {
-    let mut child = Command::new(command)
-        .args(args)
-        .stdin(input.map_or_else(Stdio::null, Stdio::from))
+    let mut process = Command::new(command);
+    process.args(args).stdin(Stdio::null());
+    match input {
+        Some(CliInput::File(file)) => {
+            process.stdin(Stdio::from(file));
+        }
+        Some(CliInput::ObjectProxy(proxy)) => {
+            // FFmpeg's HTTP implementation checks lowercase no_proxy even when
+            // http_proxy was supplied explicitly. Never inherit a bypass.
+            for key in [
+                "http_proxy",
+                "HTTP_PROXY",
+                "https_proxy",
+                "HTTPS_PROXY",
+                "all_proxy",
+                "ALL_PROXY",
+            ] {
+                process.env(key, &proxy);
+            }
+            process.env("no_proxy", "").env("NO_PROXY", "");
+        }
+        None => {}
+    }
+    let mut child = process
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

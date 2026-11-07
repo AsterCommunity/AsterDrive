@@ -254,6 +254,8 @@ They usually require the external service to reach the file preview link. Privat
 
 ## FFmpeg input boundary
 
-FFmpeg thumbnails and ffprobe metadata process only the current object. Referenced files, playlists and network sources are rejected. Local objects provide an open seekable file directly; remote objects stream through the storage client into temporary files with exact size checks. Child processes receive no presigned URL.
+FFmpeg thumbnails and ffprobe metadata process only the selected object. Referenced files, playlists and additional network sources are rejected. Local objects provide an open seekable file directly. Remote backends with efficient Range support read only requested blocks through a temporary loopback HTTP reader bound to a fixed driver, object key and size. It accepts only that object's GET/HEAD/Range; it never forwards a caller-provided URL. Only stream-only backends stage an exact-size temporary file. Child processes receive no provider credentials or presigned URLs.
+
+The reader lives for one operation and closes with the child. It permits at most four active connections and 128 HTTP requests, uses 256 KiB storage blocks with eight cached blocks, and shares a 256 MiB / 4096 storage-request budget. Range reads happen outside database transactions. A 64 MiB video with trailing metadata required at most about 1.75 MiB and eight storage Range requests per tool in the local fixture, with no full-file staging; this is not a production latency or RSS benchmark.
 
 Installed FFmpeg/ffprobe builds must support the `fd` input protocol (check with `ffmpeg -h protocol=fd`); official images meet this requirement. Unsupported builds fail without falling back to unrestricted file/network protocols. Ordinary MP4 files with trailing metadata remain seekable.

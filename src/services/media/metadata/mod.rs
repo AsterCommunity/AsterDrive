@@ -25,7 +25,7 @@ mod video;
 use audio::{parse_audio_metadata_from_path, parse_audio_metadata_from_reader};
 use image::{parse_image_metadata_from_path, parse_image_metadata_with_reader_factory};
 use source::{PreparedMediaMetadataSource, prepare_media_metadata_source};
-use video::parse_video_metadata_from_path;
+use video::parse_video_metadata;
 
 pub use video::probe_ffprobe_cli_command;
 
@@ -504,17 +504,19 @@ async fn extract_video_metadata(
         return Ok(unsupported_video_result());
     }
 
-    let source =
-        prepare_media_metadata_source(state, blob, source_file_name, source_mime_type, false)
-            .await?;
-    let path = source
-        .path()
-        .ok_or_else(|| AsterError::internal_error("video metadata source has no local path"))?
-        .to_path_buf();
-    let video_metadata =
-        tokio::task::spawn_blocking(move || parse_video_metadata_from_path(&command, &path))
-            .await
-            .map_aster_err_ctx("video metadata task panicked", AsterError::internal_error)??;
+    let policy = state.policy_snapshot().get_policy_or_err(blob.policy_id)?;
+    let driver = state.driver_registry().get_driver(&policy)?;
+    let input = crate::services::media::processing::ffmpeg_input::FfmpegInput::prepare(
+        driver,
+        blob,
+        source_file_name,
+        source_mime_type,
+        &state.config().server.temp_dir,
+    )
+    .await?;
+    let video_metadata = tokio::task::spawn_blocking(move || parse_video_metadata(&command, input))
+        .await
+        .map_aster_err_ctx("video metadata task panicked", AsterError::internal_error)??;
 
     Ok(ExtractedMediaMetadata {
         kind: MediaMetadataKind::Video,

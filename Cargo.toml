@@ -264,6 +264,7 @@ emojis = { workspace = true }
 hex = { workspace = true }
 hmac = "0.13"
 http = "1"
+httparse = "1"
 http-body.workspace = true
 image = { version = "0.25", default-features = false, features = ["bmp", "dds", "exr", "ff", "gif", "hdr", "ico", "jpeg", "png", "pnm", "qoi", "tga", "tiff", "webp"] }
 governor = "0.10"

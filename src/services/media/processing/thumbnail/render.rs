@@ -92,7 +92,7 @@ pub(super) async fn render_thumbnail_bytes(
                 blob,
                 source_file_name,
                 source_mime_type,
-                driver.as_ref(),
+                driver.clone(),
                 &command,
                 operations::thumbnail_max_dimension(state.runtime_config()),
             )
@@ -284,7 +284,7 @@ pub(super) async fn render_image_preview_bytes(
                 blob,
                 source_file_name,
                 source_mime_type,
-                driver.as_ref(),
+                driver.clone(),
                 &command,
                 operations::image_preview_max_dimension(state.runtime_config()),
             )

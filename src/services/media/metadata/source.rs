@@ -58,16 +58,6 @@ pub(super) enum PreparedMediaMetadataSource {
     Range(PreparedRangeMediaMetadataSource),
 }
 
-impl PreparedMediaMetadataSource {
-    pub(super) fn path(&self) -> Option<&Path> {
-        match self {
-            Self::Local(path) => Some(path.as_path()),
-            Self::Temp(guard) => Some(guard.path()),
-            Self::Range(_) => None,
-        }
-    }
-}
-
 pub(super) struct PreparedRangeMediaMetadataSource {
     driver: Arc<dyn StorageDriver>,
     storage_path: String,

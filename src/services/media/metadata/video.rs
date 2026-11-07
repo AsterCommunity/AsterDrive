@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use serde_json::Value;
 
 use crate::config::media_processing;
@@ -7,17 +5,16 @@ use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::services::media::processing::run_cli_command_with_timeout;
 use aster_drive_model::types::VideoMediaMetadata;
 
-pub(super) fn parse_video_metadata_from_path(
+pub(super) fn parse_video_metadata(
     command: &str,
-    path: &Path,
+    input: crate::services::media::processing::ffmpeg_input::FfmpegInput,
 ) -> Result<VideoMediaMetadata> {
-    let input = crate::services::media::processing::ffmpeg_input::open_source(path)?;
-    let mut args = vec!["-v", "error"];
-    args.extend_from_slice(crate::services::media::processing::ffmpeg_input::INPUT_OPTIONS);
-    args.extend_from_slice(&["-print_format", "json", "-show_streams", "-show_format"]);
-    let output = run_cli_command_with_timeout(command, &args, Some(input), |message| {
-        AsterError::validation_error(format!("ffprobe metadata failed: {message}"))
-    })?;
+    let output = input.run(
+        command,
+        &["-v", "error"],
+        &["-print_format", "json", "-show_streams", "-show_format"],
+        |message| AsterError::validation_error(format!("ffprobe metadata failed: {message}")),
+    )?;
     if !output.status.success() {
         let detail = crate::services::media::processing::cli_output_detail(&output);
         return Err(AsterError::validation_error(format!(

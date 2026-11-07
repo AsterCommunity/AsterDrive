@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- **Media input confinement** — FFmpeg thumbnails and ffprobe metadata read only the supplied seekable object descriptor, with standalone demuxers and the `fd` protocol permitted. Referenced local files, playlists and network URLs are rejected. Remote inputs use exact-size streaming scratch files; local FFmpeg inputs avoid copying. Host installations require `fd` protocol support; official images provide it.
+- **Media input confinement** — FFmpeg thumbnails and ffprobe metadata read only the selected object, with standalone demuxers and external-reference rejection. Local inputs use seekable descriptors; efficient remote backends retain on-demand Range reads through a temporary loopback reader bound to one driver/key/size, with bounded block caching and no full-file staging. Stream-only backends retain exact-size scratch staging. Child processes receive no provider credentials or URLs; inherited proxy bypasses are cleared. Host builds need `fd` protocol support for local inputs; official images provide it.
 
 - **Local inputs and diagnostics** — Remove source/capability URLs before formatting offline-download and OneDrive transport errors, escape untrusted text-log fields, and reject control characters in account email and queued recipients. Create generated configuration with private Unix permissions and tighten permissions before backfilling keys, rejecting link aliases; benchmark runs use fresh private output directories. Existing configuration files without a backfill are not rewritten.
 
