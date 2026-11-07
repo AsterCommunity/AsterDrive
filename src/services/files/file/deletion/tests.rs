@@ -368,6 +368,7 @@ async fn build_deletion_test_state() -> (
         metrics: aster_drive_metrics::NoopMetrics::arc(),
         mail_sender: sender::runtime_sender(runtime_config),
         storage_change_bus,
+        storage_event_streams: Default::default(),
         share_download_rollback,
         background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
         remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
@@ -761,4 +762,65 @@ async fn batch_purge_in_scope_keeps_blob_when_other_file_still_references_it() {
         reloaded_user.storage_used, 13,
         "only one file's bytes should be reclaimed"
     );
+}
+
+#[tokio::test]
+async fn batch_purge_aggregates_repeated_revision_blob_refs_and_logical_quota_once() {
+    use crate::db::repository::revision_repo::{self, NewRevision, RevisionReason};
+    let (state, user, policy, driver) = build_deletion_test_state().await;
+    let db = state.writer_db();
+    let mut files = Vec::new();
+    let mut logical_bytes = 0;
+    for index in 1..=16 {
+        let size = index * 3;
+        let path = format!("files/budget-{index}");
+        let blob = create_blob(db, policy.id, &path, size, 3).await;
+        driver.insert_object(&path);
+        let file = create_file(db, user.id, blob.id, size, &format!("file-{index}")).await;
+        for _ in 0..2 {
+            revision_repo::append(
+                db,
+                file.id,
+                None,
+                NewRevision {
+                    blob_id: blob.id,
+                    logical_size: size,
+                    mime_type: "application/octet-stream",
+                    content_sha256: None,
+                    creator_user_id: Some(user.id),
+                    creator_display_name: "tester",
+                    comment: None,
+                    reason: RevisionReason::Overwrite,
+                    created_at: Utc::now(),
+                    etag: None,
+                },
+            )
+            .await
+            .unwrap();
+        }
+        logical_bytes += size * 3;
+        files.push(file);
+    }
+    set_user_storage_used(db, &user, logical_bytes).await;
+    assert_eq!(
+        batch_purge_in_scope(
+            &state,
+            WorkspaceStorageScope::Personal { user_id: user.id },
+            files
+        )
+        .await
+        .unwrap(),
+        16
+    );
+    assert_eq!(driver.delete_calls(), 16);
+    assert_eq!(
+        user::Entity::find_by_id(user.id)
+            .one(db)
+            .await
+            .unwrap()
+            .unwrap()
+            .storage_used,
+        0
+    );
+    assert!(file_blob::Entity::find().all(db).await.unwrap().is_empty());
 }

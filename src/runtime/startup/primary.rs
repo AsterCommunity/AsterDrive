@@ -64,6 +64,7 @@ pub async fn prepare_primary(
             metrics: common.metrics,
             mail_sender,
             storage_change_bus,
+            storage_event_streams: Default::default(),
             share_download_rollback,
             background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
             remote_protocol,

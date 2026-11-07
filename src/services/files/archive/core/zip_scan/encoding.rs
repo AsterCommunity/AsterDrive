@@ -1,5 +1,3 @@
-use std::io::Read;
-
 use encoding_rs::{BIG5, EUC_KR, Encoding, GB18030, SHIFT_JIS, WINDOWS_1252};
 use oem_cp::{
     code_table::{DECODING_TABLE_CP437, DECODING_TABLE_CP850},
@@ -13,8 +11,8 @@ use aster_drive_model::types::ArchiveFilenameEncoding;
 // ZIP APPNOTE general-purpose bit 11 declares UTF-8 names, independently of decoded display text.
 pub(super) const ZIP_UTF8_FLAG: u16 = 1 << 11;
 
-pub(super) fn decode_zip_entry_name<R: Read>(
-    entry: &zip::read::ZipFile<'_, R>,
+pub(super) fn decode_zip_entry_name(
+    entry: &zip::read::ZipFileEntry<'_>,
     filename_encoding: ArchiveFilenameEncoding,
 ) -> Result<String> {
     let raw = entry.name_raw();

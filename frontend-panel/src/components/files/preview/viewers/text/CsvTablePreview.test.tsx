@@ -149,8 +149,32 @@ describe("CsvTablePreview", () => {
 		);
 		expect(screen.getByText("user-0")).toBeInTheDocument();
 		expect(screen.getAllByText("member")[0]).toBeInTheDocument();
-		expect(screen.getByText("files:table_truncated:500")).toBeInTheDocument();
+		expect(
+			screen.getByText("files:structured_preview_limited"),
+		).toBeInTheDocument();
 
 		parseSpy.mockRestore();
+	});
+	it("caps rendered cells for a wide sparse table", () => {
+		const content = [
+			Array.from({ length: 2000 }, (_, index) => `column-${index}`).join(","),
+			...Array.from({ length: 500 }, (_, index) => `value-${index}`),
+		].join("\n");
+		mockState.useTextContent.mockReturnValue({
+			content,
+			loading: false,
+			error: false,
+			reload: mockState.reload,
+		});
+		const { container } = render(
+			<CsvTablePreview resource={resource} delimiter="," />,
+		);
+		expect(container.querySelectorAll("th")).toHaveLength(50);
+		expect(container.querySelectorAll("th,td").length).toBeLessThanOrEqual(
+			10_000,
+		);
+		expect(
+			screen.getByText("files:structured_preview_limited"),
+		).toBeInTheDocument();
 	});
 });

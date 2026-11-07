@@ -153,7 +153,7 @@ pub enum StorageChangeWorkspace {
 pub struct StorageChangeEvent {
     #[serde(skip, default = "default_storage_change_audience")]
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(ignore))]
-    audience: StorageChangeAudience,
+    pub(crate) audience: StorageChangeAudience,
     pub kind: StorageChangeKind,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(required = true))]
     pub workspace: Option<StorageChangeWorkspace>,

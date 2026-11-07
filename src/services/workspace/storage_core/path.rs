@@ -90,6 +90,13 @@ pub(crate) async fn ensure_upload_parent_path_with_created<C: sea_orm::Connectio
         &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
     )
     .await?;
+    crate::services::files::folder::hierarchy::ensure_insertion_depth_on(
+        db,
+        scope,
+        parsed.base_folder_id,
+        parsed.parent_segments.len(),
+    )
+    .await?;
     let mut current_parent = parsed.base_folder_id;
     let mut current_folder = parsed.base_folder;
     let mut created = Vec::new();

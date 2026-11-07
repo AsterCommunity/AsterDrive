@@ -129,7 +129,10 @@ fn parse_token(token: &str) -> Result<ParsedDirectLinkToken<'_>> {
     // 6-character signature to the base62 file id, so parsing is only possible
     // by cutting the suffix. This branch can be removed if we decide to revoke
     // all pre-v2 public direct links.
-    if token.len() <= DIRECT_LINK_SIG_LEN {
+    // Legacy tokens consist entirely of base62 ASCII. Validate before slicing
+    // at a byte offset, so malformed Unicode can never reach str::split_at.
+    if token.len() <= DIRECT_LINK_SIG_LEN || !token.bytes().all(|byte| byte.is_ascii_alphanumeric())
+    {
         return Err(AsterError::share_not_found("invalid direct link token"));
     }
 
@@ -325,6 +328,13 @@ pub(crate) fn validate_public_file_name(file: &file::Model, requested_name: &str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_tokens_reject_unicode_before_suffix_slicing() {
+        for token in ["a猫aaaaa", "猫aaaaaa", "abcdef猫", "abcdef!", "éééé"] {
+            assert!(parse_token(token).is_err(), "malformed token {token:?}");
+        }
+    }
 
     fn test_file() -> file::Model {
         aster_drive_model::entities::file::Model {

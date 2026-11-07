@@ -73,7 +73,8 @@ pub use storage_policy_config::{
 };
 pub use traits::driver::{
     BlobMetadata, DirectDownloadCredentials, DirectDownloadOptions, DirectDownloadRequest,
-    PresignedUploadRequest, StorageDriver, StoragePathVisitControl, StoragePathVisitor,
+    PresignedUploadRequest, StorageCopyOptions, StorageDriver, StoragePathVisitControl,
+    StoragePathVisitor,
 };
 pub use traits::{
     DirectDownloadStorageDriver, ExactSizeReader, ListStorageDriver, LocalPathStorageDriver,
@@ -85,7 +86,7 @@ pub use traits::{
     ProviderResumableUploadSession, ProviderResumableUploadStatus, StorageCapacityAssessment,
     StorageCapacityInfo, StorageCapacityProbePolicy, StorageCapacityStatus,
     StorageDriverExtensions, StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver,
-    UploadedMultipartPart, checked_upload_size, exact_size_error_kind,
+    SyncReader, UploadedMultipartPart, checked_upload_size, exact_size_error_kind,
 };
 
 pub use traits::browser_upload::*;

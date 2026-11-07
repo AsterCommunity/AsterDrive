@@ -1003,4 +1003,174 @@ describe("downloadCoordinator", () => {
 			totalItems: 0,
 		});
 	});
+	it("downloads a 4096-level directory with one local handle lookup per directory", async () => {
+		const maximumDepth = 4096;
+		mocks.listFolder.mockImplementation(
+			(id: number, params: { file_limit: number }) =>
+				Promise.resolve({
+					folders:
+						params.file_limit === 0 && id < maximumDepth
+							? [{ id: id + 1, name: "d" }]
+							: [],
+					files: [],
+					folders_total: params.file_limit === 0 && id < maximumDepth ? 1 : 0,
+					files_total: 0,
+					next_file_cursor: null,
+				}),
+		);
+		const getDirectoryHandle = vi.fn();
+		const directory = {
+			getDirectoryHandle,
+			getFileHandle: vi
+				.fn()
+				.mockRejectedValue(new DOMException("missing", "NotFoundError")),
+		};
+		getDirectoryHandle.mockImplementation(
+			(_name: string, options?: { create?: boolean }) =>
+				options?.create
+					? Promise.resolve(directory)
+					: Promise.reject(new DOMException("missing", "NotFoundError")),
+		);
+		Object.defineProperty(window, "showDirectoryPicker", {
+			configurable: true,
+			value: vi.fn().mockResolvedValue(directory),
+		});
+		await startDirectoryDownload({
+			workspace: { kind: "personal" },
+			files: [],
+			folders: [{ id: 1, name: "d" }],
+		});
+		expect(useDownloadStore.getState().tasks[0]).toMatchObject({
+			status: DOWNLOAD_TASK_STATUS.completed,
+		});
+		expect(mocks.listFolder).toHaveBeenCalledTimes(maximumDepth * 2);
+		expect(
+			getDirectoryHandle.mock.calls.filter(([, options]) => options?.create),
+		).toHaveLength(maximumDepth + 1);
+	});
+
+	it("rejects a directory tree beyond the supported depth before local preparation", async () => {
+		mocks.listFolder.mockImplementation(
+			(id: number, params: { file_limit: number }) =>
+				Promise.resolve({
+					folders: params.file_limit === 0 ? [{ id: id + 1, name: "d" }] : [],
+					files: [],
+					folders_total: params.file_limit === 0 ? 1 : 0,
+					files_total: 0,
+					next_file_cursor: null,
+				}),
+		);
+		const fixture = createDirectoryFixture();
+		Object.defineProperty(window, "showDirectoryPicker", {
+			configurable: true,
+			value: vi.fn().mockResolvedValue(fixture.directory),
+		});
+		await startDirectoryDownload({
+			workspace: { kind: "personal" },
+			files: [],
+			folders: [{ id: 1, name: "d" }],
+		});
+		expect(useDownloadStore.getState().tasks[0]).toMatchObject({
+			status: DOWNLOAD_TASK_STATUS.failed,
+			error: "download_directory_limit",
+		});
+		expect(mocks.listFolder).toHaveBeenCalledTimes(4096 * 2);
+		expect(fixture.directories.size).toBe(1);
+	});
+
+	it("passes cancellation to listing and stops preparation after an in-flight page", async () => {
+		let resolvePage!: (page: unknown) => void;
+		mocks.listFolder.mockReturnValue(
+			new Promise((resolve) => {
+				resolvePage = resolve;
+			}),
+		);
+		const fixture = createDirectoryFixture();
+		Object.defineProperty(window, "showDirectoryPicker", {
+			configurable: true,
+			value: vi.fn().mockResolvedValue(fixture.directory),
+		});
+		const preparing = startDirectoryDownload({
+			workspace: { kind: "personal" },
+			files: [],
+			folders: [{ id: 1, name: "d" }],
+		});
+		await vi.waitFor(() => expect(mocks.listFolder).toHaveBeenCalledTimes(1));
+		const signal = mocks.listFolder.mock.calls[0][2].signal as AbortSignal;
+		cancelDownloadTask(useDownloadStore.getState().tasks[0].id);
+		expect(signal.aborted).toBe(true);
+		resolvePage({
+			folders: [{ id: 2, name: "child" }],
+			files: [],
+			folders_total: 1,
+			files_total: 0,
+			next_file_cursor: null,
+		});
+		await preparing;
+		expect(mocks.listFolder).toHaveBeenCalledTimes(1);
+		expect(fixture.directories).toEqual(new Set(["d"]));
+		expect(useDownloadStore.getState().tasks[0]).toMatchObject({
+			status: DOWNLOAD_TASK_STATUS.canceled,
+		});
+	});
+
+	it("bounds total preparation entries before creating descendant directories", async () => {
+		mocks.listFolder.mockResolvedValue({
+			folders: [],
+			files: Array.from({ length: 10_001 }, (_, index) => ({
+				id: index,
+				name: `file-${index}`,
+				size: 0,
+			})),
+			folders_total: 0,
+			files_total: 10_001,
+			next_file_cursor: null,
+		});
+		const fixture = createDirectoryFixture();
+		Object.defineProperty(window, "showDirectoryPicker", {
+			configurable: true,
+			value: vi.fn().mockResolvedValue(fixture.directory),
+		});
+		await startDirectoryDownload({
+			workspace: { kind: "personal" },
+			files: [],
+			folders: [{ id: 1, name: "d" }],
+		});
+		expect(useDownloadStore.getState().tasks[0]).toMatchObject({
+			status: DOWNLOAD_TASK_STATUS.failed,
+			error: "download_directory_limit",
+		});
+		expect(mocks.resolveResourceHandle).not.toHaveBeenCalled();
+	});
+	it("bounds cumulative path storage for deep trees with long names", async () => {
+		mocks.listFolder.mockImplementation(
+			(id: number, params: { file_limit: number }) =>
+				Promise.resolve({
+					folders:
+						params.file_limit === 0 && id < 2000
+							? [{ id: id + 1, name: "x".repeat(255) }]
+							: [],
+					files: [],
+					folders_total: params.file_limit === 0 && id < 2000 ? 1 : 0,
+					files_total: 0,
+					next_file_cursor: null,
+				}),
+		);
+		const fixture = createDirectoryFixture();
+		Object.defineProperty(window, "showDirectoryPicker", {
+			configurable: true,
+			value: vi.fn().mockResolvedValue(fixture.directory),
+		});
+		await startDirectoryDownload({
+			workspace: { kind: "personal" },
+			files: [],
+			folders: [{ id: 1, name: "x".repeat(255) }],
+		});
+		expect(useDownloadStore.getState().tasks[0]).toMatchObject({
+			status: DOWNLOAD_TASK_STATUS.failed,
+			error: "download_directory_limit",
+		});
+		expect(mocks.listFolder.mock.calls.length).toBeLessThan(2000 * 2);
+		expect(fixture.directories.size).toBe(1);
+	});
 });

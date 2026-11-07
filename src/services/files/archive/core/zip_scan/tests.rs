@@ -30,6 +30,231 @@ fn scan_limits() -> ArchiveScanLimits {
     }
 }
 
+#[test]
+fn metadata_open_rejects_declared_entry_budget_before_reading_entries() {
+    use std::io::{Read, Seek, SeekFrom};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    struct CountedReader {
+        inner: Cursor<Vec<u8>>,
+        read: Arc<AtomicUsize>,
+    }
+    impl Read for CountedReader {
+        fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+            let read = self.inner.read(bytes)?;
+            self.read.fetch_add(read, Ordering::Relaxed);
+            Ok(read)
+        }
+    }
+    impl Seek for CountedReader {
+        fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
+            self.inner.seek(position)
+        }
+    }
+
+    let owned_names = (0..101).map(|i| format!("entry-{i}")).collect::<Vec<_>>();
+    let entries = owned_names
+        .iter()
+        .map(|name| (name.as_str(), Some(b"".as_slice())))
+        .collect::<Vec<_>>();
+    let bytes = create_stored_zip_bytes(&entries);
+    let size = bytes.len();
+    let read = Arc::new(AtomicUsize::new(0));
+    let mut archive = open_zip_archive(
+        CountedReader {
+            inner: Cursor::new(bytes),
+            read: read.clone(),
+        },
+        None,
+    )
+    .expect("footer should open");
+    let constructor_read = read.load(Ordering::Relaxed);
+    assert!(
+        constructor_read < size,
+        "opening must not consume a full entry index"
+    );
+    assert_eq!(archive.len(), 101);
+    let error = scan_zip_archive_raw(&mut archive, scan_limits(), None)
+        .expect_err("entry admission must precede iteration");
+    assert!(error.message().contains("101 entries"));
+    assert_eq!(
+        read.load(Ordering::Relaxed),
+        constructor_read,
+        "over-budget entry counts are rejected without entry parsing"
+    );
+}
+
+#[test]
+fn metadata_entry_budget_counts_duplicate_names_before_deduplication() {
+    let mut bytes = create_stored_zip_bytes(&[("first", Some(b"one")), ("other", Some(b"two"))]);
+    patch_zip_entry_raw_name(&mut bytes, b"other", b"first", true);
+    let mut archive = open_zip_archive(Cursor::new(bytes), None).unwrap();
+    assert_eq!(
+        archive.len(),
+        2,
+        "raw central records must not be deduplicated before admission"
+    );
+    let mut limits = scan_limits();
+    limits.max_entries = 1;
+    let error = scan_zip_archive_raw(&mut archive, limits, None)
+        .expect_err("duplicate names still consume the entry budget");
+    assert!(error.message().contains("2 entries"));
+}
+
+fn stored_zip_as_zip64(mut bytes: Vec<u8>, sector_size: usize) -> Vec<u8> {
+    let eocd = bytes.split_off(bytes.len() - 22);
+    let count = u16::from_le_bytes([eocd[10], eocd[11]]) as u64;
+    let directory_size = u32::from_le_bytes(eocd[12..16].try_into().expect("size field")) as u64;
+    let directory_offset =
+        u32::from_le_bytes(eocd[16..20].try_into().expect("offset field")) as u64;
+    let zip64_offset = bytes.len() as u64;
+    bytes.extend_from_slice(b"PK\x06\x06");
+    bytes.extend_from_slice(&(44 + sector_size as u64).to_le_bytes());
+    bytes.extend_from_slice(&45u16.to_le_bytes());
+    bytes.extend_from_slice(&45u16.to_le_bytes());
+    bytes.extend_from_slice(&0u32.to_le_bytes());
+    bytes.extend_from_slice(&0u32.to_le_bytes());
+    bytes.extend_from_slice(&count.to_le_bytes());
+    bytes.extend_from_slice(&count.to_le_bytes());
+    bytes.extend_from_slice(&directory_size.to_le_bytes());
+    bytes.extend_from_slice(&directory_offset.to_le_bytes());
+    bytes.resize(bytes.len() + sector_size, 0);
+    bytes.extend_from_slice(b"PK\x06\x07");
+    bytes.extend_from_slice(&0u32.to_le_bytes());
+    bytes.extend_from_slice(&zip64_offset.to_le_bytes());
+    bytes.extend_from_slice(&1u32.to_le_bytes());
+    bytes.extend_from_slice(b"PK\x05\x06");
+    bytes.extend_from_slice(&0u32.to_le_bytes());
+    bytes.extend_from_slice(&u16::MAX.to_le_bytes());
+    bytes.extend_from_slice(&u16::MAX.to_le_bytes());
+    bytes.extend_from_slice(&u32::MAX.to_le_bytes());
+    bytes.extend_from_slice(&u32::MAX.to_le_bytes());
+    bytes.extend_from_slice(&0u16.to_le_bytes());
+    bytes
+}
+
+#[test]
+fn metadata_open_preserves_zip64_and_streamed_deflate_extraction() {
+    for method in [
+        zip::CompressionMethod::Stored,
+        zip::CompressionMethod::Deflated,
+    ] {
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        writer
+            .start_file(
+                "folder/hello.txt",
+                zip::write::SimpleFileOptions::default().compression_method(method),
+            )
+            .unwrap();
+        writer.write_all(b"hello ZIP64").unwrap();
+        let bytes = stored_zip_as_zip64(writer.finish().unwrap().into_inner(), 128);
+        let mut archive =
+            open_zip_archive(Cursor::new(bytes), None).expect("bounded ZIP64 should open");
+        let manifest = scan_zip_archive(
+            &mut archive,
+            scan_limits(),
+            None,
+            ArchiveFilenameEncoding::Auto,
+            ArchiveScanNamePolicy::StrictAsterName,
+            |_| Ok(()),
+        )
+        .expect("ZIP64 should scan");
+        assert_eq!(manifest.entry_count, 1);
+        let entries = archive.files().unwrap();
+        entries.reader_mut().finish_metadata();
+        let descriptor = entries.next().unwrap().unwrap();
+        let mut entry = descriptor
+            .with_reader(entries.reader_mut(), zip::ZipReadOptions::default())
+            .unwrap();
+        let mut output = Vec::new();
+        std::io::Read::read_to_end(&mut entry, &mut output).unwrap();
+        assert_eq!(output, b"hello ZIP64");
+    }
+}
+
+#[test]
+fn metadata_open_rejects_zip64_sector_before_large_allocation() {
+    use std::io::{self, Read, Seek, SeekFrom};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    struct SparseArchive {
+        header: Vec<u8>,
+        footer: Vec<u8>,
+        footer_start: u64,
+        position: u64,
+        read_bytes: Arc<AtomicUsize>,
+    }
+    impl Read for SparseArchive {
+        fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+            let size = self.footer_start + self.footer.len() as u64;
+            let length = output
+                .len()
+                .min(size.saturating_sub(self.position) as usize);
+            let output = &mut output[..length];
+            output.fill(0);
+            for (offset, bytes) in [(0, &self.header), (self.footer_start, &self.footer)] {
+                let start = self.position.max(offset);
+                let end = (self.position + length as u64).min(offset + bytes.len() as u64);
+                if start < end {
+                    output[(start - self.position) as usize..(end - self.position) as usize]
+                        .copy_from_slice(
+                            &bytes[(start - offset) as usize..(end - offset) as usize],
+                        );
+                }
+            }
+            self.position += length as u64;
+            self.read_bytes.fetch_add(length, Ordering::Relaxed);
+            Ok(length)
+        }
+    }
+    impl Seek for SparseArchive {
+        fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+            let position = match position {
+                SeekFrom::Start(position) => i128::from(position),
+                SeekFrom::End(delta) => {
+                    i128::from(self.footer_start + self.footer.len() as u64) + i128::from(delta)
+                }
+                SeekFrom::Current(delta) => i128::from(self.position) + i128::from(delta),
+            };
+            self.position = u64::try_from(position)
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid seek"))?;
+            Ok(self.position)
+        }
+    }
+
+    let bytes = stored_zip_as_zip64(create_stored_zip_bytes(&[("small.txt", Some(b"body"))]), 0);
+    let zip64_start = bytes
+        .windows(4)
+        .position(|window| window == b"PK\x06\x06")
+        .unwrap();
+    let mut header = bytes[..zip64_start + 56].to_vec();
+    let declared_record_size = 1024 * 1024 * 1024u64;
+    header[zip64_start + 4..zip64_start + 12].copy_from_slice(&declared_record_size.to_le_bytes());
+    let footer = bytes[zip64_start + 56..].to_vec();
+    let read_bytes = Arc::new(AtomicUsize::new(0));
+    let reader = SparseArchive {
+        header,
+        footer,
+        footer_start: zip64_start as u64 + 12 + declared_record_size,
+        position: 0,
+        read_bytes: read_bytes.clone(),
+    };
+    let error = open_zip_archive(reader, None)
+        .err()
+        .expect("oversized ZIP64 sector must be rejected");
+    assert!(error.to_string().contains("budget"), "{error}");
+    assert!(
+        read_bytes.load(Ordering::Relaxed) < 4096,
+        "must reject from fixed headers without reading or allocating the sector"
+    );
+}
+
 fn create_stored_zip_bytes(entries: &[(&str, Option<&[u8]>)]) -> Vec<u8> {
     let cursor = Cursor::new(Vec::new());
     let mut zip = zip::ZipWriter::new(cursor);
@@ -344,7 +569,7 @@ fn create_encrypted_flag_zip_bytes(path: &str, content: &[u8]) -> Vec<u8> {
 
 fn scan_zip(bytes: Vec<u8>, limits: ArchiveScanLimits) -> Result<ArchiveScanResult> {
     let cursor = Cursor::new(bytes);
-    let mut archive = zip::ZipArchive::new(cursor).expect("zip should open");
+    let mut archive = open_zip_archive(cursor, None).expect("zip should open");
 
     scan_zip_archive(
         &mut archive,
@@ -358,7 +583,7 @@ fn scan_zip(bytes: Vec<u8>, limits: ArchiveScanLimits) -> Result<ArchiveScanResu
 
 fn scan_zip_raw(bytes: Vec<u8>, limits: ArchiveScanLimits) -> Result<ArchiveRawScanResult> {
     let cursor = Cursor::new(bytes);
-    let mut archive = zip::ZipArchive::new(cursor).expect("zip should open");
+    let mut archive = open_zip_archive(cursor, None).expect("zip should open");
 
     scan_zip_archive_raw(&mut archive, limits, None)
 }
@@ -375,7 +600,7 @@ fn scan_entries_with_encoding(
     filename_encoding: ArchiveFilenameEncoding,
 ) -> Result<Vec<ArchiveScanEntry>> {
     let cursor = Cursor::new(bytes);
-    let mut archive = zip::ZipArchive::new(cursor).expect("zip should open");
+    let mut archive = open_zip_archive(cursor, None).expect("zip should open");
 
     scan_zip_archive(
         &mut archive,
@@ -393,7 +618,7 @@ fn scan_preview_entries_with_encoding(
     filename_encoding: ArchiveFilenameEncoding,
 ) -> Result<Vec<ArchiveScanEntry>> {
     let cursor = Cursor::new(bytes);
-    let mut archive = zip::ZipArchive::new(cursor).expect("zip should open");
+    let mut archive = open_zip_archive(cursor, None).expect("zip should open");
 
     scan_zip_archive(
         &mut archive,
@@ -409,7 +634,7 @@ fn scan_preview_entries_with_encoding(
 fn scan_error_for(entries: &[(&str, Option<&[u8]>)]) -> String {
     let bytes = create_stored_zip_bytes(entries);
     let cursor = Cursor::new(bytes);
-    let mut archive = zip::ZipArchive::new(cursor).expect("zip should open");
+    let mut archive = open_zip_archive(cursor, None).expect("zip should open");
 
     scan_zip_archive(
         &mut archive,
@@ -431,7 +656,7 @@ fn scan_allows_explicit_parent_directory_after_child_file() {
         ("prefix/", None),
     ]);
     let cursor = Cursor::new(bytes);
-    let mut archive = zip::ZipArchive::new(cursor).expect("zip should open");
+    let mut archive = open_zip_archive(cursor, None).expect("zip should open");
 
     let result = scan_zip_archive(
         &mut archive,
@@ -485,8 +710,13 @@ fn scan_auto_uses_zip_unicode_path_extra_field_before_heuristics() {
     assert_eq!(entries[0].parent.as_deref(), Some("测试"));
 
     let mut archive =
-        zip::ZipArchive::new(Cursor::new(bytes)).expect("zip with Unicode path should open");
-    let entry = archive.by_index_raw(0).expect("zip entry should open");
+        open_zip_archive(Cursor::new(bytes), None).expect("zip with Unicode path should open");
+    let entry = archive
+        .files()
+        .expect("zip iterator should open")
+        .next()
+        .expect("zip entry should exist")
+        .expect("zip entry should open");
     assert!(
         entry.get_metadata().flags.as_u16() & super::encoding::ZIP_UTF8_FLAG != 0,
         "zip crate should mark names from Unicode path extra fields as UTF-8"
@@ -883,7 +1113,7 @@ fn scan_rejects_unicode_normalized_duplicate_paths() {
 fn scan_rejects_implicit_directory_limit_overflow() {
     let bytes = create_stored_zip_bytes(&[("a/b/c.txt", Some(b"nested".as_slice()))]);
     let cursor = Cursor::new(bytes);
-    let mut archive = zip::ZipArchive::new(cursor).expect("zip should open");
+    let mut archive = open_zip_archive(cursor, None).expect("zip should open");
     let mut limits = scan_limits();
     limits.max_directories = 1;
 

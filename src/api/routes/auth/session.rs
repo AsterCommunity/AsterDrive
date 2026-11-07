@@ -164,9 +164,11 @@ pub async fn get_storage_events(
             .ok_or_else(|| {
                 AsterError::internal_error("visible teams missing after SSE auth check")
             })?;
+    let permit = state.storage_event_streams.admit(user_id)?;
     let mut rx = state.get_ref().storage_change_bus().subscribe();
 
     let stream = async_stream::stream! {
+        let _permit = permit;
         let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(15));
         heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut visible_team_ids = visible_team_ids;
@@ -202,6 +204,15 @@ pub async fn get_storage_events(
                 recv = rx.recv() => {
                     match recv {
                         Ok(event) => {
+                            // Unrelated personal events need no database read.
+                            // Team membership must still be refreshed before
+                            // delivery; a cached team set is not authority.
+                            if matches!(event.audience,
+                                crate::services::events::storage_change::StorageChangeAudience::User(target)
+                                if target != user_id)
+                            {
+                                continue;
+                            }
                             let refresh_visible_teams =
                                 matches!(event.workspace, Some(StorageChangeWorkspace::Team { .. }));
                             match revalidate_storage_event_stream(

@@ -1,19 +1,27 @@
 //! 基于 `StorageDriver::get_range()` 的同步 `Read + Seek` 适配器。
 
+use std::collections::VecDeque;
 use std::io::{self, Read, Seek, SeekFrom};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use tokio::io::AsyncReadExt;
 
 use aster_drive_storage::StorageDriver;
 
 pub(crate) const DEFAULT_RANGE_READER_BLOCK_SIZE: u64 = 256 * 1024;
+const MAX_RANGE_REQUESTS: u64 = 4096;
+const MAX_RANGE_BYTES: u64 = 256 * 1024 * 1024;
+const CACHED_BLOCKS: usize = 8;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct RangeReaderStats {
     pub(crate) range_request_count: u64,
     pub(crate) range_bytes_read: u64,
 }
+
+/// Shared by parser passes over one source so reader recreation cannot renew I/O credit.
+#[derive(Clone, Default)]
+pub(crate) struct RangeReadBudget(Arc<Mutex<RangeReaderStats>>);
 
 pub(crate) struct StorageRangeReader {
     driver: Arc<dyn StorageDriver>,
@@ -23,7 +31,9 @@ pub(crate) struct StorageRangeReader {
     position: u64,
     buffer_start: u64,
     buffer: Vec<u8>,
+    cached: VecDeque<(u64, Vec<u8>)>,
     stats: RangeReaderStats,
+    budget: RangeReadBudget,
     handle: tokio::runtime::Handle,
 }
 
@@ -54,13 +64,20 @@ impl StorageRangeReader {
             driver,
             storage_path: storage_path.into(),
             size,
-            block_size: block_size.max(1),
+            block_size: block_size.clamp(1, DEFAULT_RANGE_READER_BLOCK_SIZE),
             position: 0,
             buffer_start: 0,
             buffer: Vec::new(),
+            cached: VecDeque::new(),
             stats: RangeReaderStats::default(),
+            budget: RangeReadBudget::default(),
             handle,
         }
+    }
+
+    pub(crate) fn with_budget(mut self, budget: RangeReadBudget) -> Self {
+        self.budget = budget;
+        self
     }
 
     #[cfg(test)]
@@ -76,21 +93,60 @@ impl StorageRangeReader {
         }
 
         let block_start = (self.position / self.block_size) * self.block_size;
+        if let Some(index) = self
+            .cached
+            .iter()
+            .position(|(start, _)| *start == block_start)
+        {
+            let (start, bytes) = self
+                .cached
+                .remove(index)
+                .expect("cached block index exists");
+            let previous = std::mem::replace(&mut self.buffer, bytes);
+            if !previous.is_empty() {
+                self.cached.push_back((self.buffer_start, previous));
+            }
+            self.buffer_start = start;
+            return Ok(());
+        }
         let remaining = self.size.saturating_sub(block_start);
         let length = remaining.min(self.block_size);
+        // This reader only scans archive metadata. Its budget is independent of
+        // archive size, so seeking between distant headers cannot multiply I/O
+        // indefinitely. Charge before the request, including failed attempts.
+        {
+            let mut budget = self
+                .budget
+                .0
+                .lock()
+                .map_err(|_| io::Error::other("range budget lock poisoned"))?;
+            if budget.range_request_count >= MAX_RANGE_REQUESTS
+                || length > MAX_RANGE_BYTES - budget.range_bytes_read
+            {
+                return Err(io::Error::other("archive metadata range budget exceeded"));
+            }
+            budget.range_request_count += 1;
+            budget.range_bytes_read += length;
+        }
+        self.stats.range_request_count += 1;
+        self.stats.range_bytes_read += length;
         let driver = self.driver.clone();
         let storage_path = self.storage_path.clone();
         let bytes = self.handle.block_on(async move {
-            let mut stream = driver
+            let stream = driver
                 .get_range(&storage_path, block_start, Some(length))
                 .await
                 .map_err(storage_error_to_io)?;
             let mut bytes = Vec::new();
-            stream.read_to_end(&mut bytes).await.map_err(|error| {
-                io::Error::other(crate::errors::AsterError::storage_driver_error(format!(
-                    "read archive range stream: {error}"
-                )))
-            })?;
+            stream
+                .take(length + 1)
+                .read_to_end(&mut bytes)
+                .await
+                .map_err(|error| {
+                    io::Error::other(crate::errors::AsterError::storage_driver_error(format!(
+                        "read archive range stream: {error}"
+                    )))
+                })?;
             Ok::<_, io::Error>(bytes)
         })?;
 
@@ -116,16 +172,13 @@ impl StorageRangeReader {
             ));
         }
 
-        self.stats.range_request_count = self
-            .stats
-            .range_request_count
-            .checked_add(1)
-            .ok_or_else(|| io::Error::other("archive range request counter overflow"))?;
-        self.stats.range_bytes_read = self
-            .stats
-            .range_bytes_read
-            .checked_add(bytes_len)
-            .ok_or_else(|| io::Error::other("archive range byte counter overflow"))?;
+        if !self.buffer.is_empty() {
+            self.cached
+                .push_back((self.buffer_start, std::mem::take(&mut self.buffer)));
+            while self.cached.len() >= CACHED_BLOCKS {
+                self.cached.pop_front();
+            }
+        }
         self.buffer_start = block_start;
         self.buffer = bytes;
         Ok(())
@@ -367,5 +420,55 @@ mod tests {
             .seek(SeekFrom::Current(-20))
             .expect_err("negative seek should fail");
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn repeated_seeks_reuse_multiple_blocks_without_more_requests() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let driver = Arc::new(MemoryRangeDriver::new(b"0123456789abcdef"));
+        let mut reader = StorageRangeReader::with_block_size(
+            driver.clone(),
+            "blob",
+            16,
+            4,
+            runtime.handle().clone(),
+        );
+        for _ in 0..20 {
+            for offset in [0, 8, 4, 12] {
+                reader.seek(SeekFrom::Start(offset)).unwrap();
+                reader.read_exact(&mut [0]).unwrap();
+            }
+        }
+        assert_eq!(driver.range_calls.load(Ordering::SeqCst), 4);
+    }
+
+    #[test]
+    fn recreated_readers_share_byte_and_request_budgets() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        for byte_budget in [true, false] {
+            let driver = Arc::new(MemoryRangeDriver::new(b"01234567"));
+            let budget = super::RangeReadBudget::default();
+            {
+                let mut counters = budget.0.lock().unwrap();
+                if byte_budget {
+                    counters.range_bytes_read = super::MAX_RANGE_BYTES - 4;
+                } else {
+                    counters.range_request_count = super::MAX_RANGE_REQUESTS - 1;
+                }
+            }
+            let make_reader = || {
+                StorageRangeReader::with_block_size(
+                    driver.clone(),
+                    "blob",
+                    8,
+                    4,
+                    runtime.handle().clone(),
+                )
+                .with_budget(budget.clone())
+            };
+            make_reader().read_exact(&mut [0]).unwrap();
+            assert!(make_reader().read_exact(&mut [0]).is_err());
+            assert_eq!(driver.range_calls.load(Ordering::SeqCst), 1);
+        }
     }
 }

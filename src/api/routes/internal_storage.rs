@@ -578,6 +578,7 @@ async fn put_object(
             object_key: &object_key,
             storage_path: &storage_path,
             content_length,
+            temp_root: Some(&state.config().server.temp_dir),
             expected_sha256: signed
                 .then_some(declared_sha256.as_str())
                 .filter(|value| !value.is_empty()),
@@ -692,6 +693,7 @@ async fn compose_objects(
         &target_storage_path,
         part_storage_paths,
         expected_size,
+        Some(&state.config().server.temp_dir),
     )
     .await?;
     tracing::info!(

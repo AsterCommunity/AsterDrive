@@ -108,6 +108,7 @@ impl StorageDriver for LocalDriver {
         &self,
         src_path: &str,
         dest_path: &str,
+        _options: aster_drive_storage::StorageCopyOptions,
     ) -> aster_drive_storage::Result<String> {
         let src_full = self.full_path(src_path)?;
         let dest_full = self.full_path(dest_path)?;

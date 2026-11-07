@@ -133,4 +133,17 @@ describe("JsonPreview", () => {
 		);
 		expect(container.querySelector("pre")).toHaveTextContent(/"count": 2/);
 	});
+	it("shows a bounded plain preview instead of highlighting deeply nested JSON", () => {
+		const content = `${"[".repeat(3000)}0${"]".repeat(3000)}`;
+		mockState.useTextContent.mockReturnValue({
+			content,
+			loading: false,
+			error: false,
+			reload: mockState.reload,
+		});
+		const { container } = render(<JsonPreview resource={resource} />);
+		expect(screen.getByText("structured_preview_limited")).toBeInTheDocument();
+		expect(container.querySelector("pre")).toHaveTextContent(content);
+		expect(container.querySelector("pre.highlight")).toBeNull();
+	});
 });

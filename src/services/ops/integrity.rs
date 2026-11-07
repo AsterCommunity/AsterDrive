@@ -8,8 +8,8 @@ use std::collections::{HashMap, HashSet};
 use async_trait::async_trait;
 use futures::{StreamExt as _, stream};
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, EntityTrait, ExprTrait, JoinType, QueryFilter, QueryOrder,
-    QuerySelect, RelationTrait, sea_query::Expr,
+    ColumnTrait, ConnectionTrait, EntityTrait, ExprTrait, JoinType, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect, RelationTrait, sea_query::Expr,
 };
 use serde::Serialize;
 
@@ -1154,14 +1154,27 @@ const FOLDER_PARENT_CACHE_LIMIT: usize = 4096;
 struct FolderParentCache {
     nodes: HashMap<i64, Option<FolderNode>>,
     outcomes: HashMap<i64, Option<i64>>,
+    remaining_work: u64,
 }
 
 impl FolderParentCache {
-    fn new() -> Self {
+    fn new(folder_count: u64) -> Self {
         Self {
+            remaining_work: folder_count
+                .saturating_mul(8)
+                .saturating_add(FOLDER_PARENT_CACHE_LIMIT as u64),
             nodes: HashMap::with_capacity(FOLDER_PARENT_CACHE_LIMIT),
             outcomes: HashMap::with_capacity(FOLDER_PARENT_CACHE_LIMIT),
         }
+    }
+
+    fn consume_work(&mut self) -> Result<()> {
+        self.remaining_work = self.remaining_work.checked_sub(1).ok_or_else(|| {
+            AsterError::operation_resource_limit_exceeded(
+                "folder ancestry audit exceeded its linear work budget; inspect the hierarchy before retrying",
+            )
+        })?;
+        Ok(())
     }
 
     fn insert(&mut self, id: i64, node: Option<FolderNode>) {
@@ -1213,7 +1226,15 @@ async fn find_folder_cycle_representative<C: ConnectionTrait>(
     let mut index = HashMap::new();
     let mut current = Some(start);
     while let Some(id) = current {
+        // Eviction may forget an already resolved suffix. Bound total work for
+        // the partition so repeated misses cannot restore quadratic database work.
+        cache.consume_work()?;
         if let Some(outcome) = cache.outcomes.get(&id).copied() {
+            // Propagate a cached suffix result to the prefix just traversed.
+            // Otherwise every descendant walks the same prefix again.
+            for path_id in path {
+                cache.record_outcome(path_id, outcome);
+            }
             return Ok(outcome);
         }
         if let Some(&cycle_start) = index.get(&id) {
@@ -1224,6 +1245,11 @@ async fn find_folder_cycle_representative<C: ConnectionTrait>(
                 cache.record_outcome(path_id, Some(representative));
             }
             return Ok(Some(representative));
+        }
+        if path.len() >= FOLDER_PARENT_CACHE_LIMIT {
+            return Err(AsterError::operation_resource_limit_exceeded(
+                "folder ancestry audit path exceeds its bounded working set",
+            ));
         }
         index.insert(id, path.len());
         path.push(id);
@@ -1242,7 +1268,22 @@ async fn audit_folder_tree_partition_bounded<C: ConnectionTrait>(
 ) -> Result<AuditFindingSummary<FolderTreeIssue>> {
     let mut issues = AuditFindingSummary::new();
     let mut reported_cycles = HashSet::<i64>::new();
-    let mut parent_cache = FolderParentCache::new();
+    let count_query = match scope {
+        FolderAuditScope::User(user_id) => Folder::find()
+            .filter(folder::Column::OwnerUserId.eq(user_id))
+            .filter(folder::Column::TeamId.is_null()),
+        FolderAuditScope::Team(team_id) => {
+            Folder::find().filter(folder::Column::TeamId.eq(team_id))
+        }
+        FolderAuditScope::Unowned => Folder::find()
+            .filter(folder::Column::OwnerUserId.is_null())
+            .filter(folder::Column::TeamId.is_null()),
+    };
+    let folder_count = count_query
+        .count(db)
+        .await
+        .map_aster_err(AsterError::database_operation)?;
+    let mut parent_cache = FolderParentCache::new(folder_count);
     let mut last_folder_id = None;
     loop {
         let mut query = Folder::find()
@@ -1602,4 +1643,84 @@ async fn audit_storage_objects_impl<C: ConnectionTrait>(
         || report.orphan_thumbnails.len() < report.orphan_thumbnails_total;
 
     Ok(report)
+}
+
+#[cfg(test)]
+mod folder_ancestry_budget_tests {
+    use super::*;
+
+    fn cached_chain() -> FolderParentCache {
+        let mut cache = FolderParentCache::new(3);
+        for (id, parent_id) in [(1, Some(2)), (2, Some(3)), (3, None)] {
+            cache.insert(
+                id,
+                Some(FolderNode {
+                    parent_id,
+                    owner_user_id: Some(7),
+                    team_id: None,
+                }),
+            );
+        }
+        cache
+    }
+
+    #[tokio::test]
+    async fn cached_suffix_propagates_to_every_traversed_prefix_without_database_queries() {
+        // No folder table: any database fallback fails this test.
+        let db = sea_orm::Database::connect("sqlite::memory:").await.unwrap();
+        let mut cache = cached_chain();
+        cache.record_outcome(3, None);
+        assert_eq!(
+            find_folder_cycle_representative(&db, 1, FolderAuditScope::User(7), &mut cache)
+                .await
+                .unwrap(),
+            None
+        );
+        assert_eq!(cache.outcomes.get(&1), Some(&None));
+        assert_eq!(cache.outcomes.get(&2), Some(&None));
+        let before = cache.remaining_work;
+        find_folder_cycle_representative(&db, 1, FolderAuditScope::User(7), &mut cache)
+            .await
+            .unwrap();
+        assert_eq!(before - cache.remaining_work, 1);
+    }
+
+    #[tokio::test]
+    async fn overdeep_legacy_paths_stop_before_growing_the_working_set() {
+        let db = sea_orm::Database::connect("sqlite::memory:").await.unwrap();
+        let mut cache = FolderParentCache::new(FOLDER_PARENT_CACHE_LIMIT as u64 + 1);
+        for id in 1..=FOLDER_PARENT_CACHE_LIMIT as i64 {
+            cache.insert(
+                id,
+                Some(FolderNode {
+                    parent_id: Some(id + 1),
+                    owner_user_id: Some(7),
+                    team_id: None,
+                }),
+            );
+        }
+        let error = find_folder_cycle_representative(&db, 1, FolderAuditScope::User(7), &mut cache)
+            .await
+            .unwrap_err();
+        assert!(error.message().contains("working set"));
+        assert!(cache.nodes.len() <= FOLDER_PARENT_CACHE_LIMIT);
+    }
+
+    #[tokio::test]
+    async fn evicted_suffixes_cannot_restart_unbounded_ancestry_work() {
+        let db = sea_orm::Database::connect("sqlite::memory:").await.unwrap();
+        let mut cache = cached_chain();
+        cache.remaining_work = 6;
+        for _ in 0..2 {
+            cache.outcomes.clear();
+            find_folder_cycle_representative(&db, 1, FolderAuditScope::User(7), &mut cache)
+                .await
+                .unwrap();
+        }
+        cache.outcomes.clear();
+        let error = find_folder_cycle_representative(&db, 1, FolderAuditScope::User(7), &mut cache)
+            .await
+            .unwrap_err();
+        assert!(error.message().contains("work budget"));
+    }
 }

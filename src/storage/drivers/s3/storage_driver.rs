@@ -168,6 +168,7 @@ impl StorageDriver for S3Driver {
         &self,
         src_path: &str,
         dest_path: &str,
+        _options: aster_drive_storage::StorageCopyOptions,
     ) -> aster_drive_storage::Result<String> {
         let src_key = self.full_key(src_path);
         let dest_key = self.full_key(dest_path);

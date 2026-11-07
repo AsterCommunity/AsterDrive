@@ -32,7 +32,7 @@ use aster_drive_model::types::{EntityType, LockDepth, LockMode, LockOrigin};
 use super::{TypedTaskCreate, insert_typed_task_record, mark_task_progress, task_scope};
 
 const PAGE_SIZE: u64 = 512;
-const MAX_BACKGROUND_DEPTH: usize = 4096;
+const MAX_BACKGROUND_DEPTH: usize = aster_drive_model::types::folder::MAX_FOLDER_DEPTH - 1;
 const LOCK_MARKER_PREFIX: &str = "folder-tree-task:";
 
 #[derive(Debug, Clone)]
@@ -330,7 +330,10 @@ async fn process_staging(
         files_done: false,
         depth: 0,
     }];
-    let mut staged: u64;
+    // One authoritative recount supports retries/lease takeover; subsequent
+    // bounded batches return only their newly staged membership count.
+    let mut staged = folder_tree_operation_repo::count(state.writer_db(), task.id).await?;
+    let mut legacy_cleanup = false;
 
     while !stack.is_empty() {
         #[cfg(test)]
@@ -342,7 +345,21 @@ async fn process_staging(
         let frame_index = stack.len() - 1;
         let frame = &mut stack[frame_index];
         context.ensure_active()?;
-        ensure_background_depth(frame.depth)?;
+        if !legacy_cleanup && frame.depth > MAX_BACKGROUND_DEPTH {
+            if payload.operation != FolderTreeMutationOperation::Delete {
+                ensure_background_depth(frame.depth)?;
+            }
+            // Existing over-depth trees must remain deletable. Switch to a
+            // parent-link cursor instead of retaining an unbounded DFS stack.
+            // Every ancestor has already finished its files before descent;
+            // on return, the completed child's ID resumes its ordered page.
+            let current = stack.pop().expect("current traversal frame exists");
+            stack.clear();
+            stack.push(current);
+            legacy_cleanup = true;
+            continue;
+        }
+        let frame = stack.last_mut().expect("current traversal frame exists");
         if !frame.entered {
             let folder_id = frame.folder_id;
             let staged_total = transaction::with_transaction(state.writer_db(), async |txn| {
@@ -357,7 +374,9 @@ async fn process_staging(
             })
             .await?;
             frame.entered = true;
-            staged = staged_total;
+            staged = staged
+                .checked_add(staged_total)
+                .ok_or_else(|| AsterError::internal_error("folder staging count overflow"))?;
             update_task_progress(state, lease_guard, staged, "Scanning folder tree", steps).await?;
             continue;
         }
@@ -392,7 +411,9 @@ async fn process_staging(
                 })
                 .await?;
                 frame.next_file_after = Some(last);
-                staged = staged_total;
+                staged = staged
+                    .checked_add(staged_total)
+                    .ok_or_else(|| AsterError::internal_error("folder staging count overflow"))?;
                 update_task_progress(state, lease_guard, staged, "Scanning folder tree", steps)
                     .await?;
             }
@@ -410,12 +431,32 @@ async fn process_staging(
                     parent_id,
                     after,
                     include_deleted,
-                    PAGE_SIZE,
+                    if legacy_cleanup { 1 } else { PAGE_SIZE },
                 )
                 .await
             })
             .await?;
             if child_page.is_empty() {
+                if legacy_cleanup && frame.folder_id != root.id {
+                    let completed_id = frame.folder_id;
+                    let completed =
+                        folder_repo::find_by_id(state.writer_db(), completed_id).await?;
+                    ensure_root_scope(&completed, scope)?;
+                    let parent_id = completed.parent_id.ok_or_else(|| {
+                        AsterError::internal_error("folder cleanup traversal lost its parent")
+                    })?;
+                    *frame = Frame {
+                        folder_id: parent_id,
+                        next_child_after: Some(completed_id),
+                        child_page: Vec::new(),
+                        next_child_index: 0,
+                        next_file_after: None,
+                        entered: true,
+                        files_done: true,
+                        depth: 0,
+                    };
+                    continue;
+                }
                 stack.pop();
                 continue;
             }
@@ -429,8 +470,18 @@ async fn process_staging(
             frame.next_child_index = 0;
         }
 
-        let child_frame = take_next_child_frame(frame)?;
-        stack.push(child_frame);
+        let mut child_frame = take_next_child_frame(frame)?;
+        if child_frame.folder_id == root.id {
+            return Err(AsterError::validation_error(
+                "folder cleanup traversal contains a cycle",
+            ));
+        }
+        if legacy_cleanup {
+            child_frame.depth = 0;
+            stack[0] = child_frame;
+        } else {
+            stack.push(child_frame);
+        }
     }
     Ok(())
 }
@@ -521,6 +572,21 @@ async fn finalize_operation(
                 },
             )
             .await?;
+        if payload.operation == FolderTreeMutationOperation::Restore {
+            let parent_chain = crate::services::files::folder::hierarchy::load_active_chain_on(
+                txn,
+                scope,
+                restored_parent_id,
+            )
+            .await?;
+            crate::services::files::folder::hierarchy::ensure_subtree_placement_on(
+                txn,
+                scope,
+                root.id,
+                parent_chain.len(),
+            )
+            .await?;
+        }
         let mut activity = crate::services::workspace::activity::ActivityContext::actor(
             txn,
             scope.actor_user_id(),
@@ -973,6 +1039,7 @@ mod tests {
             metrics: aster_drive_metrics::NoopMetrics::arc(),
             mail_sender: aster_forge_mail::memory_sender(),
             storage_change_bus,
+            storage_event_streams: Default::default(),
             share_download_rollback,
             background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
             remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),

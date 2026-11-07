@@ -60,3 +60,5 @@ pub use trash::{
 };
 
 pub(crate) use query::{FileCursorQuery, find_by_folder_cursor_in_scope};
+
+pub(crate) use trash::find_top_level_deleted_batch;

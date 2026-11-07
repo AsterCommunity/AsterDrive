@@ -1,8 +1,9 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     fs::File,
-    io::{BufReader, Read, Seek},
+    io::{self, BufReader, Read, Seek, SeekFrom},
     path::Path,
+    time::{Duration, Instant},
 };
 
 use nom_exif::{
@@ -18,6 +19,58 @@ use aster_drive_model::types::ImageMediaMetadata;
 mod tiff_fallback;
 
 const EXIF_ARTIST_TAG_CODE: u16 = 0x013b;
+
+// Apply to the parser's reads, including repeated reads of already cached local
+// or remote bytes. An input size or network budget alone cannot bound that work.
+const MAX_TIFF_METADATA_READ_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_TIFF_METADATA_READ_CALLS: u64 = 1_000_000;
+
+struct TiffMetadataReader<R> {
+    inner: R,
+    bytes_remaining: u64,
+    reads_remaining: u64,
+    deadline: Instant,
+}
+
+impl<R> TiffMetadataReader<R> {
+    fn new(inner: R) -> Self {
+        Self {
+            inner,
+            bytes_remaining: MAX_TIFF_METADATA_READ_BYTES,
+            reads_remaining: MAX_TIFF_METADATA_READ_CALLS,
+            deadline: Instant::now() + Duration::from_secs(10),
+        }
+    }
+
+    fn ensure_active(&self) -> io::Result<()> {
+        if self.bytes_remaining == 0 || self.reads_remaining == 0 || Instant::now() >= self.deadline
+        {
+            return Err(io::Error::other("TIFF metadata processing budget exceeded"));
+        }
+        Ok(())
+    }
+}
+
+impl<R: Read> Read for TiffMetadataReader<R> {
+    fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+        if output.is_empty() {
+            return Ok(0);
+        }
+        self.ensure_active()?;
+        self.reads_remaining -= 1;
+        let length = output.len().min(self.bytes_remaining as usize);
+        let read = self.inner.read(&mut output[..length])?;
+        self.bytes_remaining -= read as u64;
+        Ok(read)
+    }
+}
+
+impl<R: Seek> Seek for TiffMetadataReader<R> {
+    fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+        self.ensure_active()?;
+        self.inner.seek(position)
+    }
+}
 
 pub(super) fn parse_image_metadata_from_path(path: &Path) -> Result<ImageMediaMetadata> {
     parse_image_metadata_with_reader_factory(&path.display().to_string(), || {
@@ -232,13 +285,28 @@ fn tiff_directory_dimensions_from_reader<R>(
 where
     R: Read + Seek,
 {
-    let mut decoder = TiffDecoder::new(BufReader::new(reader))?;
+    let mut decoder = TiffDecoder::new(TiffMetadataReader::new(BufReader::new(reader)))?;
     let mut best = Some(decoder.dimensions()?);
+    // Metadata discovery needs only a bounded set of directories. Offsets may
+    // repeat; do not parse the same SubIFD repeatedly or decode image pixels.
+    const MAX_DIRECTORIES: usize = 256;
+    let mut directories = 1;
+    let mut seen_offsets = HashSet::new();
+    if let Some(root) = decoder.ifd_pointer() {
+        seen_offsets.insert(root.0);
+    }
 
     if let Some(value) = decoder.find_tag(TiffTag::SubIfd)?
         && let Ok(sub_ifds) = value.into_ifd_vec()
     {
         for sub_ifd in sub_ifds {
+            if !seen_offsets.insert(sub_ifd.0) {
+                continue;
+            }
+            if directories >= MAX_DIRECTORIES {
+                return Err(tiff::TiffError::LimitsExceeded);
+            }
+            directories += 1;
             let directory = decoder.read_directory(sub_ifd)?;
             let mut tags = decoder.read_directory_tags(&directory);
             let width = tags.find_tag_unsigned::<u32>(TiffTag::ImageWidth)?;
@@ -250,6 +318,10 @@ where
     }
 
     while decoder.more_images() {
+        if directories >= MAX_DIRECTORIES {
+            return Err(tiff::TiffError::LimitsExceeded);
+        }
+        directories += 1;
         decoder.next_image()?;
         best = Some(larger_dimensions(best, decoder.dimensions()?));
     }
@@ -347,5 +419,82 @@ fn exif_datetime(exif: &Exif, tag: ExifTag) -> Option<String> {
     match exif_entry(exif, tag)?.as_datetime()? {
         ExifDateTime::Aware(value) => Some(value.to_rfc3339()),
         ExifDateTime::Naive(value) => Some(value.format("%Y-%m-%dT%H:%M:%S").to_string()),
+    }
+}
+
+#[cfg(test)]
+mod budget_tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn repeated_local_reads_consume_one_cumulative_budget() {
+        let mut reader = TiffMetadataReader::new(Cursor::new(vec![1; 8]));
+        reader.bytes_remaining = 16;
+        let mut bytes = [0; 8];
+        for _ in 0..2 {
+            reader.seek(SeekFrom::Start(0)).unwrap();
+            reader.read_exact(&mut bytes).unwrap();
+        }
+        assert!(reader.seek(SeekFrom::Start(0)).is_err());
+        assert!(reader.read(&mut bytes).is_err());
+    }
+
+    #[test]
+    fn tiff_metadata_rejects_excessive_multipage_directories() {
+        let mut bytes = Cursor::new(Vec::new());
+        {
+            let mut encoder = tiff::encoder::TiffEncoder::new(&mut bytes).unwrap();
+            for _ in 0..257 {
+                encoder
+                    .write_image::<tiff::encoder::colortype::Gray8>(1, 1, &[0])
+                    .unwrap();
+            }
+        }
+        bytes.set_position(0);
+        assert!(matches!(
+            tiff_directory_dimensions_from_reader(bytes),
+            Err(tiff::TiffError::LimitsExceeded)
+        ));
+    }
+
+    #[test]
+    fn repeated_subifd_offsets_are_parsed_once() {
+        let mut output = Cursor::new(Vec::new());
+        {
+            let mut encoder = tiff::encoder::TiffEncoder::new(&mut output).unwrap();
+            let mut image = encoder
+                .new_image::<tiff::encoder::colortype::Gray8>(1, 1)
+                .unwrap();
+            image
+                .encoder()
+                .write_tag(TiffTag::SubIfd, &vec![0_u32; 10_000][..])
+                .unwrap();
+            image.write_data(&[0]).unwrap();
+        }
+        let mut bytes = output.into_inner();
+        assert_eq!(&bytes[..2], b"II");
+        let root = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+        let directory = root as usize;
+        let count =
+            u16::from_le_bytes(bytes[directory..directory + 2].try_into().unwrap()) as usize;
+        let subifd_entry = (0..count)
+            .map(|index| directory + 2 + index * 12)
+            .find(|offset| {
+                u16::from_le_bytes(bytes[*offset..*offset + 2].try_into().unwrap()) == 330
+            })
+            .unwrap();
+        let values = u32::from_le_bytes(
+            bytes[subifd_entry + 8..subifd_entry + 12]
+                .try_into()
+                .unwrap(),
+        ) as usize;
+        for offset in (values..values + 40_000).step_by(4) {
+            bytes[offset..offset + 4].copy_from_slice(&root.to_le_bytes());
+        }
+        assert_eq!(
+            tiff_directory_dimensions_from_reader(Cursor::new(bytes)).unwrap(),
+            Some((1, 1))
+        );
     }
 }

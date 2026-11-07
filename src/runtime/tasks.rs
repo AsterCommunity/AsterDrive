@@ -719,6 +719,7 @@ pub(crate) mod test_support {
             metrics: aster_drive_metrics::NoopMetrics::arc(),
             mail_sender: aster_forge_mail::memory_sender(),
             storage_change_bus,
+            storage_event_streams: Default::default(),
             share_download_rollback,
             background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
             remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),

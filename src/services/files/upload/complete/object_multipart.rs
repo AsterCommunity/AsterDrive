@@ -61,6 +61,7 @@ pub(super) async fn complete_presigned_upload(
                 temp_key,
                 session.total_size,
                 actual_size,
+                Some(state.config().server.temp_dir.clone()),
             )
             .await?;
             let verified = VerifiedUploadedBlob::copied_opaque_object(
@@ -285,9 +286,21 @@ async fn copy_presigned_object_to_final_key(
     temp_key: &str,
     declared_size: i64,
     verified_temp_size: i64,
+    temp_root: Option<String>,
 ) -> Result<(String, i64)> {
     let requested_final_key = presigned_final_storage_path();
-    let final_key = driver.copy_object(temp_key, &requested_final_key).await?;
+    let final_key = driver
+        .copy_object(
+            temp_key,
+            &requested_final_key,
+            aster_drive_storage::StorageCopyOptions {
+                expected_size: Some(u64::try_from(declared_size).map_err(|_| {
+                    AsterError::validation_error("upload size must be non-negative")
+                })?),
+                temp_root,
+            },
+        )
+        .await?;
     let final_size = ensure_uploaded_object_size(
         driver,
         &final_key,
@@ -675,6 +688,7 @@ mod tests {
             &self,
             _src_path: &str,
             dest_path: &str,
+            _options: aster_drive_storage::StorageCopyOptions,
         ) -> aster_drive_storage::Result<String> {
             Ok(dest_path.to_string())
         }
@@ -720,6 +734,7 @@ mod tests {
             &self,
             _src_path: &str,
             _dest_path: &str,
+            _options: aster_drive_storage::StorageCopyOptions,
         ) -> aster_drive_storage::Result<String> {
             unreachable!()
         }
@@ -822,7 +837,7 @@ mod tests {
         let driver = Arc::new(CountingCopyDriver::default());
 
         let (final_key, final_size) =
-            copy_presigned_object_to_final_key(driver.as_ref(), "temp/object", 12, 12)
+            copy_presigned_object_to_final_key(driver.as_ref(), "temp/object", 12, 12, None)
                 .await
                 .expect("copy should succeed");
 

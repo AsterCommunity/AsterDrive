@@ -41,7 +41,6 @@ impl ArchiveScanEntryKind {
 
 #[derive(Debug, Clone)]
 pub(crate) struct ArchiveScanEntry {
-    pub(crate) index: usize,
     pub(crate) relative_path: PathBuf,
     pub(crate) path: String,
     pub(crate) name: String,

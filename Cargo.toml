@@ -306,7 +306,7 @@ validator = { workspace = true }
 webauthn-rs = { version = "0.6.2", default-features = false, features = ["conditional-ui", "danger-allow-state-serialisation"] }
 webauthn-rs-proto = "0.6.2"
 
-zip = { version = "9", default-features = false, features = ["deflate"] }
+zip = { version = "=9.2.0", default-features = false, features = ["deflate"] }
 lofty = "0.25.5"
 inquire = { version = "0.9.4", default-features = false, features = ["crossterm", "fuzzy"], optional = true }
 clap_complete = "4.6.11"

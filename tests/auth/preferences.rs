@@ -8,6 +8,77 @@ use aster_drive_model::types::StoredUserConfig;
 use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
 use serde_json::Value;
 
+#[actix_web::test]
+async fn preferences_enforce_merged_byte_budget_without_losing_existing_values() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    for (key, success) in [("first", true), ("second", false)] {
+        let req = test::TestRequest::patch()
+            .uri("/api/v1/auth/preferences")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({"custom": {(key): "x".repeat(32 * 1024)}}))
+            .to_request();
+        let body: Value = test::read_body_json(test::call_service(&app, req).await).await;
+        assert_eq!(body["code"] == "success", success, "{body}");
+    }
+    let req = test::TestRequest::get()
+        .uri("/api/v1/auth/me")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .to_request();
+    let body: Value = test::read_body_json(test::call_service(&app, req).await).await;
+    let custom = &body["data"]["preferences"]["custom"];
+    assert_eq!(custom["first"].as_str().unwrap().len(), 32 * 1024);
+    assert!(custom.get("second").is_none());
+    let req = test::TestRequest::patch()
+        .uri("/api/v1/auth/preferences")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(
+            serde_json::json!({"remove_custom_keys": ["first"], "custom": {"second": "small"}}),
+        )
+        .to_request();
+    let body: Value = test::read_body_json(test::call_service(&app, req).await).await;
+    assert_eq!(body["code"], "success", "{body}");
+    assert_eq!(body["data"]["custom"]["second"], "small");
+    assert!(body["data"]["custom"].get("first").is_none());
+}
+
+#[actix_web::test]
+async fn preferences_enforce_merged_custom_key_budget() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    let custom: serde_json::Map<String, Value> = (0..256)
+        .map(|index| (format!("key-{index}"), Value::Bool(true)))
+        .collect();
+    let req = test::TestRequest::patch()
+        .uri("/api/v1/auth/preferences")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({"custom": custom}))
+        .to_request();
+    let body: Value = test::read_body_json(test::call_service(&app, req).await).await;
+    assert_eq!(body["code"], "success", "{body}");
+    let req = test::TestRequest::patch()
+        .uri("/api/v1/auth/preferences")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({"custom": {"overflow": true}}))
+        .to_request();
+    let body: Value = test::read_body_json(test::call_service(&app, req).await).await;
+    assert_ne!(body["code"], "success", "{body}");
+    let req = test::TestRequest::get()
+        .uri("/api/v1/auth/me")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .to_request();
+    let body: Value = test::read_body_json(test::call_service(&app, req).await).await;
+    let custom = body["data"]["preferences"]["custom"].as_object().unwrap();
+    assert_eq!(custom.len(), 256);
+    assert!(!custom.contains_key("overflow"));
+}
+
 // ── /me 不泄漏 password_hash 和 config ─────────────────────
 
 #[actix_web::test]

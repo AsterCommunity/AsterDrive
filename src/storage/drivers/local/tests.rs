@@ -445,7 +445,7 @@ async fn copy_metadata_stream_and_delete_roundtrip() {
     driver.put("src/file.txt", b"copy me").await.unwrap();
 
     let copied = driver
-        .copy_object("src/file.txt", "dest/file.txt")
+        .copy_object("src/file.txt", "dest/file.txt", Default::default())
         .await
         .unwrap();
     assert_eq!(copied, "dest/file.txt");
@@ -483,7 +483,7 @@ async fn copy_publish_failure_preserves_existing_target_and_cleans_temporary_fil
         .unwrap();
 
     driver
-        .copy_object("source.bin", "target.bin")
+        .copy_object("source.bin", "target.bin", Default::default())
         .await
         .expect_err("publishing a file over a directory must fail");
 

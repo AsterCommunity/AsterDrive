@@ -129,7 +129,7 @@ async fn missing_local_upload_and_oversized_copy_fail_before_session_creation() 
     .await;
     assert_eq!(
         driver(&peer)
-            .copy_object("files/source", "files/dest")
+            .copy_object("files/source", "files/dest", Default::default())
             .await
             .unwrap_err()
             .kind(),

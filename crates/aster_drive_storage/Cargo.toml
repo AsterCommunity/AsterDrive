@@ -16,6 +16,7 @@ openapi = ["dep:utoipa", "aster_drive_model/openapi"]
 [dependencies]
 aster_drive_model = { workspace = true }
 aster_forge_utils = { workspace = true }
+aster_forge_runtime = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 chrono = { workspace = true }

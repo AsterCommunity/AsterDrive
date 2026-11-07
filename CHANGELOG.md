@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Resource processing budgets** — Bound tunnel response collection, WOPI discovery expansion, persisted preferences, image/TIFF processing, archive metadata and range reads, WebDAV lock discovery, and concurrent storage-event streams before expensive work. JSON/CSV previews simplify oversized content. Generic object copies stage and verify the declared length in Forge runtime scratch directories before streaming to the destination; native copies remain available. (#745)
+
 - **External account association** — Preserve the initiating browser through password and email recovery; defer existing-account identity links until required MFA completes, then commit the association, flow consumption, audit and session together. Existing identities obey current provider email/domain policies. Upgrade all authentication writers; pre-upgrade unbound recovery flows must restart.
 
 - **XML previews and scoped delegation** — Isolate generic XML document responses and keep shared preview tokens file-scoped without disclosing the original share credential. Existing shared preview URLs need regeneration; sharing and preview download-count semantics remain unchanged.
@@ -24,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Workspace and resource authorization** — Unify current actor, delegated scope and operation checks across file services, upload publication, WebDAV, WOPI, shares, tasks and governed administrator reads. Reject missing team membership, stale credential approvals, cross-mount lock operations, collection-lock bypasses and privileged task retries after demotion; bind queued uploads and recovery to their original account and workspace. Clear private listings, playback and downloads on logout and reject responses from earlier accounts. Preserve protocol token/precondition behavior and existing capability lifetimes. (#745)
 
 ### Changed
+
+- **Folder hierarchy limits** — Support directory depth up to 4096, counting the workspace root as zero, with consistent checks for creation, relative-path uploads, moves, copies and restores. Keep synchronous operation budgets separate from background processing, preserve cleanup of older deeper trees, and load deep shared navigation lazily. Directory downloads reuse parent handles and support cancellation. Trash cleanup, folder-task staging, revision purge and integrity scans avoid repeated growing scans. (#745)
 
 - **Outbound HTTP policy** — Route built-in HTTP clients through `aster_drive_outbound` and the shared Forge factory. Preserve streaming upload/download timeouts, default to the shared product User-Agent with an explicit per-client override, centralize redirect rejection while preserving conditional 304 responses, share progress/acknowledgement upload handling across providers with separate Google Drive control/download/upload pools, and establish an origin-scoped, bounded and cancellable plugin transport with public-address validation and DNS pinning.
 

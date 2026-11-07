@@ -1,5 +1,5 @@
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use tokio::io::{AsyncRead, ReadBuf};
@@ -88,7 +88,7 @@ impl StorageOperationContext {
         reader: Box<dyn AsyncRead + Unpin + Send>,
     ) -> Box<dyn AsyncRead + Unpin + Send + Sync> {
         let reader: Box<dyn AsyncRead + Unpin + Send + Sync> =
-            Box::new(SendToSyncReader::new(reader));
+            Box::new(aster_drive_storage::SyncReader::new(reader));
         match &self.cancellation {
             Some(cancellation) => Box::new(CancellationAwareReader {
                 inner: reader,
@@ -99,35 +99,6 @@ impl StorageOperationContext {
         }
     }
 }
-
-struct SendToSyncReader {
-    inner: Mutex<Box<dyn AsyncRead + Unpin + Send>>,
-}
-
-impl SendToSyncReader {
-    fn new(inner: Box<dyn AsyncRead + Unpin + Send>) -> Self {
-        Self {
-            inner: Mutex::new(inner),
-        }
-    }
-}
-
-impl AsyncRead for SendToSyncReader {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<std::io::Result<()>> {
-        match self.inner.lock() {
-            Ok(mut inner) => Pin::new(&mut *inner).poll_read(cx, buf),
-            Err(_) => Poll::Ready(Err(std::io::Error::other(
-                "send-to-sync reader mutex poisoned",
-            ))),
-        }
-    }
-}
-
-impl Unpin for SendToSyncReader {}
 
 struct CancellationAwareReader {
     inner: Box<dyn AsyncRead + Unpin + Send + Sync>,

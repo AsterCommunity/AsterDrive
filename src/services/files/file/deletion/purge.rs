@@ -134,9 +134,17 @@ pub(crate) async fn purge_files_on<C: sea_orm::ConnectionTrait>(
     let deleted_shares = share_repo::delete_by_file_ids(txn, &file_ids).await?;
     file_repo::delete_many(txn, &file_ids).await?;
 
-    let mut blob_decrements = BTreeMap::<i64, i64>::new();
-    for &(blob_id, _logical_size) in &revision_refs {
-        *blob_decrements.entry(blob_id).or_default() += 1;
+    // Collect count and logical quota together. Scanning every revision again
+    // for every distinct blob makes a normal large purge quadratic.
+    let mut blob_decrements = BTreeMap::<i64, (i64, i64)>::new();
+    for &(blob_id, logical_size) in &revision_refs {
+        let (count, bytes) = blob_decrements.entry(blob_id).or_default();
+        *count += 1;
+        *bytes = bytes.checked_add(logical_size).ok_or_else(|| {
+            AsterError::internal_error(format!(
+                "freed byte count overflow for blob {blob_id} during batch purge"
+            ))
+        })?;
     }
 
     let blob_ids: Vec<i64> = blob_decrements.keys().copied().collect();
@@ -144,18 +152,8 @@ pub(crate) async fn purge_files_on<C: sea_orm::ConnectionTrait>(
     let mut total_freed_bytes = 0i64;
     let mut ref_count_decrements = Vec::with_capacity(blob_decrements.len());
 
-    for (&blob_id, &decrement) in &blob_decrements {
+    for (&blob_id, &(decrement, freed_bytes)) in &blob_decrements {
         if blobs_by_id.contains_key(&blob_id) {
-            let freed_bytes = revision_refs
-                .iter()
-                .filter(|(revision_blob_id, _)| *revision_blob_id == blob_id)
-                .try_fold(0_i64, |total, (_, logical_size)| {
-                    total.checked_add(*logical_size).ok_or_else(|| {
-                        AsterError::internal_error(format!(
-                            "freed byte count overflow for blob {blob_id} during batch purge"
-                        ))
-                    })
-                })?;
             total_freed_bytes = total_freed_bytes.checked_add(freed_bytes).ok_or_else(|| {
                 AsterError::internal_error("total freed byte count overflow during batch purge")
             })?;

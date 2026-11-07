@@ -186,6 +186,19 @@ async fn restore_folder_in_scope(
         )
         .await?;
     }
+    let parent_chain = crate::services::files::folder::hierarchy::load_active_chain_on(
+        &txn,
+        scope,
+        restored_parent_id,
+    )
+    .await?;
+    crate::services::files::folder::hierarchy::ensure_subtree_placement_on(
+        &txn,
+        scope,
+        id,
+        parent_chain.len(),
+    )
+    .await?;
     let root_before = folder.clone();
     let mut active: folder::ActiveModel = folder.into();
     let folder_name = active.name.clone().take().unwrap_or_default();

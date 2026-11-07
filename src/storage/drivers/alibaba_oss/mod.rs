@@ -506,8 +506,13 @@ impl StorageDriver for AlibabaOssDriver {
         self.storage.readiness_check().await
     }
 
-    async fn copy_object(&self, src_path: &str, dest_path: &str) -> Result<String> {
-        self.storage.copy_object(src_path, dest_path).await
+    async fn copy_object(
+        &self,
+        src_path: &str,
+        dest_path: &str,
+        options: aster_drive_storage::StorageCopyOptions,
+    ) -> Result<String> {
+        self.storage.copy_object(src_path, dest_path, options).await
     }
 
     fn extensions(&self) -> StorageDriverExtensions<'_> {

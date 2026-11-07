@@ -1790,38 +1790,11 @@ impl HashingReader {
     }
 }
 
-struct SyncRead {
-    inner: std::sync::Mutex<Box<dyn AsyncRead + Unpin + Send>>,
-}
-
-impl SyncRead {
-    fn new(inner: Box<dyn AsyncRead + Unpin + Send>) -> Self {
-        Self {
-            inner: std::sync::Mutex::new(inner),
-        }
-    }
-}
-
-impl AsyncRead for SyncRead {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<std::io::Result<()>> {
-        match self.inner.lock() {
-            Ok(mut inner) => Pin::new(&mut *inner).poll_read(cx, buf),
-            Err(_) => Poll::Ready(Err(std::io::Error::other("sync read mutex poisoned"))),
-        }
-    }
-}
-
-impl Unpin for SyncRead {}
-
 impl HashingReader {
     fn wrap_inner(
         inner: Box<dyn AsyncRead + Unpin + Send>,
     ) -> Box<dyn AsyncRead + Unpin + Send + Sync> {
-        Box::new(SyncRead::new(inner))
+        Box::new(aster_drive_storage::SyncReader::new(inner))
     }
 }
 

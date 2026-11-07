@@ -15,6 +15,58 @@ fn write_temp_fixture(name: &str, contents: &str) -> String {
 }
 
 #[actix_web::test]
+async fn lock_discovery_bounds_materialized_wide_owner_trees_before_page_clones() {
+    use aster_drive::services::files::folder;
+    use aster_drive::webdav::backend::lock::DbLockSystem;
+    use aster_forge_webdav::{DavBackendErrorKind, DavLockSystem, DavPath, DavXmlElement};
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "owner-budget",
+        "owner-budget@example.com",
+        "pass1234",
+    )
+    .await
+    .unwrap();
+    folder::create(&state, user.id, "locked", None)
+        .await
+        .unwrap();
+    let locks = DbLockSystem::new(state, user.id, None);
+    let root = DavPath::new("/locked/").unwrap();
+    let xml = format!(
+        "<D:owner xmlns:D=\"DAV:\">{}</D:owner>",
+        "<x/>".repeat(2_000)
+    );
+    assert!(xml.len() < 10_000);
+    let owner = DavXmlElement::parse(xml.as_bytes()).unwrap();
+    let acquired = locks
+        .lock(DavLockAcquireRequest {
+            path: &root,
+            principal: None,
+            owner: Some(&owner),
+            timeout: Some(Duration::from_secs(120)),
+            shared: false,
+            deep: true,
+            credentials: DavMutationCredentials::default(),
+        })
+        .await
+        .unwrap();
+    let few = [
+        DavPath::new("/locked/a").unwrap(),
+        DavPath::new("/locked/b").unwrap(),
+    ];
+    let normal = locks.discover_many(&few).await.unwrap();
+    assert_eq!(normal[&few[0]][0].token, acquired.lock.token);
+    assert_eq!(normal[&few[1]][0].owner, Some(Box::new(owner)));
+    let page = (0..256)
+        .map(|i| DavPath::new(&format!("/locked/item-{i}")).unwrap())
+        .collect::<Vec<_>>();
+    let error = locks.discover_many(&page).await.unwrap_err();
+    assert_eq!(error.kind, DavBackendErrorKind::InsufficientStorage);
+}
+
+#[actix_web::test]
 async fn test_db_lock_system_deep_lock_supports_check_refresh_discover_and_delete() {
     use aster_drive::db::repository::lock_repo;
     use aster_drive::services::{files::file, files::folder};

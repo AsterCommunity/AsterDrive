@@ -10,6 +10,7 @@ mod batch;
 mod directory_upload;
 mod edit;
 mod files;
+mod folder_depth;
 mod folders;
 mod media_metadata;
 mod pagination;

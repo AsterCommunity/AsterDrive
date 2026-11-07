@@ -158,7 +158,7 @@ async fn test_s3_put_get_delete() {
     // COPY
     driver.put("test/src.txt", b"copy me").await.unwrap();
     driver
-        .copy_object("test/src.txt", "test/dst.txt")
+        .copy_object("test/src.txt", "test/dst.txt", Default::default())
         .await
         .unwrap();
     let got = driver.get("test/dst.txt").await.unwrap();

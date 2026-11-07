@@ -8,6 +8,8 @@ use crate::services::preview::wopi::proof::{WopiProofKeySet, parse_wopi_proof_ke
 use super::types::{WopiDiscovery, WopiDiscoveryAction};
 
 pub(crate) const WOPI_DISCOVERY_XML_MAX_BYTES: usize = 5 * 1024 * 1024;
+const MAX_DISCOVERY_ACTIONS: usize = 10_000;
+const MAX_DISCOVERY_ACTION_BYTES: usize = 16 * 1024 * 1024;
 
 fn discovery_xml_options() -> ParseOptions {
     ParseOptions::new()
@@ -23,7 +25,7 @@ pub(crate) fn parse_discovery_xml(xml: &str) -> Result<WopiDiscovery> {
     let mut actions = Vec::new();
     let mut proof_keys = None;
     collect_discovery_proof_keys(&root, &mut proof_keys)?;
-    collect_discovery_actions(&root, None, None, &mut actions);
+    collect_discovery_actions(&root, None, None, &mut actions, &mut 0)?;
     if actions.is_empty() {
         return Err(AsterError::validation_error(
             "WOPI discovery did not expose any actions",
@@ -78,7 +80,8 @@ fn collect_discovery_actions(
     app_name: Option<&str>,
     app_icon_url: Option<&str>,
     out: &mut Vec<WopiDiscoveryAction>,
-) {
+    output_bytes: &mut usize,
+) -> Result<()> {
     let (next_app_name, next_app_icon_url) = if element.name().eq_ignore_ascii_case("app") {
         (
             element_attribute(element, "name").or(app_name),
@@ -89,6 +92,28 @@ fn collect_discovery_actions(
     };
 
     if element.name().eq_ignore_ascii_case("action") {
+        // The XML budget does not bound the projected model: each action
+        // inherits app metadata. Charge those copies before allocating them.
+        let action_bytes = [
+            element_attribute(element, "name"),
+            element_attribute(element, "urlsrc"),
+            element_attribute(element, "ext"),
+            next_app_name,
+            next_app_name, // MIME projection may duplicate the app name.
+            next_app_icon_url,
+        ]
+        .into_iter()
+        .flatten()
+        .map(str::len)
+        .sum::<usize>();
+        if out.len() >= MAX_DISCOVERY_ACTIONS
+            || action_bytes > MAX_DISCOVERY_ACTION_BYTES - *output_bytes
+        {
+            return Err(AsterError::validation_error(
+                "WOPI discovery action budget exceeded",
+            ));
+        }
+        *output_bytes += action_bytes;
         let action =
             element_attribute(element, "name").map(|value| value.trim().to_ascii_lowercase());
         let urlsrc = element_attribute(element, "urlsrc").map(|value| value.trim().to_string());
@@ -116,9 +141,10 @@ fn collect_discovery_actions(
 
     for child in element.children() {
         if let NodeRef::Element(child) = child {
-            collect_discovery_actions(&child, next_app_name, next_app_icon_url, out);
+            collect_discovery_actions(&child, next_app_name, next_app_icon_url, out, output_bytes)?;
         }
     }
+    Ok(())
 }
 
 fn element_attribute<'a>(element: &ElementRef<'a, Arc<[u8]>>, name: &str) -> Option<&'a str> {

@@ -21,8 +21,13 @@ pub async fn get_current_auth_snapshot(
     state: &impl SharedRuntimeState,
     user_id: i64,
 ) -> Result<AuthSnapshot> {
-    let user = user_repo::find_by_id(state.writer_db(), user_id).await?;
-    Ok(AuthSnapshot::from_user(&user))
+    let fields = user_repo::find_authorization_fields(state.writer_db(), user_id).await?;
+    Ok(AuthSnapshot {
+        status: fields.status,
+        role: fields.role,
+        session_version: fields.session_version,
+        must_change_password: fields.must_change_password,
+    })
 }
 
 /// Lists the account's active refresh sessions from the writer. The optional current JTI only

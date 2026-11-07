@@ -21,6 +21,7 @@
 	"download_cancel": "Cancel download",
 	"download_retry_failed": "Retry failed items",
 	"download_items_failed": "Some files failed. Retry the failed items when ready.",
+	"download_directory_limit": "Directory preparation exceeds the supported depth or preparation limit. Select a smaller subtree.",
 	"download_directory_unsupported": "This browser does not support choosing a local directory.",
 	"download_items_progress": "{{completed}} / {{total}} completed, {{failed}} failed",
 	"download_estimated_remaining": "About {{seconds}}s remaining",

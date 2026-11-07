@@ -13,6 +13,7 @@ import {
 	PreviewSurfaceToolbar,
 } from "../../shared/PreviewSurface";
 import { withScopedPrismClassName } from "./prismClassNames";
+import { formatJsonPreview } from "./structuredPreview";
 
 interface JsonPreviewProps {
 	resource: ResourcePath;
@@ -24,11 +25,7 @@ export function JsonPreview({ resource }: JsonPreviewProps) {
 
 	const formatted = useMemo(() => {
 		if (!content) return null;
-		try {
-			return JSON.stringify(JSON.parse(content), null, 2);
-		} catch {
-			return null;
-		}
+		return formatJsonPreview(content);
 	}, [content]);
 
 	if (loading) {
@@ -56,40 +53,58 @@ export function JsonPreview({ resource }: JsonPreviewProps) {
 			<PreviewSurfaceToolbar
 				icon="BracketsCurly"
 				label={t("preview_mode_json")}
-				meta={t("preview_mode_formatted")}
+				meta={t(
+					formatted.limited
+						? "structured_preview_limited"
+						: "preview_mode_formatted",
+				)}
 			/>
 			<PreviewSurfaceContent>
 				<ScrollArea className="h-full bg-background/80 dark:bg-background/25">
-					<Highlight theme={themes.github} code={formatted} language="json">
-						{({ className, style, tokens, getLineProps, getTokenProps }) => (
-							<pre
-								className={`${className} min-h-full p-4 font-mono text-sm leading-6 whitespace-pre-wrap break-words`}
-								style={{ ...style, background: "transparent", margin: 0 }}
-							>
-								{tokens.map((line) => {
-									const lineText = line.map((token) => token.content).join("");
-									const lineKey = `line-${lineText}`;
-									const lineProps = withScopedPrismClassName(
-										getLineProps({ line, key: lineKey }),
-									);
-									return (
-										<div key={lineKey} {...lineProps}>
-											{line.map((token) => {
-												const tokenKey = `${lineKey}-${token.types.join("-")}-${token.content}`;
-												const tokenProps = withScopedPrismClassName(
-													getTokenProps({
-														key: tokenKey,
-														token,
-													}),
-												);
-												return <span key={tokenKey} {...tokenProps} />;
-											})}
-										</div>
-									);
-								})}
-							</pre>
-						)}
-					</Highlight>
+					{formatted.limited ||
+					formatted.text.length > 64 * 1024 ||
+					formatted.text.split("\n").length > 2000 ? (
+						<pre className="p-4 font-mono text-sm leading-6 whitespace-pre-wrap break-words">
+							{formatted.text}
+						</pre>
+					) : (
+						<Highlight
+							theme={themes.github}
+							code={formatted.text}
+							language="json"
+						>
+							{({ className, style, tokens, getLineProps, getTokenProps }) => (
+								<pre
+									className={`${className} min-h-full p-4 font-mono text-sm leading-6 whitespace-pre-wrap break-words`}
+									style={{ ...style, background: "transparent", margin: 0 }}
+								>
+									{tokens.map((line) => {
+										const lineText = line
+											.map((token) => token.content)
+											.join("");
+										const lineKey = `line-${lineText}`;
+										const lineProps = withScopedPrismClassName(
+											getLineProps({ line, key: lineKey }),
+										);
+										return (
+											<div key={lineKey} {...lineProps}>
+												{line.map((token) => {
+													const tokenKey = `${lineKey}-${token.types.join("-")}-${token.content}`;
+													const tokenProps = withScopedPrismClassName(
+														getTokenProps({
+															key: tokenKey,
+															token,
+														}),
+													);
+													return <span key={tokenKey} {...tokenProps} />;
+												})}
+											</div>
+										);
+									})}
+								</pre>
+							)}
+						</Highlight>
+					)}
 				</ScrollArea>
 			</PreviewSurfaceContent>
 		</PreviewSurface>

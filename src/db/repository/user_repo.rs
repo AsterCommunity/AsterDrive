@@ -75,6 +75,34 @@ pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<user::Mod
         .ok_or_else(|| AsterError::record_not_found(format!("user #{id}")))
 }
 
+/// Authorization reads must not materialize unrelated, account-controlled config data.
+#[derive(sea_orm::FromQueryResult)]
+pub(crate) struct UserAuthorizationFields {
+    pub status: UserStatus,
+    pub role: UserRole,
+    pub session_version: i64,
+    pub must_change_password: bool,
+}
+
+pub(crate) async fn find_authorization_fields<C: ConnectionTrait>(
+    db: &C,
+    id: i64,
+) -> Result<UserAuthorizationFields> {
+    User::find_by_id(id)
+        .select_only()
+        .columns([
+            user::Column::Status,
+            user::Column::Role,
+            user::Column::SessionVersion,
+            user::Column::MustChangePassword,
+        ])
+        .into_model::<UserAuthorizationFields>()
+        .one(db)
+        .await
+        .map_err(AsterError::from)?
+        .ok_or_else(|| AsterError::record_not_found(format!("user #{id}")))
+}
+
 pub async fn lock_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<user::Model> {
     match db.get_database_backend() {
         DbBackend::Postgres | DbBackend::MySql => User::find_by_id(id)

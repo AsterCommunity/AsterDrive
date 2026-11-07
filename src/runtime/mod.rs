@@ -33,6 +33,7 @@ pub struct PrimaryAppState {
     pub mail_sender: Arc<dyn MailSender>,
     /// Local storage-change broadcast with an optional cross-instance transport.
     pub storage_change_bus: StorageChangeBus,
+    pub storage_event_streams: crate::services::events::storage_streams::StorageEventStreams,
     /// 公开分享下载中途断连时的 download_count 回滚队列
     pub share_download_rollback: ShareDownloadRollbackQueue,
     /// 后台任务 dispatcher 唤醒信号。任务创建/重试后用它打断空闲退避 sleep。
@@ -454,6 +455,7 @@ mod tests {
             metrics: aster_drive_metrics::NoopMetrics::arc(),
             mail_sender: aster_forge_mail::memory_sender(),
             storage_change_bus,
+            storage_event_streams: Default::default(),
             share_download_rollback,
             background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
             remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),

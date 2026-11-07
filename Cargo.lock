@@ -912,6 +912,7 @@ name = "aster_drive_storage"
 version = "0.7.1"
 dependencies = [
  "aster_drive_model",
+ "aster_forge_runtime",
  "aster_forge_utils",
  "async-trait",
  "bytes",

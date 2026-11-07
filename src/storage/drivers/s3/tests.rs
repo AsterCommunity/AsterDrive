@@ -417,7 +417,11 @@ async fn copy_object_url_encodes_source_key() {
     let (driver, requests) = replay_driver(vec![head, copy], "");
 
     driver
-        .copy_object("folder with space/中文 file+1.txt", "dest/key")
+        .copy_object(
+            "folder with space/中文 file+1.txt",
+            "dest/key",
+            Default::default(),
+        )
         .await
         .expect("copy should succeed");
 
@@ -460,7 +464,10 @@ async fn copy_object_at_or_below_single_copy_limit_uses_head_then_copy() {
             "base",
         );
         assert_eq!(
-            driver.copy_object("source", "target").await.unwrap(),
+            driver
+                .copy_object("source", "target", Default::default())
+                .await
+                .unwrap(),
             "target"
         );
         let methods = requests
@@ -476,7 +483,10 @@ async fn copy_object_above_single_copy_limit_uses_server_side_multipart_copy() {
     let (driver, requests) = replay_driver(multipart_copy_events(), "base");
     assert!(driver.extensions().native_publish.is_none());
     assert_eq!(
-        driver.copy_object("source", "target").await.unwrap(),
+        driver
+            .copy_object("source", "target", Default::default())
+            .await
+            .unwrap(),
         "target"
     );
     let captured = requests.actual_requests().collect::<Vec<_>>();
@@ -543,7 +553,10 @@ async fn copy_object_aborts_multipart_after_part_or_completion_failure() {
                 .unwrap(),
         ));
         let (driver, requests) = replay_driver(events, "");
-        let error = driver.copy_object("source", "target").await.unwrap_err();
+        let error = driver
+            .copy_object("source", "target", Default::default())
+            .await
+            .unwrap_err();
         assert_eq!(error.kind(), StorageErrorKind::Permission);
         let captured = requests.actual_requests().collect::<Vec<_>>();
         assert_eq!(captured.len(), failure_index + 2);

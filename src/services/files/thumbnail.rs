@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use image::ImageFormat;
 use image::imageops::FilterType;
-use image::{ImageReader, Limits};
+use image::{ImageDecoder, ImageReader, Limits};
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::operations;
@@ -25,6 +25,7 @@ pub(crate) const CURRENT_IMAGE_PREVIEW_VERSION: &str = "1";
 pub(crate) const IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE: &str = "images";
 /// 单次解码最大内存分配（防止恶意/超大图 OOM）
 const MAX_DECODE_ALLOC: u64 = 128 * 1024 * 1024;
+const MAX_RENDER_ALLOC: u64 = 256 * 1024 * 1024;
 
 fn thumbnail_format_guess_failed(message: String) -> AsterError {
     thumbnail_generation_error_with_code(ApiErrorCode::ThumbnailFormatGuessFailed, message)
@@ -162,8 +163,30 @@ where
     limits.max_alloc = Some(MAX_DECODE_ALLOC);
     reader.limits(limits);
 
-    let img = reader
-        .decode()
+    let decoder = reader
+        .into_decoder()
+        .map_aster_err_ctx("open image decoder", thumbnail_decode_failed)?;
+    let (width, height) = decoder.dimensions();
+    // Triangle resizing first allocates a source-width x target-height RGBA32F
+    // intermediate. Decoder limits do not include that buffer or WebP's RGBA
+    // conversion/output. Conservatively reserve all of them before decoding.
+    let pixels = u64::from(width) * u64::from(height);
+    let target_pixels = pixels.min(u64::from(max_dim) * u64::from(max_dim));
+    let resize_bytes = if width > max_dim || height > max_dim {
+        u64::from(width) * u64::from(height.min(max_dim)) * 16
+    } else {
+        0
+    };
+    let render_bytes = decoder
+        .total_bytes()
+        .saturating_add(resize_bytes)
+        .saturating_add(target_pixels.saturating_mul(32));
+    if render_bytes > MAX_RENDER_ALLOC {
+        return Err(thumbnail_decode_failed(
+            "image rendering exceeds memory budget".to_string(),
+        ));
+    }
+    let img = image::DynamicImage::from_decoder(decoder)
         .map_aster_err_ctx("decode", thumbnail_decode_failed)?;
 
     if img.width() <= max_dim && img.height() <= max_dim {
@@ -620,6 +643,16 @@ mod tests {
         let rendered =
             render_webp_derivative_from_image_bytes(Cursor::new(sample_png(10, 20)), 1).unwrap();
         assert_eq!(rendered_dimensions(&rendered), (1, 1));
+    }
+
+    #[test]
+    fn render_derivative_rejects_extreme_aspect_ratio_before_resizing() {
+        // The compressed source and decoded pixels fit the decode budget, but
+        // Triangle's source-width float intermediate would exceed the render budget.
+        let error =
+            render_webp_derivative_from_image_bytes(Cursor::new(sample_png(2_000_000, 10)), 400)
+                .expect_err("extremely wide input must not allocate the resize intermediate");
+        assert!(error.message().contains("memory budget"));
     }
 
     #[test]

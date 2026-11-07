@@ -230,17 +230,6 @@ pub struct LoginResult {
     pub password_change_required: bool,
 }
 
-impl AuthSnapshot {
-    fn from_user(user: &user::Model) -> Self {
-        Self {
-            status: user.status,
-            role: user.role,
-            session_version: user.session_version,
-            must_change_password: user.must_change_password,
-        }
-    }
-}
-
 fn user_audit_info(user: &user::Model) -> UserAuditInfo {
     UserAuditInfo {
         id: user.id,

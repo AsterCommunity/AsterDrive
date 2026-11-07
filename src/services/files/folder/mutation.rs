@@ -26,6 +26,7 @@ use aster_drive_model::types::EntityType;
 use aster_forge_api::NullablePatch;
 use aster_forge_utils::numbers::u64_to_usize;
 
+use super::hierarchy::load_active_chain_on;
 use super::{collect_folder_tree_in_scope, ensure_folder_model_in_scope};
 
 const STORAGE_USED_VERSION_SUM_CHUNK_SIZE: usize = 500;
@@ -86,7 +87,8 @@ async fn load_child_folder_ids(
         }
         WorkspaceResourceScope::Team { team_id } => folder_repo::FolderScope::Team { team_id },
     };
-    folder_repo::find_child_ids_in_parents(state.reader_db(), folder_scope, folder_ids).await
+    folder_repo::find_child_ids_in_parents(state.reader_db(), folder_scope, folder_ids, false, None)
+        .await
 }
 
 /// 递归计算文件夹详情页展示的占用空间。
@@ -106,6 +108,8 @@ async fn compute_folder_storage_used(
 ) -> Result<i64> {
     let mut total = 0i64;
     let mut frontier = vec![folder_id];
+    let mut seen = BTreeSet::new();
+    let mut depth = 0;
     let file_page_size = u64_to_usize(
         STORAGE_USED_FILE_PAGE_SIZE,
         "folder storage_used file page size",
@@ -114,6 +118,13 @@ async fn compute_folder_storage_used(
     while !frontier.is_empty() {
         frontier.sort_unstable();
         frontier.dedup();
+        super::hierarchy::ensure_result_depth(depth, 1)?;
+        depth += 1;
+        if frontier.iter().any(|id| !seen.insert(*id)) {
+            return Err(AsterError::validation_error(
+                "folder hierarchy contains a cycle",
+            ));
+        }
         let mut next_frontier = Vec::new();
 
         for folder_chunk in frontier.chunks(STORAGE_USED_FOLDER_QUERY_CHUNK_SIZE) {
@@ -234,6 +245,8 @@ pub(crate) async fn create_in_scope(
             let parent = folder_repo::lock_by_id(txn, pid).await?;
             ensure_folder_model_in_scope(&parent, scope)?;
         }
+
+        super::hierarchy::ensure_insertion_depth_on(txn, scope, parent_id, 1).await?;
 
         if find_folder_by_name_in_scope(txn, scope, parent_id, &name)
             .await?
@@ -584,8 +597,7 @@ pub(crate) async fn update_in_scope(
             NullablePatch::Value(pid) => Some(pid),
         };
         access.folder(&preview).await?;
-        let initial_target_chain =
-            load_folder_chain_in_scope(txn, scope, preview_target_parent).await?;
+        let initial_target_chain = load_active_chain_on(txn, scope, preview_target_parent).await?;
         // 固定按 id 顺序加锁，降低多个移动操作互相等待时形成死锁的概率。
         let mut lock_ids = vec![id];
         lock_ids.extend(initial_target_chain.iter().map(|folder| folder.id));
@@ -605,7 +617,7 @@ pub(crate) async fn update_in_scope(
             NullablePatch::Null => None,
             NullablePatch::Value(pid) => Some(pid),
         };
-        let target_chain = load_folder_chain_in_scope(txn, scope, target_parent).await?;
+        let target_chain = load_active_chain_on(txn, scope, target_parent).await?;
         match target_parent != current.parent_id
             || name.as_ref().is_some_and(|name| name != &current.name)
         {
@@ -633,6 +645,11 @@ pub(crate) async fn update_in_scope(
             return Err(AsterError::validation_error(
                 "cannot move folder into its own subfolder",
             ));
+        }
+
+        if target_parent != current.parent_id {
+            super::hierarchy::ensure_subtree_placement_on(txn, scope, id, target_chain.len())
+                .await?;
         }
 
         let final_name = name.clone().unwrap_or_else(|| current.name.clone());
@@ -887,29 +904,6 @@ async fn collect_locked_folder_tree_in_scope<C: ConnectionTrait>(
     Err(AsterError::internal_error(
         "folder tree did not stabilize while acquiring delete locks",
     ))
-}
-
-async fn load_folder_chain_in_scope<C: ConnectionTrait>(
-    db: &C,
-    scope: WorkspaceStorageScope,
-    start_id: Option<i64>,
-) -> Result<Vec<folder::Model>> {
-    // 从目标父目录一路向根走，用于校验 scope、检测环，以及决定移动时要锁哪些目录。
-    let mut chain = Vec::new();
-    let mut seen = BTreeSet::new();
-    let mut cursor = start_id;
-    while let Some(folder_id) = cursor {
-        if !seen.insert(folder_id) {
-            return Err(AsterError::validation_error(
-                "folder hierarchy contains a cycle",
-            ));
-        }
-        let folder = folder_repo::find_by_id(db, folder_id).await?;
-        ensure_folder_model_in_scope(&folder, scope)?;
-        cursor = folder.parent_id;
-        chain.push(folder);
-    }
-    Ok(chain)
 }
 
 async fn lock_folder_ids_in_order<C: ConnectionTrait>(db: &C, ids: &[i64]) -> Result<()> {

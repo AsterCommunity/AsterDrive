@@ -110,26 +110,21 @@ pub(crate) async fn purge_all_in_scope_silent(
 
     let mut folder_cursor: Option<(chrono::DateTime<chrono::Utc>, i64)> = None;
     loop {
-        let (top_folders, _) = match scope {
+        let folder_scope = match scope {
             WorkspaceStorageScope::Personal { user_id } => {
-                folder_repo::find_top_level_deleted_cursor(
-                    state.writer_db(),
-                    user_id,
-                    PURGE_ALL_BATCH_SIZE,
-                    folder_cursor,
-                )
-                .await?
+                folder_repo::FolderScope::Personal { user_id }
             }
             WorkspaceStorageScope::Team { team_id, .. } => {
-                folder_repo::find_top_level_deleted_by_team_cursor(
-                    state.writer_db(),
-                    team_id,
-                    PURGE_ALL_BATCH_SIZE,
-                    folder_cursor,
-                )
-                .await?
+                folder_repo::FolderScope::Team { team_id }
             }
         };
+        let top_folders = folder_repo::find_top_level_deleted_batch(
+            state.writer_db(),
+            folder_scope,
+            PURGE_ALL_BATCH_SIZE,
+            folder_cursor,
+        )
+        .await?;
         if top_folders.is_empty() {
             break;
         }
@@ -166,26 +161,19 @@ pub(crate) async fn purge_all_in_scope_silent(
 
     let mut file_cursor = None;
     loop {
-        let (top_files, _) = match scope {
+        let file_scope = match scope {
             WorkspaceStorageScope::Personal { user_id } => {
-                file_repo::find_top_level_deleted_paginated(
-                    state.writer_db(),
-                    user_id,
-                    PURGE_ALL_BATCH_SIZE,
-                    file_cursor,
-                )
-                .await?
+                file_repo::FileScope::Personal { user_id }
             }
-            WorkspaceStorageScope::Team { team_id, .. } => {
-                file_repo::find_top_level_deleted_by_team_paginated(
-                    state.writer_db(),
-                    team_id,
-                    PURGE_ALL_BATCH_SIZE,
-                    file_cursor,
-                )
-                .await?
-            }
+            WorkspaceStorageScope::Team { team_id, .. } => file_repo::FileScope::Team { team_id },
         };
+        let top_files = file_repo::find_top_level_deleted_batch(
+            state.writer_db(),
+            file_scope,
+            PURGE_ALL_BATCH_SIZE,
+            file_cursor,
+        )
+        .await?;
         if top_files.is_empty() {
             break;
         }

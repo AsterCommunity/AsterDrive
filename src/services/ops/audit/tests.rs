@@ -357,10 +357,24 @@ async fn log_uses_owned_writer_and_flush_keeps_admission_open() {
         metrics: aster_drive_metrics::NoopMetrics::arc(),
         mail_sender: aster_forge_mail::memory_sender(),
         storage_change_bus,
+        storage_event_streams: Default::default(),
         share_download_rollback,
         background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
         remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
     };
+
+    // A permanently invalid record must be rejected before queue admission so
+    // unrelated accepted records and flush remain usable.
+    super::log(
+        &state,
+        &AuditContext::system(),
+        AuditAction::FileDownload,
+        crate::services::ops::audit::AuditEntityType::File,
+        Some(6),
+        Some(&"🦀".repeat(64)),
+        None,
+    )
+    .await;
 
     super::log(
         &state,
@@ -517,6 +531,7 @@ async fn log_with_details_skips_details_when_action_scope_excludes_action() {
         metrics: aster_drive_metrics::NoopMetrics::arc(),
         mail_sender: aster_forge_mail::memory_sender(),
         storage_change_bus,
+        storage_event_streams: Default::default(),
         share_download_rollback,
         background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
         remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),

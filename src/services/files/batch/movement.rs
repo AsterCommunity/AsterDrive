@@ -9,6 +9,7 @@ use sea_orm::ConnectionTrait;
 use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::services::files::folder::hierarchy::load_active_chain_on;
 use crate::services::{
     events::storage_change,
     workspace::storage::{self, WorkspaceStorageScope},
@@ -252,6 +253,19 @@ pub(crate) async fn batch_move_in_scope(
             continue;
         }
 
+        if folder.parent_id != target_folder_id
+            && let Err(error) =
+                crate::services::files::folder::hierarchy::ensure_subtree_placement_on(
+                    state.writer_db(),
+                    scope,
+                    folder.id,
+                    target_ancestor_ids.len(),
+                )
+                .await
+        {
+            result.record_failure("folder", id, error.to_string());
+            continue;
+        }
         result.record_success();
         if folder.parent_id != target_folder_id {
             folder_ids_to_move.insert(folder.id);
@@ -389,12 +403,12 @@ async fn revalidate_batch_folder_move<C: ConnectionTrait>(
         crate::services::files::lock::LockWorkspace::from_folder(&workspace_snapshot)?,
     )
     .await?;
-    let initial_target_chain = load_folder_chain_in_scope(db, scope, target_folder_id).await?;
+    let initial_target_chain = load_active_chain_on(db, scope, target_folder_id).await?;
     let mut lock_ids: Vec<i64> = folder_ids_to_move.to_vec();
     lock_ids.extend(initial_target_chain.iter().map(|folder| folder.id));
     lock_folder_ids_in_order(db, &lock_ids).await?;
 
-    let target_chain = load_folder_chain_in_scope(db, scope, target_folder_id).await?;
+    let target_chain = load_active_chain_on(db, scope, target_folder_id).await?;
     let mut before = Vec::with_capacity(folder_ids_to_move.len());
     for &folder_id in folder_ids_to_move {
         let folder = folder_repo::lock_by_id(db, folder_id).await?;
@@ -411,32 +425,19 @@ async fn revalidate_batch_folder_move<C: ConnectionTrait>(
                 "cannot move folder into its own subfolder",
             ));
         }
+        if current.parent_id != target_folder_id {
+            crate::services::files::folder::hierarchy::ensure_subtree_placement_on(
+                db,
+                scope,
+                folder_id,
+                target_chain.len(),
+            )
+            .await?;
+        }
         before.push(current);
     }
 
     Ok(before)
-}
-
-async fn load_folder_chain_in_scope<C: ConnectionTrait>(
-    db: &C,
-    scope: WorkspaceStorageScope,
-    start_id: Option<i64>,
-) -> Result<Vec<folder::Model>> {
-    let mut chain = Vec::new();
-    let mut seen = BTreeSet::new();
-    let mut cursor = start_id;
-    while let Some(folder_id) = cursor {
-        if !seen.insert(folder_id) {
-            return Err(AsterError::validation_error(
-                "folder hierarchy contains a cycle",
-            ));
-        }
-        let folder = folder_repo::find_by_id(db, folder_id).await?;
-        storage::ensure_active_folder_scope(&folder, scope)?;
-        cursor = folder.parent_id;
-        chain.push(folder);
-    }
-    Ok(chain)
 }
 
 async fn lock_folder_ids_in_order<C: ConnectionTrait>(db: &C, ids: &[i64]) -> Result<()> {

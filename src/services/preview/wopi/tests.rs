@@ -97,6 +97,61 @@ fn parse_discovery_xml_extracts_named_actions() {
 }
 
 #[test]
+fn discovery_rejects_inherited_metadata_amplification() {
+    let name = "N".repeat(4096);
+    let action = r#"<action name="view" ext="docx" urlsrc="https://office.example/view?"/>"#;
+    let xml = format!(
+        "<wopi-discovery><app name=\"{name}\">{}</app></wopi-discovery>",
+        action.repeat(3000)
+    );
+    assert!(xml.len() < WOPI_DISCOVERY_XML_MAX_BYTES);
+    let error =
+        parse_discovery_xml(&xml).expect_err("inherited strings must be charged before copying");
+    assert!(error.message().contains("action budget"));
+}
+
+#[test]
+fn discovery_accepts_action_limit_and_rejects_one_more() {
+    let action = r#"<action name="view" ext="docx" urlsrc="https://office.example/view?"/>"#;
+    let xml = |count| {
+        format!(
+            "<wopi-discovery><app name=\"Word\">{}</app></wopi-discovery>",
+            action.repeat(count)
+        )
+    };
+    let discovery = parse_discovery_xml(&xml(10_000)).unwrap();
+    assert_eq!(build_discovered_apps(&discovery).len(), 1);
+    assert!(
+        parse_discovery_xml(&xml(10_001))
+            .unwrap_err()
+            .message()
+            .contains("action budget")
+    );
+}
+
+#[test]
+fn discovery_slug_collisions_remain_unique_and_ordered() {
+    let mut xml = String::from("<wopi-discovery>");
+    for index in 1..=1000 {
+        // Punctuation keeps labels distinct while all normalize to "word".
+        xml.push_str(&format!(r#"<app name="Word{}"><action name="view" ext="docx" urlsrc="https://office.example/view?"/></app>"#, "!".repeat(index)));
+    }
+    xml.push_str("</wopi-discovery>");
+    let discovery = parse_discovery_xml(&xml).unwrap();
+    let apps = build_discovered_apps(&discovery);
+    assert_eq!(apps.len(), 1000);
+    assert_eq!(apps[0].key_suffix, "word");
+    assert_eq!(apps[999].key_suffix, "word_1000");
+    assert_eq!(
+        apps.iter()
+            .map(|app| &app.key_suffix)
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        1000
+    );
+}
+
+#[test]
 fn build_discovered_apps_groups_actions_by_app_name() {
     let discovery = parse_discovery_xml(
         r#"

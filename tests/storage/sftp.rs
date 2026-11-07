@@ -317,7 +317,7 @@ async fn test_sftp_driver_upload_download_round_trip() {
     assert_eq!(tail_body, b"world");
 
     driver
-        .copy_object("docs/hello.txt", "docs/copied.txt")
+        .copy_object("docs/hello.txt", "docs/copied.txt", Default::default())
         .await
         .unwrap();
     assert_eq!(driver.get("docs/copied.txt").await.unwrap(), data);

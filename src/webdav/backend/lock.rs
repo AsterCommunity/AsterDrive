@@ -831,17 +831,43 @@ crate::services::workspace::activity::ActivitySource::Webdav,
                 }
                 None => Vec::new(),
             };
-            // 一次加载并按当前 canonical roots 投影；不能对每个展示资源重新查询全部锁。
+            // Parse each owner once, then reserve the complete materialized projection
+            // before cloning. Source XML bytes underestimate a wide tree's heap cost.
+            let mut remaining_metadata = LOCK_DISCOVERY_METADATA_BUDGET;
+            let mut materialized = Vec::new();
+            for lock in &locks {
+                if !paths.iter().any(|path| {
+                    lock_paths_overlap(lock.path(), lock.deep(), &normalize_path(path), false)
+                }) {
+                    continue;
+                }
+                let projected = model_to_dav_lock(lock);
+                let cost = dav_lock_allocation_cost(&projected);
+                reserve_lock_metadata(&mut remaining_metadata, cost)?;
+                materialized.push((lock, projected, cost));
+            }
+            for path in paths {
+                reserve_lock_metadata(
+                    &mut remaining_metadata,
+                    path.as_bytes().len().saturating_add(128),
+                )?;
+                let normalized = normalize_path(path);
+                for (lock, _, cost) in &materialized {
+                    if lock_paths_overlap(lock.path(), lock.deep(), &normalized, false) {
+                        reserve_lock_metadata(&mut remaining_metadata, *cost)?;
+                    }
+                }
+            }
             Ok(paths
                 .iter()
                 .map(|path| {
                     let normalized = normalize_path(path);
-                    let visible = locks
+                    let visible = materialized
                         .iter()
-                        .filter(|lock| {
+                        .filter(|(lock, _, _)| {
                             lock_paths_overlap(lock.path(), lock.deep(), &normalized, false)
                         })
-                        .map(model_to_dav_lock)
+                        .map(|(_, projected, _)| projected.clone())
                         .collect();
                     (path.clone(), visible)
                 })
@@ -1340,6 +1366,55 @@ fn lock_timeout_at(
         }
         None => Ok(None),
     }
+}
+
+const LOCK_DISCOVERY_METADATA_BUDGET: usize = 16 * 1024 * 1024;
+
+fn reserve_lock_metadata(remaining: &mut usize, bytes: usize) -> Result<(), DavBackendError> {
+    *remaining = remaining
+        .checked_sub(bytes)
+        .ok_or_else(|| DavBackendError::new(DavBackendErrorKind::InsufficientStorage))?;
+    Ok(())
+}
+
+fn dav_lock_allocation_cost(lock: &DavLock) -> usize {
+    std::mem::size_of::<DavLock>()
+        .saturating_add(lock.token.capacity())
+        .saturating_add(lock.path.as_bytes().len())
+        .saturating_add(lock.owner.as_deref().map_or(0, dav_xml_allocation_cost))
+}
+
+fn dav_xml_allocation_cost(element: &DavXmlElement) -> usize {
+    use aster_forge_webdav::DavXmlNode;
+    let mut cost = std::mem::size_of::<DavXmlElement>()
+        .saturating_add(element.name.capacity())
+        .saturating_add(element.prefix.as_ref().map_or(0, String::capacity))
+        .saturating_add(element.namespace.as_ref().map_or(0, String::capacity))
+        .saturating_add(
+            element
+                .children
+                .capacity()
+                .saturating_mul(std::mem::size_of::<DavXmlNode>()),
+        );
+    // BTreeMap nodes carry pointers and unused entry slots in addition to their strings.
+    for (key, value) in element.namespaces.iter().chain(&element.attributes) {
+        cost = cost
+            .saturating_add(key.capacity())
+            .saturating_add(value.capacity())
+            .saturating_add(128);
+    }
+    for child in &element.children {
+        cost = cost.saturating_add(match child {
+            DavXmlNode::Element(child) => dav_xml_allocation_cost(child),
+            DavXmlNode::Text(text) | DavXmlNode::CData(text) | DavXmlNode::Comment(text) => {
+                text.capacity()
+            }
+            DavXmlNode::ProcessingInstruction(name, value) => name
+                .capacity()
+                .saturating_add(value.as_ref().map_or(0, String::capacity)),
+        });
+    }
+    cost
 }
 
 fn model_to_dav_lock(lock: &resource_lock::Model) -> DavLock {
