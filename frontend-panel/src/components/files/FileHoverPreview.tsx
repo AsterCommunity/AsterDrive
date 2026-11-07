@@ -110,7 +110,7 @@ export function FileHoverPreview({
 								alt={file.name}
 								draggable={false}
 								className={cn(
-									"block h-auto rounded-xl object-cover shadow-xl shadow-black/15 dark:shadow-black/50",
+									"block h-auto rounded-xl bg-background object-cover shadow-xl shadow-black/15 dark:shadow-black/50",
 									cover
 										? // 宽度 = 锚点 ×1.15（略突出卡片），高度按图片比例，封顶 max-h-72
 											"max-h-72 w-[calc(var(--anchor-width)*1.15)]"
