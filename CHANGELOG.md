@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Local inputs and diagnostics** — Remove source/capability URLs before formatting offline-download and OneDrive transport errors, escape untrusted text-log fields, and reject control characters in account email and queued recipients. Create generated configuration with private Unix permissions and tighten permissions before backfilling keys, rejecting link aliases; benchmark runs use fresh private output directories. Existing configuration files without a backfill are not rewritten.
+
+- **Internal drag selection** — Accept move/trash selections only from a live drag registered in the same tab, bound to its current account and workspace. Consume the recorded selection once and clear it on drag end, logout or workspace change; external file uploads retain their separate path.
+
+- **Dependency diagnostics and review completeness** — Adopt Forge's escaped mail-outbox diagnostics for historical rows and pin repository automation to the revision that paginates all review threads and withholds readiness success when the scan is incomplete.
+
 - **Offline staging and final storage conditions** — Give each download engine a private attempt, reject symlinks/nonregular outputs, and seal the same inode into private import staging without copying it. Remove aria2 world-writable staging; different service users require an operator-provisioned shared group. Keep aria2 DNS/connection behavior deployment-owned, without adding a proxy. Recount quota drifts under the existing owner lock, enforce current group admission on replacements and receive limits, and conditionally expire WOPI locks after namespace serialization. Healthy quota scans remain batched.
 
 - **Release verification and managed environment aliases** — Generated cosign verification pins the exact workflow/ref identity instead of a repository substring. Helm rejects case/dotted aliases of managed settings, and startup rejects environment names that normalize to the same configuration path before writing configuration, including aliases imported by external `envFrom` resources. Remove conflicting aliases before upgrading; supplemental configuration remains supported.

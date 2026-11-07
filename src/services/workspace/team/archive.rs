@@ -251,7 +251,7 @@ async fn force_delete_archived_team(state: &PrimaryAppState, team: team::Model) 
     let team_name = team.name.clone();
     tracing::info!(
         team_id,
-        team_name = %team_name,
+        team_name = ?team_name,
         "force deleting archived team"
     );
     let upload_sessions = upload_session_repo::find_by_team(state.writer_db(), team_id).await?;
@@ -290,7 +290,7 @@ async fn force_delete_archived_team(state: &PrimaryAppState, team: team::Model) 
     crate::services::files::folder::invalidate_all_folder_path_chains(state).await;
     tracing::info!(
         team_id,
-        team_name = %team_name,
+        team_name = ?team_name,
         upload_session_count = upload_sessions.len(),
         deleted_shares,
         "force deleted archived team"

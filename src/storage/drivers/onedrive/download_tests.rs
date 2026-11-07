@@ -7,6 +7,7 @@ enum Mode {
     Content,
     Redirect(String),
     IdleContent,
+    TruncatedContent,
 }
 
 async fn server(mode: Mode) -> (String, tokio::task::JoinHandle<String>) {
@@ -25,6 +26,9 @@ async fn server(mode: Mode) -> (String, tokio::task::JoinHandle<String>) {
             }
         }
         match mode {
+            Mode::TruncatedContent => {
+                socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 10000\r\nConnection: close\r\n\r\nshort").await.unwrap();
+            }
             Mode::Metadata => {
                 tokio::time::sleep(Duration::from_millis(150)).await;
                 let _=socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\n{\"id\":\"x\"}").await;
@@ -102,6 +106,39 @@ async fn direct_content_can_outlive_control_deadline_without_weakening_metadata_
         .unwrap_err();
     assert_eq!(error.kind(), StorageErrorKind::Transient);
     metadata.await.unwrap();
+}
+
+#[tokio::test]
+async fn redirected_transport_and_body_failures_never_expose_capability_urls() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    drop(listener);
+    let target = format!("http://{address}/opaque-capability?unlisted_key=private-marker");
+    let (base, redirect) = server(Mode::Redirect(target)).await;
+    let client = graph(&base);
+    let error = client.get_bytes("/content").await.unwrap_err().to_string();
+    assert!(!error.contains("private-marker"), "{error}");
+    assert!(!error.contains("opaque-capability"), "{error}");
+    redirect.await.unwrap();
+
+    let (target, content) = server(Mode::TruncatedContent).await;
+    let (base, redirect) = server(Mode::Redirect(format!(
+        "{target}/opaque-capability?unlisted_key=private-marker"
+    )))
+    .await;
+    let mut stream = graph(&base)
+        .get_stream("/content", None, None)
+        .await
+        .unwrap();
+    let error = stream
+        .read_to_end(&mut Vec::new())
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(!error.contains("private-marker"), "{error}");
+    assert!(!error.contains("opaque-capability"), "{error}");
+    redirect.await.unwrap();
+    content.await.unwrap();
 }
 
 #[tokio::test]

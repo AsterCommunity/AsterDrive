@@ -71,6 +71,35 @@ async fn response_body_json(resp: actix_web::HttpResponse) -> Value {
 }
 
 #[test]
+fn request_error_text_cannot_inject_physical_log_records() {
+    #[derive(Clone)]
+    struct Writer(Arc<Mutex<Vec<u8>>>);
+    impl std::io::Write for Writer {
+        fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(data);
+            Ok(data.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let bytes = Arc::new(Mutex::new(Vec::new()));
+    let output = bytes.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .without_time()
+        .with_ansi(false)
+        .with_writer(move || Writer(output.clone()))
+        .finish();
+    tracing::subscriber::with_default(subscriber, || {
+        AsterError::validation_error("invalid zone\r\nforged log\u{1b}[31m").error_response();
+    });
+    let text = String::from_utf8(bytes.lock().unwrap().clone()).unwrap();
+    assert_eq!(text.lines().count(), 1, "{text}");
+    assert!(text.contains("\\r\\nforged log"), "{text}");
+    assert!(!text.contains('\u{1b}'));
+}
+
+#[test]
 fn storage_quota_exceeded_logs_warn_for_507() {
     let err = AsterError::storage_quota_exceeded("quota 1024, used 1000, need 100");
 

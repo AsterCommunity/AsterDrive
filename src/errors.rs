@@ -1004,10 +1004,10 @@ impl actix_web::ResponseError for AsterError {
 
         match self.response_log_level() {
             ResponseLogLevel::Error => {
-                tracing::error!(status = %status, error = %self, "server error");
+                tracing::error!(status = %status, error = ?self.to_string(), "server error");
             }
             ResponseLogLevel::Warn => {
-                tracing::warn!(status = %status, error = %self, "request error");
+                tracing::warn!(status = %status, error = ?self.to_string(), "request error");
             }
             ResponseLogLevel::Skip => {}
         }

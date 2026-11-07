@@ -679,7 +679,7 @@ fn external_auth_error_redirect_response(
     state: &PrimaryAppState,
     error: &AsterError,
 ) -> HttpResponse {
-    tracing::warn!(error = %error, "external auth callback failed");
+    tracing::warn!(error = ?error.to_string(), "external auth callback failed");
     let path = if error.http_status().is_server_error() {
         "/login?external_auth=error".to_string()
     } else {

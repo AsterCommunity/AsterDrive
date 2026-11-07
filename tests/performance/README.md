@@ -264,6 +264,11 @@ tests/performance/run-issue-497-folder-tree-memory.sh
 
 Useful overrides:
 
+Each run creates a fresh owner-only directory using `mktemp -d`. `ASTER_ISSUE497_RESULT_DIR`
+selects its parent, rather than a directory whose existing output files are reused.
+The runner rejects unsafe writable ancestors; logs, summaries and optional retained
+databases live under the fresh directory printed at completion.
+
 ```bash
 ASTER_ISSUE497_RESOURCE_COUNTS=100000 \
 ASTER_ISSUE497_SCENARIOS=wide_files,wide_folders,deep_chain \

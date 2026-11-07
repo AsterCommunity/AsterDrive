@@ -64,7 +64,7 @@ impl OfflineDownloadEngine for BuiltinHttpOfflineDownloadEngine {
             }
             response = client.get(request.url.clone()).send() => response,
         }
-        .map_aster_err_ctx("request offline download source", transient_storage_error)?;
+        .map_err(|error| source_transport_error("request offline download source", error))?;
         let status = response.status();
         if status.is_redirection() {
             return Err(AsterError::validation_error(
@@ -113,8 +113,8 @@ impl OfflineDownloadEngine for BuiltinHttpOfflineDownloadEngine {
                 break;
             };
             context.ensure_active()?;
-            let chunk =
-                chunk.map_aster_err_ctx("read offline download body", transient_storage_error)?;
+            let chunk = chunk
+                .map_err(|error| source_transport_error("read offline download body", error))?;
             let chunk_len = usize_to_i64(chunk.len(), "offline download chunk size")?;
             written = written.checked_add(chunk_len).ok_or_else(|| {
                 AsterError::file_too_large("offline download size exceeds supported range")
@@ -179,5 +179,37 @@ impl OfflineDownloadEngine for BuiltinHttpOfflineDownloadEngine {
             sha256,
             declared_content_length,
         ))
+    }
+}
+
+fn source_transport_error(operation: &str, error: reqwest::Error) -> AsterError {
+    transient_storage_error(format!("{operation}: {}", error.without_url()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn source_transport_diagnostics_do_not_retain_url_capabilities() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let error = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap()
+            .get(format!(
+                "http://{address}/opaque-capability?unlisted_key=private-marker"
+            ))
+            .send()
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("private-marker"));
+        let error = source_transport_error("request offline download source", error);
+        let diagnostic = error.to_string();
+        assert!(diagnostic.contains("transient:"));
+        assert!(!diagnostic.contains("private-marker"));
+        assert!(!diagnostic.contains("opaque-capability"));
     }
 }

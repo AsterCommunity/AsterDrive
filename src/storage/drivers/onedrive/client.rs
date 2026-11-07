@@ -577,7 +577,9 @@ impl MicrosoftGraphClient {
         self.get_content_response(content_path, offset, length)
             .await
             .map(|response| {
-                let stream = response.bytes_stream().map_err(std::io::Error::other);
+                let stream = response
+                    .bytes_stream()
+                    .map_err(|error| std::io::Error::other(error.without_url()));
                 Box::new(StreamReader::new(stream)) as Box<dyn AsyncRead + Unpin + Send>
             })
     }

@@ -232,6 +232,45 @@ fn ensure_default_config_exists(config_path: &Path, default: &Config) -> Result<
     Ok(true)
 }
 
+/// Never truncate through a link, or expose generated keys before tightening permissions.
+fn write_private_config(path: &Path, content: &str, create: bool) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(create);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600).custom_flags(
+            (rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::NONBLOCK).bits() as i32,
+        );
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.custom_flags(0x0020_0000); // FILE_FLAG_OPEN_REPARSE_POINT
+    }
+    let mut file = options.open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Err(std::io::Error::other(
+            "configuration must be a regular file",
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        if metadata.nlink() != 1 {
+            return Err(std::io::Error::other(
+                "configuration must not have hard-link aliases",
+            ));
+        }
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
+    file.set_len(0)?;
+    file.write_all(content.as_bytes())?;
+    file.sync_all()
+}
+
 fn create_default_config(config_path: &Path, default: &Config) -> Result<()> {
     let toml_str = toml::to_string_pretty(default)
         .map_err(|_| AsterError::config_error("failed to serialize static configuration"))?;
@@ -251,7 +290,7 @@ fn create_default_config(config_path: &Path, default: &Config) -> Result<()> {
         )?;
     }
 
-    std::fs::write(config_path, &content).map_aster_err_ctx(
+    write_private_config(config_path, &content, true).map_aster_err_ctx(
         &format!("failed to write {}", config_path.display()),
         AsterError::config_error,
     )?;
@@ -315,7 +354,7 @@ fn ensure_stable_default_config_keys(
     }
 
     let updated = doc.to_string();
-    if let Err(error) = std::fs::write(config_path, &updated) {
+    if let Err(error) = write_private_config(config_path, &updated, false) {
         return Err(AsterError::config_error(format!(
             "failed to persist generated stable configuration keys to {}: {error}. Fix config file permissions before starting",
             config_path.display()
@@ -448,6 +487,43 @@ mod tests {
         DEFAULT_CONFIG_PATH, DEFAULT_SQLITE_DATABASE_PATH, DEFAULT_SQLITE_DATABASE_URL,
         DEFAULT_TEMP_DIR, DEFAULT_UPLOAD_TEMP_DIR,
     };
+
+    #[cfg(unix)]
+    #[test]
+    fn generated_config_is_private_and_backfill_rejects_link_aliases() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let dir = make_temp_dir("private-config");
+        let path = dir.join("config.toml");
+        super::write_private_config(&path, "first", true).unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        super::write_private_config(&path, "generated keys", false).unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let alias = dir.join("link.toml");
+        symlink(&path, &alias).unwrap();
+        assert!(super::write_private_config(&alias, "overwrite", false).is_err());
+        std::fs::remove_file(&alias).unwrap();
+        std::fs::hard_link(&path, &alias).unwrap();
+        assert!(super::write_private_config(&alias, "overwrite", false).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "generated keys");
+        assert!(super::write_private_config(&path, "overwrite", true).is_err());
+        let fifo = dir.join("config.fifo");
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(super::write_private_config(&fifo, "overwrite", false).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
     use crate::config::{Config, DeploymentProfile, node_mode::NodeRuntimeMode};
     use std::path::{Path, PathBuf};
     use std::process::Command;

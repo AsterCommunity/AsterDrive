@@ -524,6 +524,21 @@ async fn test_register_and_login() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
 
+    for email in [
+        "alice\n@example.com",
+        "alice@example.com\r\n",
+        "a\0b@example.com",
+    ] {
+        let req = test::TestRequest::post()
+            .uri("/api/v1/auth/register")
+            .peer_addr("127.0.0.1:12345".parse().unwrap())
+            .set_json(serde_json::json!({
+                "username": "alice", "email": email, "password": "secret123"
+            }))
+            .to_request();
+        assert_eq!(test::call_service(&app, req).await.status(), 400);
+    }
+
     // 注册
     let req = test::TestRequest::post()
         .uri("/api/v1/auth/register")

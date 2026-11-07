@@ -52,3 +52,25 @@ pub(super) fn normalize_username(username: &str) -> Result<String> {
 pub(super) fn normalize_email(email: &str) -> Result<String> {
     aster_forge_validation::email::normalize_email(email).map_err(AsterError::from)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn email_rejects_controls_before_trimming_without_changing_normal_addresses() {
+        for value in [
+            "a\nb@example.com",
+            "a@example.com\r\n",
+            "a\0b@example.com",
+            "a\u{85}b@example.com",
+        ] {
+            assert!(normalize_email(value).is_err());
+            assert!(validate_email(value).is_err());
+        }
+        assert_eq!(
+            normalize_email(" Alice@Example.COM ").unwrap(),
+            "alice@example.com"
+        );
+    }
+}

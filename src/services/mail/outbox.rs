@@ -37,6 +37,7 @@ pub(crate) async fn enqueue<C: ConnectionTrait>(
     to_name: Option<&str>,
     payload: MailTemplatePayload,
 ) -> Result<aster_forge_db::mail_outbox::Model> {
+    crate::services::auth::local::validate_email(to_address)?;
     let now = Utc::now();
     aster_forge_db::create_mail_outbox_row(
         db,

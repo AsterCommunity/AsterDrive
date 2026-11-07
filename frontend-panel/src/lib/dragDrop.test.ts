@@ -1,18 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setAuthOperationOwner } from "@/lib/authOperationOwner";
 import { DRAG_MIME } from "@/lib/constants";
 import {
+	clearInternalDragData,
 	getInvalidInternalDropReason,
 	hasInternalDragData,
 	readInternalDragData,
 	setInternalDragPreview,
 	writeInternalDragData,
 } from "@/lib/dragDrop";
+import { useWorkspaceStore } from "@/stores/workspaceStore";
 
 describe("dragDrop", () => {
 	let requestAnimationFrameSpy: ReturnType<typeof vi.spyOn>;
 	let canvasContextSpy: ReturnType<typeof vi.spyOn>;
 
 	beforeEach(() => {
+		clearInternalDragData();
+		setAuthOperationOwner(42, true);
+		useWorkspaceStore.getState().setWorkspace({ kind: "personal" });
 		document.body.innerHTML = "";
 		requestAnimationFrameSpy = vi
 			.spyOn(window, "requestAnimationFrame")
@@ -30,83 +36,72 @@ describe("dragDrop", () => {
 		document.body.innerHTML = "";
 	});
 
-	it("detects whether a data transfer contains internal drag data", () => {
-		expect(hasInternalDragData(null)).toBe(false);
-		expect(
-			hasInternalDragData({
-				types: ["text/plain", DRAG_MIME],
-			} as unknown as DataTransfer),
-		).toBe(true);
-		expect(
-			hasInternalDragData({
-				types: ["text/plain"],
-			} as unknown as DataTransfer),
-		).toBe(false);
+	function transfer(initial = "") {
+		let value = initial;
+		return {
+			types: [DRAG_MIME],
+			effectAllowed: "copy",
+			getData: () => value,
+			setData: (_type: string, next: string) => {
+				value = next;
+			},
+		} as unknown as DataTransfer;
+	}
+
+	it("rejects external MIME selections without a registered drag", () => {
+		const external = transfer(JSON.stringify({ fileIds: [7], folderIds: [9] }));
+		expect(hasInternalDragData(external)).toBe(false);
+		expect(readInternalDragData(external)).toBeNull();
+		expect(readInternalDragData(null)).toBeNull();
 	});
 
-	it("reads and sanitizes internal drag payloads", () => {
-		const dataTransfer = {
-			types: [DRAG_MIME],
-			getData: vi.fn().mockReturnValue(
-				JSON.stringify({
-					fileIds: [7, -1, 0, 3.2, 8],
-					folderIds: [4, "6", null, 9],
-				}),
-			),
-		} as unknown as DataTransfer;
-
-		expect(readInternalDragData(dataTransfer)).toEqual({
+	it("uses a snapshot of the real selection and consumes it only once", () => {
+		const value = transfer();
+		const selection = { fileIds: [7, -1, 0, 3.2, 8], folderIds: [4, 9] };
+		writeInternalDragData(value, selection);
+		selection.fileIds.push(99);
+		expect(value.effectAllowed).toBe("move");
+		expect(value.getData(DRAG_MIME)).not.toContain("fileIds");
+		expect(hasInternalDragData(value)).toBe(true);
+		expect(readInternalDragData(value)).toEqual({
 			fileIds: [7, 8],
 			folderIds: [4, 9],
 		});
+		expect(readInternalDragData(value)).toBeNull();
 	});
 
-	it("returns null for invalid or empty internal drag payloads", () => {
+	it("rejects forged and stale markers without replacing the real selection", () => {
+		const first = transfer();
+		writeInternalDragData(first, { fileIds: [1], folderIds: [] });
+		const current = transfer();
+		writeInternalDragData(current, { fileIds: [2], folderIds: [] });
+		expect(readInternalDragData(first)).toBeNull();
 		expect(
-			readInternalDragData({
-				types: [DRAG_MIME],
-				getData: vi.fn().mockReturnValue(""),
-			} as unknown as DataTransfer),
+			readInternalDragData(
+				transfer(JSON.stringify({ fileIds: [99], folderIds: [] })),
+			),
 		).toBeNull();
-		expect(
-			readInternalDragData({
-				types: [DRAG_MIME],
-				getData: vi.fn().mockReturnValue("{bad json"),
-			} as unknown as DataTransfer),
-		).toBeNull();
-		expect(
-			readInternalDragData({
-				types: [DRAG_MIME],
-				getData: vi.fn().mockReturnValue(
-					JSON.stringify({
-						fileIds: [-1, 0],
-						folderIds: ["x"],
-					}),
-				),
-			} as unknown as DataTransfer),
-		).toBeNull();
-	});
-
-	it("writes the expected MIME payload and move effect", () => {
-		const setData = vi.fn();
-		const dataTransfer = {
-			effectAllowed: "copy",
-			setData,
-		} as unknown as DataTransfer;
-
-		writeInternalDragData(dataTransfer, {
-			fileIds: [7, 8],
-			folderIds: [3],
+		expect(readInternalDragData(current)).toEqual({
+			fileIds: [2],
+			folderIds: [],
 		});
+	});
 
-		expect(setData).toHaveBeenCalledWith(
-			DRAG_MIME,
-			JSON.stringify({
-				fileIds: [7, 8],
-				folderIds: [3],
-			}),
-		);
-		expect(dataTransfer.effectAllowed).toBe("move");
+	it("invalidates drags on end, logout, and workspace changes including a round trip", () => {
+		for (const cancel of [
+			() => document.dispatchEvent(new Event("dragend")),
+			() => setAuthOperationOwner(null),
+			() => {
+				useWorkspaceStore.getState().setWorkspace({ kind: "team", teamId: 7 });
+				useWorkspaceStore.getState().setWorkspace({ kind: "personal" });
+			},
+		]) {
+			setAuthOperationOwner(42, true);
+			const value = transfer();
+			writeInternalDragData(value, { fileIds: [7], folderIds: [] });
+			cancel();
+			expect(readInternalDragData(value)).toBeNull();
+		}
 	});
 
 	it("identifies invalid self and descendant drops", () => {
