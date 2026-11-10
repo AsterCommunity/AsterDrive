@@ -378,3 +378,14 @@ required-features = ["reliability-e2e"]
 name = "reliability"
 path = "tests/reliability/main.rs"
 required-features = ["reliability-e2e"]
+
+# SQLx 0.9.0's published SQLite bound excludes the fix for RUSTSEC-2026-0459.
+# Remove these patches once a SQLx release includes upstream PR #4502.
+[patch.crates-io]
+sqlx = { git = "https://github.com/launchbadge/sqlx", rev = "10462fa4414c6c7f1ed1d39bb31678e3b726878c" }
+sqlx-core = { git = "https://github.com/launchbadge/sqlx", rev = "10462fa4414c6c7f1ed1d39bb31678e3b726878c" }
+sqlx-macros = { git = "https://github.com/launchbadge/sqlx", rev = "10462fa4414c6c7f1ed1d39bb31678e3b726878c" }
+sqlx-macros-core = { git = "https://github.com/launchbadge/sqlx", rev = "10462fa4414c6c7f1ed1d39bb31678e3b726878c" }
+sqlx-mysql = { git = "https://github.com/launchbadge/sqlx", rev = "10462fa4414c6c7f1ed1d39bb31678e3b726878c" }
+sqlx-postgres = { git = "https://github.com/launchbadge/sqlx", rev = "10462fa4414c6c7f1ed1d39bb31678e3b726878c" }
+sqlx-sqlite = { git = "https://github.com/launchbadge/sqlx", rev = "10462fa4414c6c7f1ed1d39bb31678e3b726878c" }
