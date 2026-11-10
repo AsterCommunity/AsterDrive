@@ -568,6 +568,7 @@ mod tests {
                 &driver,
                 &policy,
                 name,
+                name,
                 ChunkedTempFile {
                     path: source.to_string_lossy().into_owned(),
                     size: payload.len() as i64,

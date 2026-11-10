@@ -18,7 +18,7 @@ ASTER_RELIABILITY_STORAGE=minio make reliability-e2e BACKEND=postgres SCENARIO=a
 
 offset-staging 在组装租约过期后，还必须取得 staging inode 的独占文件锁，才能用观察到的 `updated_at` 做 CAS 恢复。blob 发布保留 staging；非去重模式使用 session 专属稳定 key，禁止覆盖已有对象。最终事务已提交的 retry 只返回原文件并清理 staging，不重复计费。数据库提交结果不明确时，继续沿现有错误模型保留可恢复状态。
 
-MinIO 模式把 archive 输出路由到 S3，源文件仍使用本地 offset-staging。它只接受三个 `task.*` 检查点；三个 `upload.*` 检查点专门验证本地格式，选择不适用的组合会失败。非去重任务在外部写入前登记零引用 blob；崩溃遗留的对象必须有 `cleanup_pending_since`，由现有 blob GC 清理。恢复后只允许一个有产品引用的 archive 对象。MySQL 真实进程矩阵属于后续范围。
+MinIO 模式把 archive 输出路由到 S3，源文件仍使用本地 offset-staging。它只接受三个 `task.*` 检查点；三个 `upload.*` 检查点专门验证本地格式，选择不适用的组合会失败。任务的非去重输出和去重私有候选均在外部写入前登记零引用 blob，发布事务原子移交候选对象所有权；崩溃遗留的对象必须有 `cleanup_pending_since`，由现有 blob GC 清理。恢复后只允许一个有产品引用的 archive 对象。MySQL 真实进程矩阵属于后续范围。
 
 MinIO 官方分发已停止提供；上述 Make 入口首次运行会用 `scripts/reliability/minio.Dockerfile` 从官方固定 commit `07c3a429bfed433e49018cb0f78a52145d4bedeb` 构建本地测试镜像，并校验源码归档 SHA-256。需要联网下载 Go 构建依赖，后续运行复用镜像。
 

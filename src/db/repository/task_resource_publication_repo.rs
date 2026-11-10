@@ -199,6 +199,19 @@ impl TaskResourcePublication {
             )
             .await
     }
+
+    /// Retire the execution receipt in the transaction that publishes its product result.
+    pub async fn finish_blob_attempt<C: ConnectionTrait>(
+        &self,
+        db: &C,
+        blob_id: i64,
+    ) -> Result<()> {
+        let attempt = Self::new(self.lease, &format!("blob-attempt:{blob_id}"));
+        task_resource_publication::Entity::delete_by_id((self.lease.task_id, attempt.key))
+            .exec(db)
+            .await?;
+        Ok(())
+    }
 }
 
 /// GC must not remove an external write still owned by a valid task execution.
