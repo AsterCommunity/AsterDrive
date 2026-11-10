@@ -54,6 +54,7 @@
 | 认证、MFA、外部认证和 session | [认证预算与信任边界](../design/authentication-boundaries.md)、[外部认证模块](../design/external-auth.md)、认证 API | auth routes/services、auth_once_state_repo、MFA budget、session repository | 正常/失败、token rotation、browser binding、跨flow预算、一次消费、防重放、限流与到期 |
 | 出站 HTTP / plugin network | [出站 HTTP 契约](../design/outbound-http.md) | `crates/aster_drive_outbound/`、Forge HTTP、各 transport 调用点 | `python3 scripts/check-http-construction.py --self-test`（测试 fixture 也必须使用 factory）、UA/redirect/profile、取消/大小/DNS 边界、相关协议测试 |
 | 后台任务、runtime 和 shutdown | [架构概览](../architecture/index.md) | `src/runtime/`、task services、Forge adapters | claim/lease、retry、cancellation、shutdown、幂等和多实例边界 |
+| 持久化边界崩溃恢复 | [崩溃恢复 E2E](../testing/reliability-e2e.md)、[上传完成契约](../design/upload-finalization-contracts.md) | `tests/reliability/`、`src/bin/reliability_fixture.rs`、`src/reliability.rs` | named checkpoint IPC 确认后 SIGKILL，同一持久状态重启；文件、配额、引用计数、租约和审计 invariants |
 | 缓存和多实例行为 | [项目契约](../architecture/project-contract.md) | `src/cache/`、对应 authority repository、runtime health | cache miss/fallback/invalidation、权威数据重读、并发和 readiness |
 
 ## 前端和生成契约

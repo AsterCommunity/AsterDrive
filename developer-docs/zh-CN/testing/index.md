@@ -144,6 +144,10 @@ ASTER_TEST_DATABASE_BACKEND=mysql cargo nextest run --profile database --test op
 2. shell 里是否真的导出了 `ASTER_TEST_DATABASE_BACKEND`
 3. 本机 Docker 是否可用，以及对应镜像能否拉起
 
+## 崩溃恢复验收
+
+持久化工作流的 SIGKILL / 重启验收见[崩溃恢复 E2E](./reliability-e2e.md)。
+
 ## SFTP 集成测试
 
 SFTP 驱动有单独的集成测试：

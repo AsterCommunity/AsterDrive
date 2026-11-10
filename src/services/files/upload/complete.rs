@@ -100,15 +100,61 @@ async fn complete_upload_impl_with_hints(
     );
 
     let upload_id = session.id.clone();
-    let completed_retry = session.status == UploadSessionStatus::Completed;
     let complete_started_at = Instant::now();
+    let session_kind = resolve_upload_session_kind(&session)?;
+    if session.status == UploadSessionStatus::Assembling
+        && session.updated_at > chrono::Utc::now() - chrono::Duration::seconds(60)
+    {
+        return Err(AsterError::upload_assembling(
+            "upload is being processed, please wait and retry in a few seconds",
+        ));
+    }
+    // The durable receipt remains authoritative. This lock only proves that an old
+    // local assembly no longer owns the staging inode; lease expiry alone cannot.
+    let _offset_assembly_lock = if session_kind
+        == aster_drive_model::types::UploadSessionKind::OffsetStaging
+        && matches!(
+            session.status,
+            UploadSessionStatus::Uploading | UploadSessionStatus::Assembling
+        ) {
+        let guard =
+            crate::services::files::upload::ingest::staging::lock_offset_assembly_for_complete(
+                crate::services::files::upload::ingest::staging::file_path(state, &session.id),
+            )
+            .await;
+        session =
+            crate::db::repository::upload_session_repo::find_by_id(state.writer_db(), &session.id)
+                .await?;
+        if session.status == UploadSessionStatus::Completed {
+            None
+        } else {
+            let guard = guard?;
+            if session.status == UploadSessionStatus::Assembling {
+                crate::db::repository::upload_session_repo::try_reopen_stale_offset_assembly(
+                    state.writer_db(),
+                    &session.id,
+                    session.updated_at,
+                    chrono::Utc::now(),
+                )
+                .await?;
+                session = crate::db::repository::upload_session_repo::find_by_id(
+                    state.writer_db(),
+                    &session.id,
+                )
+                .await?;
+            }
+            Some(guard)
+        }
+    } else {
+        None
+    };
+    let completed_retry = session.status == UploadSessionStatus::Completed;
     let is_terminal = matches!(
         session.status,
         UploadSessionStatus::Completed
             | UploadSessionStatus::Assembling
             | UploadSessionStatus::Failed
     );
-    let session_kind = resolve_upload_session_kind(&session)?;
     if session_kind == aster_drive_model::types::UploadSessionKind::ProviderRelayResumable
         && !is_terminal
     {
@@ -136,7 +182,15 @@ async fn complete_upload_impl_with_hints(
     let completion = async move {
         match plan {
             CompletionPlan::ReturnCompleted => {
-                find_file_by_session(state.writer_db(), &session).await
+                let file = find_file_by_session(state.writer_db(), &session).await?;
+                if session_kind == aster_drive_model::types::UploadSessionKind::OffsetStaging {
+                    crate::services::files::upload::session::shared::cleanup_upload_temp_dir(
+                        state,
+                        &session.id,
+                    )
+                    .await;
+                }
+                Ok(file)
             }
             CompletionPlan::CompletePresigned => {
                 complete_presigned_upload(state, session, hints.actor_username).await

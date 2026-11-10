@@ -98,6 +98,10 @@ pub(super) async fn persist_temp_store(
         .await;
         return Err(error);
     }
+    #[cfg(feature = "reliability-e2e")]
+    if prepared.task_publication.is_some() {
+        crate::reliability::checkpoint("task.after_side_effect_before_checkpoint").await;
+    }
     publish_temp_store(
         state,
         &prepared,
@@ -126,6 +130,7 @@ async fn publish_temp_store(
         policy: _,
         driver,
         blob_plan: _,
+        tracked_preupload,
         overwrite_ctx,
         operation_context,
         storage_delta,
@@ -178,6 +183,7 @@ async fn publish_temp_store(
             let now = transaction_now;
             let policy_snapshot = transaction_policy_snapshot.clone();
             let publication = task_publication.clone();
+            let tracked_preupload = tracked_preupload.clone();
             Box::pin(async move {
                 // 每次重试重新授权，绝不把第一次事务的授权证明带进重试事务。
                 let access = crate::services::workspace::scope::authorize_workspace_on(
@@ -249,10 +255,16 @@ async fn publish_temp_store(
                 }
                 operation_context.checkpoint()?;
 
-                let Some(blob) = resolve_publication_blob(txn, &publication_source).await? else {
-                    // Cleanup or migration won the row before the adoption lock.
-                    // The caller will materialize a private candidate outside this Tx.
-                    return Ok(None);
+                let blob = if let Some(blob) = tracked_preupload {
+                    file_repo::increment_blob_ref_count(txn, blob.id).await?;
+                    blob
+                } else {
+                    let Some(blob) = resolve_publication_blob(txn, &publication_source).await?
+                    else {
+                        // Cleanup or migration won the row before the adoption lock.
+                        return Ok(None);
+                    };
+                    blob
                 };
                 operation_context.checkpoint()?;
                 let result = super::write_record::write_file_record_from_temp(
