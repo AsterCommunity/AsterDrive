@@ -63,7 +63,12 @@ impl Minio {
         }
     }
 
-    pub async fn route_archives(&mut self, client: &reqwest::Client, server: &Server, token: &str) {
+    pub async fn route_archives(
+        &mut self,
+        client: &aster_forge_http::HttpClient,
+        server: &Server,
+        token: &str,
+    ) {
         let config = aster_drive_storage::ConnectorConfigEnvelope::new(
             aster_drive_storage::ConnectorId::declared("asterdrive.storage.s3"),
             1,

@@ -209,7 +209,7 @@ impl Server {
         }
     }
 
-    async fn ready(&mut self, client: &reqwest::Client) {
+    async fn ready(&mut self, client: &aster_forge_http::HttpClient) {
         let result = tokio::time::timeout(TIMEOUT, async {
             loop {
                 // TestProcess's panic includes raw logs. Persist only redacted logs below.
@@ -281,15 +281,15 @@ impl Evidence {
     }
 }
 
-fn client() -> reqwest::Client {
-    reqwest::Client::builder()
+fn client() -> aster_forge_http::HttpClient {
+    aster_forge_http::HttpClient::builder()
         .no_proxy()
         .timeout(Duration::from_secs(110))
         .build()
         .unwrap()
 }
 
-pub(super) async fn data(request: reqwest::RequestBuilder) -> Value {
+pub(super) async fn data(request: aster_forge_http::HttpRequestBuilder) -> Value {
     let response = request.send().await.expect("fixture HTTP request failed");
     let status = response.status();
     // Product bodies can contain tokens/URLs. Never print them in assertions.
@@ -304,7 +304,7 @@ pub(super) async fn data(request: reqwest::RequestBuilder) -> Value {
         .clone()
 }
 
-async fn login(client: &reqwest::Client, server: &Server) -> String {
+async fn login(client: &aster_forge_http::HttpClient, server: &Server) -> String {
     data(
         client
             .post(format!("{}/api/v1/auth/setup", server.url))
@@ -334,7 +334,12 @@ async fn login(client: &reqwest::Client, server: &Server) -> String {
         .expect("fixture access cookie missing")
 }
 
-async fn init(client: &reqwest::Client, server: &Server, token: &str, payload: &[u8]) -> String {
+async fn init(
+    client: &aster_forge_http::HttpClient,
+    server: &Server,
+    token: &str,
+    payload: &[u8],
+) -> String {
     let result = data(
         client
             .post(format!("{}/api/v1/files/upload/init", server.url))
@@ -347,13 +352,13 @@ async fn init(client: &reqwest::Client, server: &Server, token: &str, payload: &
 }
 
 fn chunk(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     server: &Server,
     token: &str,
     upload: &str,
     number: usize,
     payload: &[u8],
-) -> reqwest::RequestBuilder {
+) -> aster_forge_http::HttpRequestBuilder {
     client
         .put(format!(
             "{}/api/v1/files/upload/{upload}/{number}",
@@ -365,7 +370,7 @@ fn chunk(
 }
 
 async fn upload_chunks(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     server: &Server,
     token: &str,
     upload: &str,
@@ -377,7 +382,7 @@ async fn upload_chunks(
 }
 
 async fn retry_completion(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     server: &Server,
     token: &str,
     upload: &str,
@@ -406,11 +411,11 @@ async fn retry_completion(
 }
 
 fn complete(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     server: &Server,
     token: &str,
     upload: &str,
-) -> reqwest::RequestBuilder {
+) -> aster_forge_http::HttpRequestBuilder {
     client
         .post(format!(
             "{}/api/v1/files/upload/{upload}/complete",
@@ -420,7 +425,12 @@ fn complete(
         .json(&json!({}))
 }
 
-async fn download(client: &reqwest::Client, server: &Server, token: &str, id: i64) -> Vec<u8> {
+async fn download(
+    client: &aster_forge_http::HttpClient,
+    server: &Server,
+    token: &str,
+    id: i64,
+) -> Vec<u8> {
     let response = client
         .get(format!("{}/api/v1/files/{id}/download", server.url))
         .bearer_auth(token)
@@ -631,7 +641,7 @@ async fn assert_local_objects_tracked(state: &DurableState) {
 
 struct RecoveryContext<'a> {
     state: &'a DurableState,
-    client: &'a reqwest::Client,
+    client: &'a aster_forge_http::HttpClient,
     restarted: &'a Server,
     token: &'a str,
     payload: &'a [u8],

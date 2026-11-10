@@ -31,7 +31,7 @@ pub(super) struct PreparedStoreFromTemp {
     pub policy: storage_policy::Model,
     pub driver: Arc<dyn StorageDriver>,
     pub blob_plan: TempBlobPlan,
-    pub tracked_preupload: Option<file_blob::Model>,
+    pub tracked_attempt: Option<file_blob::Model>,
     pub overwrite_ctx: Option<OverwriteContext>,
     pub operation_context: StorageOperationContext,
     pub storage_delta: i64,
@@ -206,40 +206,45 @@ pub(super) async fn prepare_store_from_temp(
     // A task can lose its process after an external PUT but before publication.
     // Register the attempted object before I/O so that generation's abandoned
     // object remains visible to the existing unreferenced-blob cleanup lane.
-    let tracked_preupload = if let Some(publication) = &task_publication {
-        if let TempBlobPlan::Preuploaded(prepared) = &blob_plan {
-            let hash = match prepared {
-                super::super::PreparedNonDedupBlobUpload::Local { blob_key, .. } => {
-                    blob_key.clone()
-                }
-                super::super::PreparedNonDedupBlobUpload::Opaque {
-                    hash_prefix,
-                    upload_id,
-                    ..
-                } => format!("{hash_prefix}-{upload_id}"),
-            };
-            let txn = aster_forge_db::transaction::begin(state.writer_db()).await?;
-            publication.lock_owner(&txn).await?;
-            let blob = file_repo::create_blob(
-                &txn,
-                file_blob::ActiveModel {
-                    hash: Set(hash),
-                    size: Set(size),
-                    policy_id: Set(policy.id),
-                    storage_path: Set(Some(prepared.storage_path().to_owned())),
-                    ref_count: Set(0),
-                    created_at: Set(Utc::now()),
-                    updated_at: Set(Utc::now()),
-                    ..Default::default()
-                },
-            )
-            .await?;
-            publication.insert_blob_attempt(&txn, blob.id).await?;
-            aster_forge_db::transaction::commit(txn).await?;
-            Some(blob)
-        } else {
-            None
-        }
+    let tracked_attempt = if let Some(publication) = &task_publication {
+        let (hash, storage_path) = match &blob_plan {
+            TempBlobPlan::Dedup(target) => (
+                format!("task-candidate-{}", uuid::Uuid::new_v4()),
+                target.storage_path.clone(),
+            ),
+            TempBlobPlan::Preuploaded(prepared) => {
+                let hash = match prepared {
+                    super::super::PreparedNonDedupBlobUpload::Local { blob_key, .. } => {
+                        blob_key.clone()
+                    }
+                    super::super::PreparedNonDedupBlobUpload::Opaque {
+                        hash_prefix,
+                        upload_id,
+                        ..
+                    } => format!("{hash_prefix}-{upload_id}"),
+                };
+                (hash, prepared.storage_path().to_owned())
+            }
+        };
+        let txn = aster_forge_db::transaction::begin(state.writer_db()).await?;
+        publication.lock_owner(&txn).await?;
+        let blob = file_repo::create_blob(
+            &txn,
+            file_blob::ActiveModel {
+                hash: Set(hash),
+                size: Set(size),
+                policy_id: Set(policy.id),
+                storage_path: Set(Some(storage_path)),
+                ref_count: Set(0),
+                created_at: Set(Utc::now()),
+                updated_at: Set(Utc::now()),
+                ..Default::default()
+            },
+        )
+        .await?;
+        publication.insert_blob_attempt(&txn, blob.id).await?;
+        aster_forge_db::transaction::commit(txn).await?;
+        Some(blob)
     } else {
         None
     };
@@ -279,7 +284,7 @@ pub(super) async fn prepare_store_from_temp(
         policy,
         driver,
         blob_plan,
-        tracked_preupload,
+        tracked_attempt,
         overwrite_ctx,
         operation_context,
         storage_delta,

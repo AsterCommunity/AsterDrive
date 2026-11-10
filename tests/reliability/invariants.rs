@@ -92,6 +92,11 @@ pub async fn inspect(db: &DatabaseConnection, secrets: &[&str]) -> Snapshot {
             blob.id,
             blob.validate_backing().is_ok(),
         );
+        snapshot.require(
+            "blob.unreferenced_cleanup_tracked",
+            blob.id,
+            blob.ref_count != 0 || blob.cleanup_pending_since.is_some(),
+        );
     }
     for owner in &users {
         let used: i64 = files

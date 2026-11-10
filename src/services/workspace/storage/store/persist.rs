@@ -130,7 +130,7 @@ async fn publish_temp_store(
         policy: _,
         driver,
         blob_plan: _,
-        tracked_preupload,
+        tracked_attempt,
         overwrite_ctx,
         operation_context,
         storage_delta,
@@ -183,7 +183,7 @@ async fn publish_temp_store(
             let now = transaction_now;
             let policy_snapshot = transaction_policy_snapshot.clone();
             let publication = task_publication.clone();
-            let tracked_preupload = tracked_preupload.clone();
+            let tracked_attempt = tracked_attempt.clone();
             Box::pin(async move {
                 // 每次重试重新授权，绝不把第一次事务的授权证明带进重试事务。
                 let access = crate::services::workspace::scope::authorize_workspace_on(
@@ -255,9 +255,13 @@ async fn publish_temp_store(
                 }
                 operation_context.checkpoint()?;
 
-                let blob = if let Some(blob) = tracked_preupload {
-                    file_repo::increment_blob_ref_count(txn, blob.id).await?;
-                    blob
+                let tracked_non_dedup = tracked_attempt.as_ref().filter(|_| {
+                    matches!(&publication_source, TempBlobPublication::Staged(verified)
+                        if matches!(verified.source(), VerifiedTempStoreBlobSource::PreuploadedNonDedup { .. }))
+                });
+                let blob = if let Some(tracked) = tracked_non_dedup {
+                    file_repo::increment_blob_ref_count(txn, tracked.id).await?;
+                    tracked.clone()
                 } else {
                     let Some(blob) = resolve_publication_blob(txn, &publication_source).await?
                     else {
@@ -304,8 +308,18 @@ async fn publish_temp_store(
                 }
                 if let Some(publication) = &publication {
                     publication.insert_file(txn, &result).await?;
+                    if let Some(tracked) = &tracked_attempt {
+                        publication.finish_blob_attempt(txn, tracked.id).await?;
+                    }
                 }
                 operation_context.checkpoint()?;
+                if let Some(tracked) = &tracked_attempt
+                    && tracked.id != blob.id
+                    && tracked.storage_path == blob.storage_path
+                {
+                    // The metadata transaction transfers this private generation to its logical blob.
+                    file_repo::delete_blob_by_id(txn, tracked.id).await?;
+                }
                 let retained_candidate = match &publication_source {
                     TempBlobPublication::Staged(verified) => {
                         blob.storage_path.as_deref() == Some(verified.storage_path())

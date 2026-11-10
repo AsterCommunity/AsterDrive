@@ -1921,8 +1921,10 @@ async fn cluster_local_filesystem_upload_is_cross_primary_and_race_safe() {
     let (complete_a, complete_b) = tokio::join!(complete_a, complete_b);
     let completion_results = [complete_a, complete_b];
     assert!(
-        completion_results.iter().all(|(status, _)| {
-            *status == reqwest::StatusCode::CREATED || *status == reqwest::StatusCode::CONFLICT
+        completion_results.iter().all(|(status, body)| {
+            *status == reqwest::StatusCode::CREATED
+                || *status == reqwest::StatusCode::CONFLICT
+                || (*status == reqwest::StatusCode::ACCEPTED && body["code"] == "upload.assembling")
         }),
         "concurrent completion should either publish or observe the active assembly: {completion_results:?}"
     );
@@ -3644,6 +3646,7 @@ async fn split_archive_reuses_a_committed_s3_output_after_worker_sigkill() {
                 .await
                 .unwrap()
                 == 1
+                && file::Entity::find().count(&db).await.unwrap() == 2
             {
                 break;
             }
