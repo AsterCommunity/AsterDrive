@@ -273,6 +273,36 @@ pub async fn try_fail_with_expiration<C: ConnectionTrait>(
     Ok(result.rows_affected > 0)
 }
 
+/// Reopen a stale local assembly only while the caller holds its staging-file lock.
+/// The lock fences a live executor even when its database heartbeat was delayed.
+pub(crate) async fn try_reopen_stale_offset_assembly<C: ConnectionTrait>(
+    db: &C,
+    id: &str,
+    observed_updated_at: chrono::DateTime<chrono::Utc>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<bool> {
+    use sea_orm::ActiveEnum;
+    let result = UploadSession::update_many()
+        .col_expr(
+            upload_session::Column::Status,
+            sea_orm::sea_query::Expr::value(UploadSessionStatus::Uploading.to_value()),
+        )
+        .col_expr(
+            upload_session::Column::UpdatedAt,
+            sea_orm::sea_query::Expr::value(now),
+        )
+        .filter(upload_session::Column::Id.eq(id))
+        .filter(upload_session::Column::SessionKind.eq(UploadSessionKind::OffsetStaging))
+        .filter(upload_session::Column::Status.eq(UploadSessionStatus::Assembling))
+        .filter(upload_session::Column::UpdatedAt.eq(observed_updated_at))
+        .filter(upload_session::Column::UpdatedAt.lte(now - chrono::Duration::seconds(60)))
+        .filter(upload_session::Column::ExpiresAt.gt(now))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(result.rows_affected == 1)
+}
+
 /// Atomically fail an assembling session only when its completion lease is stale.
 pub async fn try_fail_with_expiration_if_lease_stale<C: ConnectionTrait>(
     db: &C,
@@ -752,6 +782,88 @@ mod tests {
                     .expect("late receipt guard should execute")
             );
             assert_eq!(find_by_id(&db, &model.id).await.unwrap().received_count, 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn reopen_offset_assembly_requires_expired_lease_matching_snapshot_and_live_session() {
+        let db = build_test_db().await;
+        let now = Utc::now();
+        for (id, kind, status, age, expired, expected) in [
+            (
+                "stale-local",
+                UploadSessionKind::OffsetStaging,
+                UploadSessionStatus::Assembling,
+                61,
+                false,
+                true,
+            ),
+            (
+                "live-local",
+                UploadSessionKind::OffsetStaging,
+                UploadSessionStatus::Assembling,
+                59,
+                false,
+                false,
+            ),
+            (
+                "expired-local",
+                UploadSessionKind::OffsetStaging,
+                UploadSessionStatus::Assembling,
+                61,
+                true,
+                false,
+            ),
+            (
+                "stale-stream",
+                UploadSessionKind::StreamStaging,
+                UploadSessionStatus::Assembling,
+                61,
+                false,
+                false,
+            ),
+            (
+                "completed-local",
+                UploadSessionKind::OffsetStaging,
+                UploadSessionStatus::Completed,
+                61,
+                false,
+                false,
+            ),
+        ] {
+            let mut model = session(id, status);
+            model.session_kind = kind;
+            model.updated_at = now - Duration::seconds(age);
+            model.expires_at = now + Duration::seconds(if expired { -1 } else { 60 });
+            model.clone().into_active_model().insert(&db).await.unwrap();
+            assert!(
+                !try_reopen_stale_offset_assembly(
+                    &db,
+                    id,
+                    model.updated_at - Duration::seconds(1),
+                    now
+                )
+                .await
+                .unwrap()
+            );
+            assert_eq!(
+                try_reopen_stale_offset_assembly(&db, id, model.updated_at, now)
+                    .await
+                    .unwrap(),
+                expected,
+                "{id}"
+            );
+            if expected {
+                assert_eq!(
+                    find_by_id(&db, id).await.unwrap().status,
+                    UploadSessionStatus::Uploading
+                );
+                assert!(
+                    !try_reopen_stale_offset_assembly(&db, id, model.updated_at, now)
+                        .await
+                        .unwrap()
+                );
+            }
         }
     }
 

@@ -72,6 +72,10 @@ pub(super) async fn complete_chunked_upload_with_actor_username(
         },
     )
     .await?;
+    #[cfg(feature = "reliability-e2e")]
+    if session_kind == UploadSessionKind::OffsetStaging {
+        crate::reliability::checkpoint("upload.after_finalize_commit_before_cleanup").await;
+    }
     cleanup_upload_temp_dir(state, &session.id).await;
     Ok(created)
 }
@@ -140,10 +144,13 @@ async fn finalize_chunked_upload_session(
         driver,
         policy,
         &session.filename,
+        &session.id,
         chunked_temp,
     )
     .await?;
     let stage_elapsed_ms = stage_started_at.elapsed().as_millis();
+    #[cfg(feature = "reliability-e2e")]
+    crate::reliability::checkpoint("upload.after_blob_persist_before_finalize_transaction").await;
 
     let persist_started_at = Instant::now();
     aster_drive_metrics::observe_upload_phase(
@@ -337,6 +344,7 @@ async fn stage_chunked_temp_file(
     driver: &dyn StorageDriver,
     policy: &storage_policy::Model,
     filename: &str,
+    upload_id: &str,
     chunked_temp: ChunkedTempFile,
 ) -> Result<VerifiedUploadedBlob> {
     let ChunkedTempFile {
@@ -346,8 +354,10 @@ async fn stage_chunked_temp_file(
     } = chunked_temp;
     if let Some(file_hash) = file_hash {
         // The hash deduplicates metadata; physical publication belongs only to this attempt.
-        let storage_path = aster_drive_storage::object_path::new_local_blob().1;
-        let promoted = crate::storage::drivers::local::promote_local_file_if_absent(
+        let storage_path = aster_forge_validation::filename::storage_path_from_blob_key(&format!(
+            "upload-{upload_id}"
+        ))?;
+        crate::storage::drivers::local::promote_local_file_if_absent(
             driver,
             &storage_path,
             &path,
@@ -355,11 +365,6 @@ async fn stage_chunked_temp_file(
             || Ok(()),
         )
         .await?;
-        if !promoted.created() {
-            return Err(AsterError::conflict(
-                "upload candidate storage key already exists",
-            ));
-        }
 
         return VerifiedUploadedBlob::deduplicated_candidate(
             size,
@@ -371,9 +376,29 @@ async fn stage_chunked_temp_file(
 
     // 不做 dedup 的情况下，先为 blob 预分配最终 key，再把 staging 文件传上去。
     // DB finalize 失败后的清理归属由 VerifiedUploadedBlob 的 cleanup plan 表达。
-    let preuploaded =
+    let mut preuploaded =
         storage::prepare_non_dedup_blob_upload(registry, policy, size, Some(filename))?;
-    storage::upload_temp_file_to_prepared_blob(driver, &preuploaded, &path).await?;
+    // The session owns this stable opaque key across process generations. Preserve
+    // its staging inode until DB finalization so a killed writer can retry safely.
+    if let storage::PreparedNonDedupBlobUpload::Local {
+        blob_key,
+        storage_path,
+        ..
+    } = &mut preuploaded
+    {
+        *blob_key = format!("upload-{upload_id}");
+        *storage_path = aster_forge_validation::filename::storage_path_from_blob_key(blob_key)?;
+        crate::storage::drivers::local::promote_local_file_if_absent(
+            driver,
+            storage_path,
+            &path,
+            size,
+            || Ok(()),
+        )
+        .await?;
+    } else {
+        storage::upload_temp_file_to_prepared_blob(driver, &preuploaded, &path).await?;
+    }
     VerifiedUploadedBlob::preuploaded_non_dedup(preuploaded)
 }
 

@@ -197,6 +197,7 @@ jemalloc-stats = [
 ]
 jemalloc-profiling = ["jemalloc-stats", "tikv-jemallocator/profiling"]
 multi-primary-e2e = []
+reliability-e2e = []
 
 [dependencies]
 aster_forge_auth = { workspace = true, features = ["password"] }
@@ -367,3 +368,13 @@ required-features = ["benchmarks"]
 name = "multi_primary"
 path = "tests/multi_primary/main.rs"
 required-features = ["multi-primary-e2e"]
+
+[[bin]]
+name = "reliability_fixture"
+path = "src/bin/reliability_fixture.rs"
+required-features = ["reliability-e2e"]
+
+[[test]]
+name = "reliability"
+path = "tests/reliability/main.rs"
+required-features = ["reliability-e2e"]
