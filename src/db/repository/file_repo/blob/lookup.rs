@@ -505,15 +505,19 @@ pub async fn find_or_create_blob<C: ConnectionTrait>(
 ) -> Result<FindOrCreateBlobResult> {
     validate_blob_backing(FileBlobBacking::Stored, Some(storage_path), size, hash)?;
     for attempt in 0..FIND_OR_CREATE_BLOB_MAX_ATTEMPTS {
-        if let Some(existing) = FileBlob::find()
+        let mut query = FileBlob::find()
             .filter(file_blob::Column::Hash.eq(hash))
             .filter(file_blob::Column::PolicyId.eq(policy_id))
             .filter(file_blob::Column::Backing.eq(FileBlobBacking::Stored))
-            .filter(file_blob::Column::RefCount.gte(0))
-            .one(db)
-            .await
-            .map_err(AsterError::from)?
-        {
+            .filter(file_blob::Column::RefCount.gte(0));
+        // INSERT's uniqueness check sees concurrent commits even when MySQL's
+        // repeatable-read snapshot does not. After a conflict, use a current read
+        // and hold the winning row for the reference increment. Waiting alone
+        // cannot refresh that snapshot; keep the initial miss free of gap locks.
+        if attempt > 0 && db.get_database_backend() == DbBackend::MySql {
+            query = query.lock_exclusive();
+        }
+        if let Some(existing) = query.one(db).await.map_err(AsterError::from)? {
             let blob_id = existing.id;
             existing.ref_count.checked_add(1).ok_or_else(|| {
                 AsterError::internal_error(format!(
@@ -612,15 +616,17 @@ pub async fn find_or_create_virtual_empty_blob<C: ConnectionTrait>(
 ) -> Result<FindOrCreateBlobResult> {
     validate_blob_backing(FileBlobBacking::VirtualEmpty, None, 0, hash)?;
     for attempt in 0..FIND_OR_CREATE_BLOB_MAX_ATTEMPTS {
-        if let Some(existing) = FileBlob::find()
+        let mut query = FileBlob::find()
             .filter(file_blob::Column::Hash.eq(hash))
             .filter(file_blob::Column::PolicyId.eq(policy_id))
             .filter(file_blob::Column::Backing.eq(FileBlobBacking::VirtualEmpty))
-            .filter(file_blob::Column::RefCount.gte(0))
-            .one(db)
-            .await
-            .map_err(AsterError::from)?
-        {
+            .filter(file_blob::Column::RefCount.gte(0));
+        // Match stored-blob conflict recovery: a MySQL snapshot may predate
+        // the canonical row whose unique key already prevented our insert.
+        if attempt > 0 && db.get_database_backend() == DbBackend::MySql {
+            query = query.lock_exclusive();
+        }
+        if let Some(existing) = query.one(db).await.map_err(AsterError::from)? {
             existing.ref_count.checked_add(1).ok_or_else(|| {
                 AsterError::internal_error(format!(
                     "virtual empty file_blob #{} ref_count overflow: {}",
