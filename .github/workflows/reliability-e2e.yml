@@ -62,6 +62,10 @@ jobs:
       SEED: ${{ inputs.seed || '522' }}
     steps:
       - uses: actions/checkout@v6
+      - name: Validate replay seed before preparation
+        run: |
+          node --test scripts/reliability/validate-seed.test.mjs
+          node scripts/reliability/validate-seed.mjs "$SEED"
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@v2
         with:
@@ -91,8 +95,11 @@ jobs:
       ASTER_TEST_DATABASE_BACKEND: postgres
       ASTER_RELIABILITY_STORAGE: minio
       SCENARIO: archive-task
+      REPLAY_SEED: ${{ inputs.seed || '522' }}
     steps:
       - uses: actions/checkout@v6
+      - name: Validate replay seed before preparation
+        run: node scripts/reliability/validate-seed.mjs "$REPLAY_SEED"
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@v2
         with:
@@ -101,12 +108,15 @@ jobs:
         with:
           shared-key: reliability-e2e-v1
       - name: Run applicable object storage checkpoints with recorded seeds
-        env:
-          REPLAY_SEED: ${{ inputs.seed || '522' }}
         run: |
+          status=0
           for seed in "$REPLAY_SEED" 12345 98765; do
-            make reliability-e2e SEED="$seed"
+            if ! make reliability-e2e SEED="$seed"; then
+              echo "::error::Crash recovery failed for seed $seed"
+              status=1
+            fi
           done
+          exit "$status"
       - name: Upload redacted recovery evidence
         if: failure()
         uses: actions/upload-artifact@v7

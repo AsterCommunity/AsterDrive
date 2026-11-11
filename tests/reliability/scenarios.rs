@@ -522,6 +522,27 @@ async fn crash_recovery() {
             None
         };
         drop(server);
+        if let Some(claimed) = &claimed {
+            assert_eq!(claimed.status, BackgroundTaskStatus::Processing);
+            // Probe the actual persisted lease with a controlled time before its
+            // expiry, while no dispatcher can reclaim or change the token.
+            let lease_expires_at = claimed.lease_expires_at.expect("claimed task lease");
+            let now = lease_expires_at - chrono::Duration::seconds(1);
+            assert!(
+                !background_task_repo::try_claim(
+                    &state.db,
+                    claimed.id,
+                    claimed.processing_token,
+                    now,
+                    now - chrono::Duration::seconds(60),
+                    claimed.processing_token + 1,
+                    lease_expires_at,
+                )
+                .await
+                .unwrap(),
+                "unexpired lease must reject a competing claim"
+            );
+        }
         let mut recovery_controller = task_id.map(|_| {
             CheckpointController::bind(
                 &state.dir.join("ipc-2"),
@@ -662,21 +683,6 @@ async fn recover_task(
         evidence,
     } = context;
     assert_eq!(claimed.status, BackgroundTaskStatus::Processing);
-    // Probe the real claim CAS before expiry, without artificially expiring the lease.
-    let now = Utc::now();
-    assert!(
-        !background_task_repo::try_claim(
-            &state.db,
-            claimed.id,
-            claimed.processing_token,
-            now,
-            now - chrono::Duration::seconds(60),
-            claimed.processing_token + 1,
-            now + chrono::Duration::seconds(60)
-        )
-        .await
-        .unwrap()
-    );
     controller
         .wait(TIMEOUT)
         .await
