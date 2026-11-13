@@ -8,6 +8,10 @@ use sea_orm::{
     PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, SqlErr, sea_query::Expr,
 };
 
+// Assembly heartbeats refresh every 10 seconds; keep the lease long enough to
+// tolerate brief scheduler/database delays without letting the two checks drift.
+pub(crate) const OFFSET_ASSEMBLY_LEASE_TIMEOUT: chrono::Duration = chrono::Duration::seconds(60);
+
 /// Finds an upload session by id.
 ///
 /// Errors with `UploadSessionNotFound` when the session does not exist.
@@ -321,7 +325,7 @@ pub(crate) async fn try_reopen_stale_offset_assembly<C: ConnectionTrait>(
         .filter(upload_session::Column::SessionKind.eq(UploadSessionKind::OffsetStaging))
         .filter(upload_session::Column::Status.eq(UploadSessionStatus::Assembling))
         .filter(upload_session::Column::UpdatedAt.eq(observed_updated_at))
-        .filter(upload_session::Column::UpdatedAt.lte(now - chrono::Duration::seconds(60)))
+        .filter(upload_session::Column::UpdatedAt.lte(now - OFFSET_ASSEMBLY_LEASE_TIMEOUT))
         .filter(upload_session::Column::ExpiresAt.gt(now))
         .exec(db)
         .await
