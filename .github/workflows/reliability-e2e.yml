@@ -1,0 +1,126 @@
+name: Reliability Crash Recovery E2E
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'src/**'
+      - 'crates/**'
+      - 'tests/reliability/**'
+      - 'scripts/reliability/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/reliability-e2e.yml'
+  pull_request:
+    branches: [master, develop]
+    paths:
+      - 'src/**'
+      - 'crates/**'
+      - 'tests/reliability/**'
+      - 'scripts/reliability/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/reliability-e2e.yml'
+  schedule:
+    - cron: '23 4 * * 2'
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: Recorded deterministic scenario seed
+        required: false
+        default: '522'
+
+concurrency:
+  group: reliability-e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_TEST_CODEGEN_UNITS: '16'
+  CARGO_PROFILE_TEST_DEBUG: '0'
+  CARGO_TERM_COLOR: always
+  TESTCONTAINERS_REUSE_ENABLED: 'true'
+
+jobs:
+  local-postgres:
+    name: ${{ matrix.backend }} local filesystem (all checkpoints)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        backend: [sqlite, postgres]
+    env:
+      ASTER_TEST_DATABASE_BACKEND: ${{ matrix.backend }}
+      SCENARIO: all
+      SEED: ${{ inputs.seed || '522' }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate replay seed before preparation
+        run: |
+          node --test scripts/reliability/validate-seed.test.mjs
+          node scripts/reliability/validate-seed.mjs "$SEED"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.143
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: reliability-e2e-v1
+      - name: Test checkpoint controller and invariant diagnostics
+        run: cargo nextest run --profile external --features reliability-e2e --test reliability
+      - name: Verify Docker availability
+        run: docker version
+      - name: Run crash and restart scenario
+        run: make reliability-e2e
+      - name: Upload redacted recovery evidence
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: reliability-${{ matrix.backend }}-local-${{ env.SEED }}
+          path: target/reliability/
+          if-no-files-found: error
+
+  minio-postgres:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      ASTER_TEST_DATABASE_BACKEND: postgres
+      ASTER_RELIABILITY_STORAGE: minio
+      SCENARIO: archive-task
+      REPLAY_SEED: ${{ inputs.seed || '522' }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate replay seed before preparation
+        run: node scripts/reliability/validate-seed.mjs "$REPLAY_SEED"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.143
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: reliability-e2e-v1
+      - name: Run applicable object storage checkpoints with recorded seeds
+        run: |
+          status=0
+          for seed in "$REPLAY_SEED" 12345 98765; do
+            if ! make reliability-e2e SEED="$seed"; then
+              echo "::error::Crash recovery failed for seed $seed"
+              status=1
+            fi
+          done
+          exit "$status"
+      - name: Upload redacted recovery evidence
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: reliability-postgres-minio
+          path: target/reliability/
+          if-no-files-found: error

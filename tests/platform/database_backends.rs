@@ -25,6 +25,72 @@ const EXPANDED_BACKGROUND_TASK_DISPLAY_NAME_LIMIT: usize = 512;
 const VIRTUAL_EMPTY_FILE_BLOBS_MIGRATION: &str = "m20260815_000001_virtual_empty_file_blobs";
 
 #[actix_web::test]
+async fn mysql_blob_dedup_observes_winner_after_transaction_snapshot() {
+    use aster_drive::db::repository::{file_repo, policy_repo};
+    use sea_orm::{IsolationLevel, TransactionTrait};
+
+    let state = common::setup_with_pool_size(4).await;
+    if state.writer_db().get_database_backend() != DbBackend::MySql {
+        return;
+    }
+    let policy = policy_repo::find_default(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap();
+    for virtual_empty in [false, true] {
+        let txn = state
+            .writer_db()
+            .begin_with_config(Some(IsolationLevel::RepeatableRead), None)
+            .await
+            .unwrap();
+        // Pin a snapshot before the competing publisher commits its canonical blob.
+        file_blob::Entity::find().all(&txn).await.unwrap();
+        let winner = if virtual_empty {
+            file_repo::find_or_create_virtual_empty_blob(
+                state.writer_db(),
+                file_blob::Model::EMPTY_SHA256,
+                policy.id,
+            )
+            .await
+            .unwrap()
+        } else {
+            file_repo::find_or_create_blob(
+                state.writer_db(),
+                &"a".repeat(64),
+                1,
+                policy.id,
+                "snapshot-winner",
+            )
+            .await
+            .unwrap()
+        };
+        let adopted = if virtual_empty {
+            file_repo::find_or_create_virtual_empty_blob(
+                &txn,
+                file_blob::Model::EMPTY_SHA256,
+                policy.id,
+            )
+            .await
+        } else {
+            file_repo::find_or_create_blob(&txn, &"a".repeat(64), 1, policy.id, "snapshot-loser")
+                .await
+        }
+        .expect("dedup must observe a winner committed after the transaction snapshot");
+        assert!(!adopted.inserted);
+        assert_eq!(adopted.model.id, winner.model.id);
+        assert_eq!(adopted.model.ref_count, 2);
+        txn.commit().await.unwrap();
+        assert_eq!(
+            file_repo::find_blob_by_id(state.writer_db(), winner.model.id)
+                .await
+                .unwrap()
+                .ref_count,
+            2
+        );
+    }
+}
+
+#[actix_web::test]
 async fn current_schema_enforces_virtual_empty_and_file_create_idempotency_constraints() {
     let state = common::setup().await;
     let policy = aster_drive::db::repository::policy_repo::find_default(state.writer_db())

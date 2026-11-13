@@ -356,6 +356,8 @@ async fn finish_archive_result(
             .await?,
     };
     let result_json = spec::serialize_result::<ArchiveCompressTask>(&result)?;
+    #[cfg(feature = "reliability-e2e")]
+    crate::reliability::checkpoint("task.after_checkpoint_before_terminal_update").await;
     mark_task_succeeded(
         state,
         lease_guard,

@@ -1078,6 +1078,14 @@ pub(crate) async fn reconcile_blob_reference_count(
             Err(AsterError::RecordNotFound(_)) => return Ok(None),
             Err(error) => return Err(error),
         };
+        if blob.ref_count == 0
+            && crate::db::repository::task_resource_publication_repo::blob_has_active_task_owner(
+                txn, blob_id,
+            )
+            .await?
+        {
+            return Ok(None);
+        }
         let retry_claimed = match (blob.ref_count, intent) {
             (file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT, BlobReconcileIntent::Repair) => {
                 return Ok(None);

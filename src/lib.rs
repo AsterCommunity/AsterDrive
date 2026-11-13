@@ -17,6 +17,8 @@ pub mod config;
 pub mod db;
 pub mod errors;
 pub(crate) mod ownership;
+#[cfg(feature = "reliability-e2e")]
+pub mod reliability;
 pub mod runtime;
 pub mod services;
 pub mod storage;

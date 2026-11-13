@@ -166,6 +166,7 @@ const sidebar = assertUniqueSidebarLinks([
 		collapsed: true,
 		items: [
 			{ label: '测试与数据库后端', translations: { en: 'Testing and Database Backends' }, link: '/testing/' },
+			{ label: '崩溃恢复 E2E', translations: { en: 'Crash Recovery E2E' }, link: '/testing/reliability-e2e/' },
 			{
 				label: 'WebDAV 合规测试',
 				translations: { en: 'WebDAV Compliance Testing' },
