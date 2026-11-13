@@ -37,6 +37,17 @@ fn mock_session(status: UploadSessionStatus) -> upload_session::Model {
 }
 
 #[test]
+fn assembly_lease_refresh_precedes_the_shared_lease_timeout() {
+    let refresh_interval = chrono::Duration::from_std(super::ASSEMBLY_LEASE_REFRESH_INTERVAL)
+        .expect("assembly refresh interval should fit chrono duration");
+
+    assert!(
+        refresh_interval
+            < crate::db::repository::upload_session_repo::OFFSET_ASSEMBLY_LEASE_TIMEOUT
+    );
+}
+
+#[test]
 fn determine_completion_plan_marks_previous_failure_with_code() {
     let err = determine_completion_plan(
         &mock_session(UploadSessionStatus::Failed),

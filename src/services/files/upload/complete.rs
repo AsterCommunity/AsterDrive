@@ -44,6 +44,8 @@ use self::plan::{CompletionPlan, completion_plan_label, determine_completion_pla
 use self::provider_resumable::complete_provider_resumable_upload;
 
 const UNRESOLVED_UPLOAD_ACTOR_USERNAME: &str = "<unresolved>";
+// Must remain shorter than OFFSET_ASSEMBLY_LEASE_TIMEOUT so active assembly
+// work refreshes its durable lease before another completion can reopen it.
 const ASSEMBLY_LEASE_REFRESH_INTERVAL: Duration = Duration::from_secs(10);
 
 async fn run_with_assembly_lease<T, F>(
@@ -103,7 +105,9 @@ async fn complete_upload_impl_with_hints(
     let complete_started_at = Instant::now();
     let session_kind = resolve_upload_session_kind(&session)?;
     if session.status == UploadSessionStatus::Assembling
-        && session.updated_at > chrono::Utc::now() - chrono::Duration::seconds(60)
+        && session.updated_at
+            > chrono::Utc::now()
+                - crate::db::repository::upload_session_repo::OFFSET_ASSEMBLY_LEASE_TIMEOUT
     {
         return Err(AsterError::upload_assembling(
             "upload is being processed, please wait and retry in a few seconds",
