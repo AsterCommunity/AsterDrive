@@ -79,6 +79,10 @@ static GLOBAL: aster_forge_alloc::TrackingAlloc = aster_forge_alloc::TrackingAll
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    run_server().await
+}
+
+pub async fn run_server() -> std::io::Result<()> {
     // 0. 安装自定义 panic hook（最先执行）
     aster_forge_panic::install_panic_hook(aster_forge_panic::PanicHookConfig::new(
         env!("CARGO_PKG_NAME"),

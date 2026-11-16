@@ -402,12 +402,12 @@ pub async fn qiniu_online_upgrade_schema_ready(
             return Ok(false);
         }
     }
-    if !manager
+    if !(!manager
         .has_column("storage_policies", "connector_id")
         .await?
         || !manager
             .has_column("remote_storage_targets", "connector_config")
-            .await?
+            .await?)
     {
         return Ok(false);
     }

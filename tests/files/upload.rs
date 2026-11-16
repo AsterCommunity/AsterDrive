@@ -3876,6 +3876,140 @@ async fn test_chunked_upload_offset_staging_preserves_content() {
 }
 
 #[actix_web::test]
+async fn test_stale_offset_assembly_requires_released_inode_lock_and_retries_once() {
+    use aster_drive::db::repository::{file_repo, upload_session_part_repo, upload_session_repo};
+    use aster_drive::services::files::upload;
+    use aster_drive_model::{
+        entities::{upload_session, user},
+        types::UploadSessionStatus,
+    };
+    use sea_orm::{ActiveModelTrait, EntityTrait, Set};
+
+    for dedup in [false, true] {
+        let state = common::setup().await;
+        set_default_local_content_dedup(&state, dedup).await;
+        let owner = common::create_test_account(
+            &state,
+            "assemblyrecovery",
+            "assembly-recovery@example.com",
+            "password123",
+        )
+        .await
+        .unwrap();
+        let upload_id = new_test_upload_id();
+        create_upload_session(
+            &state,
+            owner.id,
+            UploadSessionSpec::new(
+                &upload_id,
+                UploadSessionStatus::Assembling,
+                chrono::Utc::now() + chrono::Duration::hours(1),
+                UploadSessionKind::OffsetStaging,
+            )
+            .chunks(2, 2),
+        )
+        .await;
+        let content = b"0123456789";
+        let path = create_sparse_staging_file(&state, &upload_id, 10, content).await;
+        for part in [1, 2] {
+            upload_session_part_repo::upsert_part(
+                state.writer_db(),
+                &upload_id,
+                part,
+                upload::test_support::offset_staging_receipt_etag(),
+                5,
+            )
+            .await
+            .unwrap();
+        }
+        let fresh = upload::complete_upload(&state, &upload_id, owner.id, None)
+            .await
+            .unwrap_err();
+        assert_eq!(fresh.api_error_code(), ApiErrorCode::UploadAssembling);
+        let session = upload_session_repo::find_by_id(state.writer_db(), &upload_id)
+            .await
+            .unwrap();
+        let mut active: upload_session::ActiveModel = session.into();
+        active.updated_at = Set(chrono::Utc::now() - chrono::Duration::seconds(61));
+        active.update(state.writer_db()).await.unwrap();
+
+        let old_owner = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        aster_fs::FileExt::try_lock(&old_owner).unwrap();
+        let blocked = upload::complete_upload(&state, &upload_id, owner.id, None)
+            .await
+            .unwrap_err();
+        assert_eq!(blocked.api_error_code(), ApiErrorCode::UploadAssembling);
+        assert_eq!(
+            upload_session_repo::find_by_id(state.writer_db(), &upload_id)
+                .await
+                .unwrap()
+                .status,
+            UploadSessionStatus::Assembling
+        );
+        drop(old_owner);
+
+        // Reproduce a process dying after the local blob link was published.
+        // A retry must preserve the staging inode even when both paths name it.
+        if !dedup {
+            let session = upload_session_repo::find_by_id(state.writer_db(), &upload_id)
+                .await
+                .unwrap();
+            let policy = policy_repo::find_by_id(state.writer_db(), session.policy_id)
+                .await
+                .unwrap();
+            let driver = state.driver_registry.get_driver(&policy).unwrap();
+            let key = aster_forge_validation::filename::storage_path_from_blob_key(&format!(
+                "upload-{upload_id}"
+            ))
+            .unwrap();
+            let target = driver
+                .extensions()
+                .local_path
+                .unwrap()
+                .resolve_local_path(&key)
+                .unwrap();
+            tokio::fs::create_dir_all(target.parent().unwrap())
+                .await
+                .unwrap();
+            tokio::fs::hard_link(&path, target).await.unwrap();
+        }
+        let created = upload::complete_upload(&state, &upload_id, owner.id, None)
+            .await
+            .unwrap();
+        let retried = upload::complete_upload(&state, &upload_id, owner.id, None)
+            .await
+            .unwrap();
+        assert_eq!(created.id, retried.id);
+        let blob = file_repo::find_blob_by_id(state.writer_db(), created.blob_id)
+            .await
+            .unwrap();
+        assert_eq!(blob.ref_count, 1);
+        assert_eq!(blob.size, 10);
+        let policy = policy_repo::find_by_id(state.writer_db(), blob.policy_id)
+            .await
+            .unwrap();
+        let driver = state.driver_registry.get_driver(&policy).unwrap();
+        assert_eq!(
+            driver
+                .get(blob.storage_path_for_connector().unwrap())
+                .await
+                .unwrap(),
+            content
+        );
+        let owner = user::Entity::find_by_id(owner.id)
+            .one(state.writer_db())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(owner.storage_used, 10);
+    }
+}
+
+#[actix_web::test]
 async fn test_concurrent_distinct_chunks_write_to_their_staging_offsets() {
     use aster_drive::services::files::upload;
 

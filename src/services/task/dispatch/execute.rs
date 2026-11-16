@@ -125,6 +125,10 @@ impl aster_forge_tasks::ClaimedTaskExecutionStore<background_task::Model, Backgr
         task: &background_task::Model,
         context: aster_forge_tasks::TaskExecutionContext,
     ) -> Result<()> {
+        #[cfg(feature = "reliability-e2e")]
+        if task.kind == BackgroundTaskKind::ArchiveCompress {
+            crate::reliability::checkpoint("task.after_claim_before_handler").await;
+        }
         struct Observation {
             recorder: aster_forge_metrics::SharedMetricsRecorder,
             kind: &'static str,

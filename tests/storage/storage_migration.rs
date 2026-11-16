@@ -3091,9 +3091,7 @@ async fn test_storage_migration_multipart_verification_failure_cleans_object_and
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
     let target_path =
         aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap();
-    let stats = task::drain(&state)
-        .await
-        .expect("multipart verification failure task should drain");
+    let stats = common::drain_task_to_terminal(&state, task_id).await;
     assert_eq!(stats.failed, 1);
 
     let task = background_task_repo::find_by_id(state.writer_db(), task_id)

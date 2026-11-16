@@ -16,6 +16,9 @@ TEST_ARGS ?=
 E2E_ARGS ?=
 RUN_ARGS ?=
 NEXTEST_PROFILE ?= ci
+SCENARIO ?= all
+CHECKPOINT ?=
+SEED ?= 522
 
 TEST_ENV = $(if $(strip $(BACKEND)),ASTER_TEST_DATABASE_BACKEND=$(BACKEND),)
 
@@ -26,7 +29,7 @@ TEST_ENV = $(if $(strip $(BACKEND)),ASTER_TEST_DATABASE_BACKEND=$(BACKEND),)
 	check check-backend check-frontend typecheck \
 	format format-check clippy \
 	test test-backend test-frontend test-lib test-integration test-e2e \
-	test-multi-primary \
+	test-multi-primary reliability-e2e \
 	coverage coverage-backend coverage-frontend \
 	openapi openapi-check \
 	storage-docs storage-docs-check storage-provider-check storage-provider-links docs-dev docs-build docs-preview \
@@ -119,6 +122,15 @@ test-integration: ## Run a targeted integration test (requires TEST; optional FI
 
 test-multi-primary: ## Run ignored multi-primary E2E tests (requires Docker)
 	$(CARGO) nextest run --profile external --features multi-primary-e2e --test multi_primary $(FILTER) -- --ignored --nocapture $(TEST_ARGS)
+
+reliability-e2e: ## Run deterministic crash/recovery scenarios (requires Linux/Unix and Docker)
+	@set -eu; \
+	if [ "$${ASTER_RELIABILITY_STORAGE:-local}" = minio ]; then \
+	  docker image inspect asterdrive-reliability-minio:07c3a429bfed >/dev/null 2>&1 || \
+	    docker build -f scripts/reliability/minio.Dockerfile -t asterdrive-reliability-minio:07c3a429bfed .; \
+	fi; \
+	if [ -n "$(CHECKPOINT)" ]; then ASTER_RELIABILITY_CHECKPOINT_FILTER='$(CHECKPOINT)'; export ASTER_RELIABILITY_CHECKPOINT_FILTER; fi; \
+	$(TEST_ENV) SCENARIO='$(SCENARIO)' SEED='$(SEED)' $(CARGO) nextest run --profile external --features reliability-e2e --test reliability -- --ignored --nocapture $(TEST_ARGS)
 
 test-e2e: ## Run Playwright end-to-end tests (use E2E_ARGS for extra arguments)
 	cd $(FRONTEND_DIR) && $(BUN) run test:e2e -- $(E2E_ARGS)
