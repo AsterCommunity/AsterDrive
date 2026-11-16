@@ -29,34 +29,35 @@ aster_drive_metrics = { path = "crates/aster_drive_metrics" }
 aster_drive_migration = { path = "crates/aster_drive_migration" }
 aster_drive_model = { path = "crates/aster_drive_model" }
 aster_drive_storage = { path = "crates/aster_drive_storage" }
-# Pin all Forge mechanisms together; members add only their required features.
-aster_forge_alloc = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
-aster_forge_api = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
-aster_forge_api_docs_macros = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
-aster_forge_audit = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
-aster_forge_auth = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
-aster_forge_cache = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
-aster_forge_config = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
-aster_forge_crypto = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
-aster_forge_db = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
-aster_forge_db_migration = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
-aster_forge_events = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
-aster_forge_external_auth = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
-aster_forge_file_classification = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
-aster_forge_http = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
-aster_forge_logging = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
-aster_forge_mail = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
-aster_forge_metrics = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
-aster_forge_middleware = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
-aster_forge_observability = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
-aster_forge_panic = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
-aster_forge_runtime = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
-aster_forge_tasks = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
-aster_forge_test = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
-aster_forge_utils = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
-aster_forge_validation = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
-aster_forge_webdav = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
-aster_forge_xml = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
+# Pin all Forge mechanisms together to the exact published crates.io versions;
+# members add only their required features.
+aster_forge_alloc = { version = "=0.1.0-alpha.1" }
+aster_forge_api = { version = "=0.1.0-alpha.1" }
+aster_forge_api_docs_macros = { version = "=0.1.0-alpha.1" }
+aster_forge_audit = { version = "=0.1.0-alpha.2" }
+aster_forge_auth = { version = "=0.1.0-alpha.2" }
+aster_forge_cache = { version = "=0.1.0-alpha.1" }
+aster_forge_config = { version = "=0.1.0-alpha.1" }
+aster_forge_crypto = { version = "=0.1.0-alpha.2" }
+aster_forge_db = { version = "=0.1.0-alpha.2" }
+aster_forge_db_migration = { version = "=0.1.0-alpha.1" }
+aster_forge_events = { version = "=0.1.0-alpha.1" }
+aster_forge_external_auth = { version = "=0.1.0-alpha.2" }
+aster_forge_file_classification = { version = "=0.1.0-alpha.1" }
+aster_forge_http = { version = "=0.1.0-alpha.2" }
+aster_forge_logging = { version = "=0.1.0-alpha.1" }
+aster_forge_mail = { version = "=0.1.0-alpha.1" }
+aster_forge_metrics = { version = "=0.1.0-alpha.2" }
+aster_forge_middleware = { version = "=0.1.0-alpha.2" }
+aster_forge_observability = { version = "=0.1.0-alpha.2" }
+aster_forge_panic = { version = "=0.1.0-alpha.2" }
+aster_forge_runtime = { version = "=0.1.0-alpha.1" }
+aster_forge_tasks = { version = "=0.1.0-alpha.1" }
+aster_forge_test = { version = "=0.1.0-alpha.2" }
+aster_forge_utils = { version = "=0.1.0-alpha.1" }
+aster_forge_validation = { version = "=0.1.0-alpha.1" }
+aster_forge_webdav = { version = "=0.1.0-alpha.1" }
+aster_forge_xml = { version = "=0.1.0-alpha.1" }
 async-trait = "0.1"
 bytes = "1"
 emojis = "0.9"
@@ -66,7 +67,7 @@ hex = "0.4"
 http-body = "1"
 ipnet = "2.12"
 language-tags = { version = "0.3.2", features = ["serde"] }
-rand = { version = "0.10.3", default-features = false, features = ["std", "std_rng", "thread_rng"] }
+rand = { version = "0.10.4", default-features = false, features = ["std", "std_rng", "thread_rng"] }
 rcgen = "0.14"
 reqwest = "0.13"
 sea-orm = { version = "2.0.4", default-features = false, features = [
@@ -201,9 +202,9 @@ multi-primary-e2e = []
 [dependencies]
 aster_forge_auth = { workspace = true, features = ["password"] }
 actix-governor = "0.10"
-actix-http = "3.20.3"
+actix-http = "3.21.3"
 actix-multipart = "0.8"
-actix-web = { version = "4.18.2", features = ["compress-brotli", "compress-gzip"] }
+actix-web = { version = "4.19.0", features = ["compress-brotli", "compress-gzip"] }
 actix-ws = "0.4"
 aster_forge_api = { workspace = true }
 aster_forge_api_docs_macros = { workspace = true }
@@ -213,7 +214,7 @@ aster_forge_observability = { workspace = true }
 aster_forge_alloc = { workspace = true }
 aster_forge_cache = { workspace = true, features = ["memory", "redis", "runtime-component"] }
 aster_forge_config = { workspace = true, features = ["redis-pubsub", "sea-orm"] }
-aster_forge_crypto = { workspace = true }
+aster_forge_crypto = { workspace = true, features = ["secret-envelope", "hmac-sha256"] }
 aster_forge_db = { workspace = true, features = ["audit-log", "mail-outbox", "runtime-component", "runtime-lease", "scheduled-task", "system-config"] }
 aster_forge_external_auth = { workspace = true, features = ["github", "google", "microsoft", "qq", "sea-orm"] }
 aster_forge_events = { workspace = true, features = ["redis"] }
@@ -228,7 +229,7 @@ aster_forge_utils = { workspace = true }
 aster_forge_validation = { workspace = true }
 aster_forge_webdav = { workspace = true, features = ["actix"] }
 aster_forge_xml = { workspace = true }
-aster_forge_http = { workspace = true }
+aster_forge_http = { workspace = true, features = ["json", "form", "query", "multipart", "stream"] }
 ipnet = { workspace = true }
 aster_drive_metrics = { workspace = true }
 aster_drive_outbound = { workspace = true }
@@ -240,11 +241,11 @@ async-trait = { workspace = true }
 base64 = { version = "0.23", default-features = false, features = ["std"] }
 bytes = { workspace = true }
 aws-credential-types = { version = "1.3.1", features = ["hardcoded-credentials"] }
-aws-runtime = "1.10.2"
-aws-sdk-s3 = { version = "1.157.0", default-features = false, features = ["sigv4a", "http-1x", "default-https-client", "rt-tokio"] }
+aws-runtime = "1.10.4"
+aws-sdk-s3 = { version = "1.159.0", default-features = false, features = ["sigv4a", "http-1x", "default-https-client", "rt-tokio"] }
 aws-smithy-http = "0.64"
-aws-smithy-runtime-api = "1.19.2"
-aws-smithy-types = "1.9.1"
+aws-smithy-runtime-api = "1.21.0"
+aws-smithy-types = "1.9.4"
 azure_core = { version = "1.1.0", default-features = false, features = ["hmac_rust", "reqwest_rustls", "tokio"] }
 azure_storage_blob = { version = "1.1.0", default-features = false, features = ["tokio"] }
 chrono = { workspace = true }
@@ -287,12 +288,14 @@ serde_json = { workspace = true }
 secrecy = "0.10"
 sha1 = "0.11"
 sha2 = { workspace = true }
-russh = "0.65.0"
+# Password auth only; the default `rsa` feature is unused and conflicts with the
+# crypto-glue/dev-graph rsa pin, so it is dropped explicitly.
+russh = { version = "0.65.2", default-features = false, features = ["flate2", "aws-lc-rs"] }
 russh-sftp = "3.0.1"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "fs", "io-util"] }
 tokio-tungstenite = { version = "0.30", features = ["rustls-tls-native-roots"] }
 tokio-util = { workspace = true, features = ["io", "io-util"] }
-toml = "1.1"
+toml = "1.2"
 toml_edit = "0.25"
 tiff = "0.11.3"
 tikv-jemallocator = { version = "0.7", optional = true }
@@ -309,7 +312,7 @@ webauthn-rs-proto = "0.6.2"
 
 zip = { version = "=9.2.0", default-features = false, features = ["deflate"] }
 lofty = "0.25.5"
-inquire = { version = "0.9.4", default-features = false, features = ["crossterm", "fuzzy"], optional = true }
+inquire = { version = "0.9.5", default-features = false, features = ["crossterm", "fuzzy"], optional = true }
 clap_complete = "4.6.11"
 
 [target.'cfg(unix)'.dependencies]
@@ -321,8 +324,10 @@ aes-gcm = "0.11"
 aster_forge_test = { workspace = true, features = ["mysql", "postgres", "process", "redis", "smtp", "logs"] }
 aws-smithy-http-client = { version = "1.5.2", features = ["test-util"] }
 hkdf = "0.13"
-# russh 0.64.1 requires this exact pre-release; rc.19 cannot resolve alongside it.
-rsa = "=0.10.0-rc.18"
+# WOPI proof and OIDC mock tests use rsa directly. crypto-glue (via
+# webauthn-authenticator-rs) still requires the rc line with its `sha2` feature,
+# which rsa 0.10.0 stable removed; relax this once crypto-glue drops it.
+rsa = "^0.10.0-rc.18"
 sea-orm = { workspace = true, features = ["mock"] }
 testcontainers = { version = "0.28", features = ["reusable-containers"] }
 # Audit persistence deadline tests pause Tokio time while holding the SQLite connection.

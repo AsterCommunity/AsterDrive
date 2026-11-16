@@ -29,4 +29,10 @@ ignore = [
     # 仍依赖它，没有可升级的替代版本。本例外只接受维护告警，不忽略其他 tar 漏洞。
     # 待 testcontainers 发布迁移 tar-codec 等受维护实现的版本后，升级并删除本项。
     "RUSTSEC-2026-0440",
+
+    # libsqlite3-sys 0.37.0 via sqlx-sqlite 0.9.0 (RUSTSEC-2026-0459)
+    # RustSec 修复版本要求 >=0.39.0，但 sqlx-sqlite 0.9.0 将依赖上限固定为 <0.38.0；
+    # 当前 SeaORM/SQLx crates.io 发布线没有可用的兼容升级。待 SQLx 或 SeaORM 发布
+    # 放宽并带入修复版本后刷新 Cargo.lock，并删除本项。该例外保留上游风险记录，不代表已修复。
+    "RUSTSEC-2026-0459",
 ]

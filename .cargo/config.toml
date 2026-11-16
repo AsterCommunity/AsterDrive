@@ -1,0 +1,3 @@
+[registry]
+# New registry versions must age before dependency resolution can select them.
+global-min-publish-age = "1 days"
