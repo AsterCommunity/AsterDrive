@@ -913,14 +913,20 @@ mod tests {
             db
         }
 
-        assert!(qiniu_online_upgrade_schema_ready(&schema(true, true).await)
-            .await
-            .unwrap());
-        assert!(!qiniu_online_upgrade_schema_ready(&schema(false, true).await)
-            .await
-            .unwrap());
-        assert!(!qiniu_online_upgrade_schema_ready(&schema(true, false).await)
-            .await
-            .unwrap());
+        assert!(
+            qiniu_online_upgrade_schema_ready(&schema(true, true).await)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !qiniu_online_upgrade_schema_ready(&schema(false, true).await)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !qiniu_online_upgrade_schema_ready(&schema(true, false).await)
+                .await
+                .unwrap()
+        );
     }
 }
