@@ -364,10 +364,7 @@ fn manifest_fits_limits(
     manifest: &ArchivePreviewManifest,
     max_manifest_bytes: usize,
 ) -> Result<bool> {
-    if serialized_manifest_len(manifest)? > max_manifest_bytes {
-        return Ok(false);
-    }
-    Ok(true)
+    Ok(serialized_manifest_len(manifest)? <= max_manifest_bytes)
 }
 
 fn serialized_manifest_len(manifest: &ArchivePreviewManifest) -> Result<usize> {

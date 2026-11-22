@@ -402,16 +402,12 @@ pub async fn qiniu_online_upgrade_schema_ready(
             return Ok(false);
         }
     }
-    if !manager
+    Ok(manager
         .has_column("storage_policies", "connector_id")
         .await?
-        || !manager
+        && manager
             .has_column("remote_storage_targets", "connector_config")
-            .await?
-    {
-        return Ok(false);
-    }
-    Ok(true)
+            .await?)
 }
 
 /// Run SQLite schema migrations with foreign keys disabled before Forge opens

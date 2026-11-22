@@ -495,7 +495,7 @@ mod tests {
         let old = jsonwebtoken::encode(
             &jsonwebtoken::Header::default(),
             &old,
-            &jsonwebtoken::EncodingKey::from_secret(SECRET.as_bytes()),
+            &jsonwebtoken::EncodingKey::from_secret(SECRET.as_bytes()).unwrap(),
         )
         .unwrap();
         assert!(verify_token(&old, SECRET).is_err());

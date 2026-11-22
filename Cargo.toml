@@ -128,14 +128,13 @@ hmac = "0.13"
 http = "1"
 httparse = "1"
 image = { version = "0.25", default-features = false }
-jsonwebtoken = "11"
+jsonwebtoken = "12"
 lofty = "0.25.5"
 md-5 = "0.11.0"
 mime = "0.3"
 mime_guess = "2"
 moka = "0.12.16"
 nom-exif = "3.8.0"
-num_cpus = "1.17.0"
 parking_lot = "0.13"
 paste = "1.0.15"
 percent-encoding = "2.3"
@@ -147,6 +146,8 @@ urlencoding = "2"
 # which rsa 0.10.0 stable removed; relax this once crypto-glue drops it.
 rsa = "^0.10.0-rc.18"
 russh = { version = "0.65.4", default-features = false }
+# 4.0.0 (non-UTF-8 path support, not a security fix) trips cargo min-publish-age;
+# pick it up via `cargo upgrade --incompatible` once the publish age clears.
 russh-sftp = "3.0.1"
 rust-embed = "8"
 rustix = "1"
@@ -159,11 +160,11 @@ tokio-tungstenite = "0.30"
 toml = "1.2"
 toml_edit = "0.25"
 utoipa-swagger-ui = "10.0.2"
-zip = { version = "=9.2.0", default-features = false }
+zip = { version = "9.8.1", default-features = false }
 webauthn-authenticator-rs = "0.6.2"
 webauthn-rs = { version = "0.6.2", default-features = false }
 webauthn-rs-proto = "0.6.2"
-aster-fs = { git = "https://github.com/AsterCommunity/AsterFs", rev = "913ed30598119c184f49f18e5b339fc98869fff2", default-features = false }
+aster-fs = { version = "0.1.0", default-features = false }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
@@ -245,6 +246,7 @@ operations-cli = ["server", "dep:inquire"]
 metrics = [
     "server",
     "aster_drive_metrics/prometheus",
+    "dep:aster_forge_observability",
     "aster_forge_observability/prometheus",
 ]
 otlp-metrics = ["server", "aster_drive_metrics/otlp"]
@@ -284,7 +286,7 @@ aster_forge_api = { workspace = true }
 aster_forge_api_docs_macros = { workspace = true }
 aster_forge_audit = { workspace = true, features = ["db-writer", "mail-outbox-dependency"] }
 aster_forge_middleware = { workspace = true, features = ["metrics"] }
-aster_forge_observability = { workspace = true }
+aster_forge_observability = { workspace = true, optional = true }
 aster_forge_alloc = { workspace = true }
 aster_forge_cache = { workspace = true, features = ["memory", "redis", "runtime-component"] }
 aster_forge_config = { workspace = true, features = ["redis-pubsub", "sea-orm"] }
@@ -347,7 +349,6 @@ mime_guess = { workspace = true }
 mime = { workspace = true }
 moka = { workspace = true, features = ["future"] }
 md-5 = { workspace = true }
-num_cpus = { workspace = true }
 nom-exif = { workspace = true }
 parking_lot = { workspace = true }
 paste = { workspace = true }

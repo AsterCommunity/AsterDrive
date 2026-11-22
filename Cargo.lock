@@ -713,7 +713,8 @@ dependencies = [
 [[package]]
 name = "aster-fs"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterFs?rev=913ed30598119c184f49f18e5b339fc98869fff2#913ed30598119c184f49f18e5b339fc98869fff2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8840eeba8f4b07f8cc25188538497fd46ea4cf6b98f8b3bf96da1916ecb8828c"
 dependencies = [
  "libc",
  "rustix",
@@ -798,14 +799,13 @@ dependencies = [
  "image",
  "inquire",
  "ipnet",
- "jsonwebtoken 11.1.0",
+ "jsonwebtoken",
  "lofty",
  "md-5",
  "mime",
  "mime_guess",
  "moka",
  "nom-exif",
- "num_cpus",
  "oem_cp",
  "parking_lot 0.13.0",
  "paste",
@@ -856,7 +856,6 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-util",
- "tracing",
 ]
 
 [[package]]
@@ -922,7 +921,6 @@ dependencies = [
  "bytes",
  "chrono",
  "hex",
- "rand 0.10.4",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -985,7 +983,7 @@ checksum = "628c5665598cf8d9bc4967fb5061c72f13c3d4d43c310672e0acb82efae84c08"
 dependencies = [
  "aster_forge_crypto",
  "async-trait",
- "jsonwebtoken 12.0.0",
+ "jsonwebtoken",
  "serde",
  "thiserror 2.0.21",
  "tokio",
@@ -2544,6 +2542,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "constant_time_eq"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9eb6feb175df65d0a3ccd3e73484e940d0ac664e8034f0519fd49a93db3071d9"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "convert_case"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3951,12 +3958,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
-name = "hermit-abi"
-version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e17592d60ebacc7d5e169f4663c5f84f9161cc90328abcfe8456f41e4dfcb284"
-
-[[package]]
 name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4637,24 +4638,6 @@ dependencies = [
 
 [[package]]
 name = "jsonwebtoken"
-version = "11.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e75fe14a82d81e5f5af639997db37d8b96045938a7ac6ab18cdbe1c7467e05e1"
-dependencies = [
- "aws-lc-rs",
- "base64 0.22.1",
- "getrandom 0.2.17",
- "js-sys",
- "pem 3.0.6",
- "serde",
- "serde_json",
- "signature 2.2.0",
- "simple_asn1",
- "zeroize",
-]
-
-[[package]]
-name = "jsonwebtoken"
 version = "12.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f347a975eb5fa8f5c4eadce6c1152c11c326cf32cf839fb64ff12d5cb8f4ce8b"
@@ -4663,9 +4646,11 @@ dependencies = [
  "base64 0.23.1",
  "getrandom 0.4.3",
  "js-sys",
+ "pem",
  "serde",
  "serde_json",
  "signature 3.0.0",
+ "simple_asn1",
  "zeroize",
 ]
 
@@ -5323,16 +5308,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "num_cpus"
-version = "1.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91df4bbde75afed763b708b7eee1e8e7651e02d97f6d5dd763e89367e957b23b"
-dependencies = [
- "hermit-abi",
- "libc",
-]
-
-[[package]]
 name = "oauth2"
 version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5751,16 +5726,6 @@ checksum = "112d82ceb8c5bf524d9af484d4e4970c9fd5a0cc15ba14ad93dccd28873b0629"
 dependencies = [
  "digest 0.11.3",
  "hmac 0.13.0",
-]
-
-[[package]]
-name = "pem"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d30c53c26bc5b31a98cd02d20f25a7c8567146caf63ed593a9d87b2775291be"
-dependencies = [
- "base64 0.22.1",
- "serde_core",
 ]
 
 [[package]]
@@ -6481,7 +6446,7 @@ version = "0.14.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8774e05a7d0de114588e6a28fe7e71694b82614ed569d86d8b389dfbc98b8ad8"
 dependencies = [
- "pem 4.0.0",
+ "pem",
  "ring",
  "rustls-pki-types",
  "time",
@@ -9725,18 +9690,21 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "9.2.0"
+version = "9.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f5b58784007ff6e5f280ec82c8596686a3b9b5dd5836c63288d4479f84728b9"
+checksum = "a9534624d547e3f516ecde0ed9a70d37788f01d340efcfdd03bf3ea8e163c1d0"
 dependencies = [
+ "constant_time_eq",
  "crc32fast",
  "flate2",
  "getrandom 0.4.3",
  "indexmap 2.14.2",
+ "libc",
  "memchr",
  "nix",
  "typed-path",
  "windows-sys 0.61.2",
+ "zeroize",
  "zopfli",
 ]
 

@@ -252,7 +252,7 @@ fn http_worker_count(configured_workers: usize, serves_api: bool) -> usize {
     if configured_workers == 0 && !serves_api {
         1
     } else if configured_workers == 0 {
-        num_cpus::get()
+        std::thread::available_parallelism().map_or(1, |n| n.get())
     } else {
         configured_workers
     }
@@ -294,7 +294,10 @@ mod tests {
 
     #[test]
     fn worker_count_uses_cpu_count_when_configured_zero() {
-        assert_eq!(http_worker_count(0, true), num_cpus::get());
+        assert_eq!(
+            http_worker_count(0, true),
+            std::thread::available_parallelism().map_or(1, |n| n.get())
+        );
     }
 
     #[test]

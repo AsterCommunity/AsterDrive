@@ -694,7 +694,7 @@ async fn foreign_account_session_and_expired_persistence_do_not_rotate_or_revoke
     let foreign = jsonwebtoken::encode(
         &jsonwebtoken::Header::default(),
         &wire,
-        &jsonwebtoken::EncodingKey::from_secret(state.config.auth.jwt_secret.as_bytes()),
+        &jsonwebtoken::EncodingKey::from_secret(state.config.auth.jwt_secret.as_bytes()).unwrap(),
     )
     .unwrap();
     assert_eq!(refresh(&state, &foreign).await.unwrap_err().code(), "E012");
@@ -703,7 +703,7 @@ async fn foreign_account_session_and_expired_persistence_do_not_rotate_or_revoke
     let foreign = jsonwebtoken::encode(
         &jsonwebtoken::Header::default(),
         &wire,
-        &jsonwebtoken::EncodingKey::from_secret(state.config.auth.jwt_secret.as_bytes()),
+        &jsonwebtoken::EncodingKey::from_secret(state.config.auth.jwt_secret.as_bytes()).unwrap(),
     )
     .unwrap();
     assert_eq!(refresh(&state, &foreign).await.unwrap_err().code(), "E012");
@@ -1232,7 +1232,8 @@ async fn signed_claims_outside_drive_account_bounds_are_rejected_without_mutatio
             let signed = jsonwebtoken::encode(
                 &jsonwebtoken::Header::default(),
                 &wire,
-                &jsonwebtoken::EncodingKey::from_secret(state.config.auth.jwt_secret.as_bytes()),
+                &jsonwebtoken::EncodingKey::from_secret(state.config.auth.jwt_secret.as_bytes())
+                    .unwrap(),
             )
             .unwrap();
             let error = if kind == AuthTokenType::Access {
@@ -1253,7 +1254,7 @@ async fn signed_claims_outside_drive_account_bounds_are_rejected_without_mutatio
     let signed = jsonwebtoken::encode(
         &jsonwebtoken::Header::default(),
         &wire,
-        &jsonwebtoken::EncodingKey::from_secret(state.config.auth.jwt_secret.as_bytes()),
+        &jsonwebtoken::EncodingKey::from_secret(state.config.auth.jwt_secret.as_bytes()).unwrap(),
     )
     .unwrap();
     assert!(matches!(
