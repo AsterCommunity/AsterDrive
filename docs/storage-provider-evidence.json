@@ -31,7 +31,7 @@
       "dependencies": [
         {
           "name": "aws-sdk-s3",
-          "version": "1.157.0"
+          "version": "1.161.0"
         },
         {
           "name": "reqwest",
@@ -301,7 +301,7 @@
       "dependencies": [
         {
           "name": "aws-sdk-s3",
-          "version": "1.157.0"
+          "version": "1.161.0"
         },
         {
           "name": "reqwest",
@@ -1481,7 +1481,7 @@
       "dependencies": [
         {
           "name": "aws-sdk-s3",
-          "version": "1.157.0"
+          "version": "1.161.0"
         },
         {
           "name": "reqwest",
@@ -1738,7 +1738,7 @@
       "dependencies": [
         {
           "name": "aws-sdk-s3",
-          "version": "1.157.0"
+          "version": "1.161.0"
         }
       ],
       "code": [
@@ -1948,7 +1948,7 @@
       "dependencies": [
         {
           "name": "russh",
-          "version": "0.65.1"
+          "version": "0.65.4"
         },
         {
           "name": "russh-sftp",

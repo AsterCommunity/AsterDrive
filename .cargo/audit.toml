@@ -11,17 +11,17 @@ ignore = [
     # 上游状态：rsa crate 尚无修复版本
     "RUSTSEC-2023-0071",
 
-    # paste 1.0.x unmaintained — dtolnay 不再维护
-    # 本项目及 Lofty/image/allocator 传递使用的 token 拼接宏，非运行时解析器；
-    # 这是维护状态例外，不声称上游已恢复维护。待调用方迁移后移除。
-    "RUSTSEC-2024-0436",
-
     # h2 0.3.27 unbounded empty DATA frames (RUSTSEC-2026-0258)
     # actix-http 3.20.3 仍依赖 h2 ^0.3；AsterDrive
     # 没有可直接替换的 h2 版本，因为 h2 0.4 不满足该依赖的 semver 约束。
     # 保留审计阻塞并不能修复上游协议栈；待 actix-http 发布切换到 h2 >= 0.4.16
     # 的版本后立即删除本项并刷新 Cargo.lock。当前 PR 不扩大为替换 Actix HTTP 栈。
     "RUSTSEC-2026-0258",
+
+    # paste 1.0.x unmaintained — dtolnay 不再维护
+    # 本项目及 Lofty/image/allocator 传递使用的 token 拼接宏，非运行时解析器；
+    # 这是维护状态例外，不声称上游已恢复维护。待调用方迁移后移除。
+    "RUSTSEC-2024-0436",
 
     # astral-tokio-tar 0.6.4 unmaintained (RUSTSEC-2026-0440)
     # 2026-11-07 复核：由 testcontainers 0.28.0 引入，只在开发/容器 fixture 中使用，
@@ -30,9 +30,10 @@ ignore = [
     # 待 testcontainers 发布迁移 tar-codec 等受维护实现的版本后，升级并删除本项。
     "RUSTSEC-2026-0440",
 
-    # libsqlite3-sys 0.37.0 via sqlx-sqlite 0.9.0 (RUSTSEC-2026-0459)
-    # RustSec 修复版本要求 >=0.39.0，但 sqlx-sqlite 0.9.0 将依赖上限固定为 <0.38.0；
-    # 当前 SeaORM/SQLx crates.io 发布线没有可用的兼容升级。待 SQLx 或 SeaORM 发布
-    # 放宽并带入修复版本后刷新 Cargo.lock，并删除本项。该例外保留上游风险记录，不代表已修复。
-    "RUSTSEC-2026-0459",
+    # chrono 0.4.45 unmaintained (RUSTSEC-2026-0543) / chrono-tz 0.10.4 unmaintained (RUSTSEC-2026-0555)
+    # 2026-11-22 复核：RustSec 无可用修复版本；chrono 是 SeaORM/时间处理的基础依赖，
+    # 全量替换超出单次 CI 修复范围。本例外只接受维护告警，不忽略任何 chrono 漏洞；
+    # 出现漏洞级 advisory 或上游发布继任版本后立即删除本项并迁移。
+    "RUSTSEC-2026-0543",
+    "RUSTSEC-2026-0555",
 ]

@@ -12,6 +12,9 @@
 )]
 
 use std::io;
+use std::sync::Arc;
+
+use aster_forge_panic::{DEFAULT_CRASH_LOG_PATH, PrivateReportWriter, ReportWriter};
 
 #[cfg(feature = "jemalloc")]
 #[global_allocator]
@@ -80,11 +83,19 @@ static GLOBAL: aster_forge_alloc::TrackingAlloc = aster_forge_alloc::TrackingAll
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     // 0. 安装自定义 panic hook（最先执行）
-    aster_forge_panic::install_panic_hook(aster_forge_panic::PanicHookConfig::new(
-        env!("CARGO_PKG_NAME"),
-        env!("CARGO_PKG_VERSION"),
-        env!("CARGO_PKG_REPOSITORY"),
-    ));
+    aster_forge_panic::install_panic_hook(
+        aster_forge_panic::PanicHookConfig::new(
+            env!("CARGO_PKG_NAME"),
+            env!("CARGO_PKG_VERSION"),
+            env!("CARGO_PKG_REPOSITORY"),
+        )
+        // forge 默认 writer 在 install 时即打开 crash log 并创建 `data/` 目录，
+        // 让 help/version/config 等 CLI 快路径产生 bootstrap 副作用；延迟到
+        // 首次写报告时打开，保留 forge 的私有文件路径与权限校验。
+        .with_report_writer(Arc::new(LazyPrivateReportWriter(
+            DEFAULT_CRASH_LOG_PATH.into(),
+        ))),
+    );
 
     dotenvy::dotenv().ok();
 
@@ -172,4 +183,13 @@ async fn main() -> std::io::Result<()> {
 
 fn io_other(error: impl std::fmt::Display) -> io::Error {
     io::Error::other(error.to_string())
+}
+
+/// Panic 时才打开私有 crash log 的报告写入器。
+struct LazyPrivateReportWriter(std::path::PathBuf);
+
+impl ReportWriter for LazyPrivateReportWriter {
+    fn write_report(&self, report: &str) -> io::Result<()> {
+        PrivateReportWriter::try_new(&self.0)?.write_report(report)
+    }
 }

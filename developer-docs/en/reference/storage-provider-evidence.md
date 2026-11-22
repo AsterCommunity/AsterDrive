@@ -12,7 +12,7 @@ Schema: 1; refresh interval: 90 days.
 
 Connector: `asterdrive.storage.alibaba_oss`; owner: AsterDrive storage maintainers; fallback: repository maintainers; API: OSS REST; OSS4-HMAC-SHA256; connector config V1.
 
-SDK/transport: `aws-sdk-s3@1.157.0`, `reqwest@0.13.5`.
+SDK/transport: `aws-sdk-s3@1.161.0`, `reqwest@0.13.5`.
 
 Code: [src/storage/connectors/alibaba_oss.rs](https://github.com/AsterCommunity/AsterDrive/blob/master/src/storage/connectors/alibaba_oss.rs), [src/storage/drivers/alibaba_oss/mod.rs](https://github.com/AsterCommunity/AsterDrive/blob/master/src/storage/drivers/alibaba_oss/mod.rs).
 
@@ -50,7 +50,7 @@ Cloud acceptance: **not_recorded** — No cloud acceptance record is asserted by
 
 Connector: `asterdrive.storage.tencent_cos`; owner: AsterDrive storage maintainers; fallback: repository maintainers; API: COS XML API; AWS SigV4 object I/O; COS Q-Sign native operations.
 
-SDK/transport: `aws-sdk-s3@1.157.0`, `reqwest@0.13.5`.
+SDK/transport: `aws-sdk-s3@1.161.0`, `reqwest@0.13.5`.
 
 Code: [src/storage/connectors/tencent_cos.rs](https://github.com/AsterCommunity/AsterDrive/blob/master/src/storage/connectors/tencent_cos.rs), [src/storage/drivers/tencent_cos/mod.rs](https://github.com/AsterCommunity/AsterDrive/blob/master/src/storage/drivers/tencent_cos/mod.rs).
 
@@ -227,7 +227,7 @@ Cloud acceptance: **not_recorded** — No cloud acceptance record is asserted by
 
 Connector: `asterdrive.storage.huawei_obs`; owner: AsterDrive storage maintainers; fallback: repository maintainers; API: Native OBS SignatureObs; marker-based ListObjects; connector config V1.
 
-SDK/transport: `aws-sdk-s3@1.157.0`, `reqwest@0.13.5`.
+SDK/transport: `aws-sdk-s3@1.161.0`, `reqwest@0.13.5`.
 
 Code: [src/storage/connectors/huawei_obs.rs](https://github.com/AsterCommunity/AsterDrive/blob/master/src/storage/connectors/huawei_obs.rs), [src/storage/drivers/huawei_obs/mod.rs](https://github.com/AsterCommunity/AsterDrive/blob/master/src/storage/drivers/huawei_obs/mod.rs).
 
@@ -264,7 +264,7 @@ Cloud acceptance: **not_recorded** — No cloud acceptance record is asserted by
 
 Connector: `asterdrive.storage.s3`; owner: AsterDrive storage maintainers; fallback: repository maintainers; API: Amazon S3 REST API 2006-03-01; AWS SigV4; compatible vendors require separate acceptance.
 
-SDK/transport: `aws-sdk-s3@1.157.0`.
+SDK/transport: `aws-sdk-s3@1.161.0`.
 
 Code: [src/storage/connectors/s3.rs](https://github.com/AsterCommunity/AsterDrive/blob/master/src/storage/connectors/s3.rs), [src/storage/drivers/s3/mod.rs](https://github.com/AsterCommunity/AsterDrive/blob/master/src/storage/drivers/s3/mod.rs).
 
@@ -298,7 +298,7 @@ Cloud acceptance: **not_recorded** — No cloud acceptance record is asserted by
 
 Connector: `asterdrive.storage.sftp`; owner: AsterDrive storage maintainers; fallback: repository maintainers; API: SSH transport RFC 4253; SFTP v3 draft; connector config V1.
 
-SDK/transport: `russh@0.65.1`, `russh-sftp@3.0.1`.
+SDK/transport: `russh@0.65.4`, `russh-sftp@3.0.1`.
 
 Code: [src/storage/connectors/sftp.rs](https://github.com/AsterCommunity/AsterDrive/blob/master/src/storage/connectors/sftp.rs), [src/storage/drivers/sftp.rs](https://github.com/AsterCommunity/AsterDrive/blob/master/src/storage/drivers/sftp.rs).
 
