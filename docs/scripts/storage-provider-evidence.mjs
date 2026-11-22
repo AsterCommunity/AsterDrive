@@ -8,7 +8,7 @@ export const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 export const registryPath = 'docs/storage-provider-evidence.json'
 export const topics = ['objects', 'uploads', 'signing', 'cors', 'range_etag', 'errors', 'permissions', 'domains']
 const pagePath = (locale) => `developer-docs/${locale}/reference/storage-provider-evidence.md`
-const read = (base, path) => readFileSync(resolve(base, path), 'utf8')
+const read = (base, path) => readFileSync(resolve(base, path), 'utf8').replaceAll('\r\n', '\n')
 const requireThat = (ok, message) => { if (!ok) throw new Error(message) }
 const same = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort())
 const nonempty = (s) => typeof s === 'string' && s.trim().length > 0
@@ -194,7 +194,7 @@ async function main() {
     const path = resolve(root, pagePath(locale))
     const expected = render(data, locale)
     if (args.includes('--write')) { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, expected) }
-    else requireThat(readFileSync(path, 'utf8') === expected, `${pagePath(locale)} drift; run node docs/scripts/storage-provider-evidence.mjs --write`)
+    else requireThat(read(root, pagePath(locale)) === expected, `${pagePath(locale)} drift; run node docs/scripts/storage-provider-evidence.mjs --write`)
   }
   console.log(`Provider contracts: ${data.providers.length}; content review unverified: ${unresolved.length}${unresolved.length ? ` (${unresolved.join(', ')})` : ''}`)
   if (args.includes('--links')) {

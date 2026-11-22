@@ -893,11 +893,19 @@ mod tests {
             for sql in [
                 format!(
                     "CREATE TABLE storage_policies (id INTEGER PRIMARY KEY{})",
-                    if policy_column { ", connector_id TEXT" } else { "" }
+                    if policy_column {
+                        ", connector_id TEXT"
+                    } else {
+                        ""
+                    }
                 ),
                 format!(
                     "CREATE TABLE remote_storage_targets (id INTEGER PRIMARY KEY{})",
-                    if target_column { ", connector_config TEXT" } else { "" }
+                    if target_column {
+                        ", connector_config TEXT"
+                    } else {
+                        ""
+                    }
                 ),
                 "CREATE TABLE storage_policy_connector_credentials (id INTEGER PRIMARY KEY)"
                     .to_owned(),
