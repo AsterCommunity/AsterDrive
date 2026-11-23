@@ -559,9 +559,9 @@ mod tests {
                     .unwrap();
                 state.metrics =
                     aster_drive_metrics::create_metrics_recorder(provider.clone()).unwrap();
-                if follower && failure != "storage" {
+                let follower_binding_id = if follower {
                     let now = Utc::now();
-                    master_binding::ActiveModel {
+                    let binding = master_binding::ActiveModel {
                         name: Set("ready-test".into()),
                         master_url: Set("https://master.invalid".into()),
                         access_key: Set("test-access".into()),
@@ -578,7 +578,10 @@ mod tests {
                     .insert(state.writer_db())
                     .await
                     .unwrap();
-                }
+                    Some(binding.id)
+                } else {
+                    None
+                };
                 if failure == "cache" {
                     configure_cluster(&mut state);
                     state.cache = Arc::new(FakeCache {
@@ -600,7 +603,13 @@ mod tests {
                         .any(|line| line.starts_with("aster_runtime_ready "))
                 );
                 let response = if follower {
-                    follower_ready(web::Data::new(state.follower_view())).await
+                    let follower_state = state.follower_view();
+                    if failure == "none" {
+                        follower_state.binding_health.record_success(
+                            follower_binding_id.expect("follower binding should exist"),
+                        );
+                    }
+                    follower_ready(web::Data::new(follower_state)).await
                 } else {
                     super::primary_ready(web::Data::new(state), None).await
                 };
