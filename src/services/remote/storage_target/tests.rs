@@ -30,6 +30,7 @@ use std::fs;
 use std::sync::Arc;
 
 struct TestFollowerState {
+    binding_health: crate::runtime::follower_health::FollowerBindingHealth,
     audit_writer: Arc<aster_forge_audit::AuditWriter>,
     db: DatabaseConnection,
     driver_registry: Arc<crate::storage::DriverRegistry>,
@@ -85,7 +86,11 @@ impl SharedRuntimeState for TestFollowerState {
     }
 }
 
-impl FollowerRuntimeState for TestFollowerState {}
+impl FollowerRuntimeState for TestFollowerState {
+    fn binding_health(&self) -> &crate::runtime::follower_health::FollowerBindingHealth {
+        &self.binding_health
+    }
+}
 
 async fn setup_state() -> TestFollowerState {
     let db = crate::db::connect_with_metrics(
@@ -110,6 +115,7 @@ async fn setup_state() -> TestFollowerState {
     let config = Arc::new(crate::config::Config {
         server: crate::config::ServerConfig {
             follower: crate::config::ServerFollowerConfig {
+                master_readiness_timeout_secs: std::num::NonZeroU64::new(90).unwrap(),
                 remote_storage_target_local_root: root.to_string_lossy().into_owned(),
             },
             ..Default::default()
@@ -122,6 +128,7 @@ async fn setup_state() -> TestFollowerState {
     .await;
 
     TestFollowerState {
+        binding_health: Default::default(),
         audit_writer: crate::runtime::test_support::audit_writer(&db).await,
         db,
         driver_registry: Arc::new(

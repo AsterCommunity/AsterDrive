@@ -297,6 +297,7 @@ define_api_error_codes! {
     UploadTempFileCreateFailed => "upload.temp_file_create_failed",
     UploadTempFileWriteFailed => "upload.temp_file_write_failed",
     UploadTempFileFlushFailed => "upload.temp_file_flush_failed",
+    UploadRequestBodyIncomplete => "upload.request_body_incomplete",
     UploadRequestBodyReadFailed => "upload.request_body_read_failed",
     UploadRequestBodySizeOverflow => "upload.request_body_size_overflow",
     UploadRequestSizeMismatch => "upload.request_size_mismatch",

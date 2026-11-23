@@ -182,6 +182,7 @@ fn follower_view_with_server_port(
     config.server.port = port;
 
     aster_drive::runtime::FollowerAppState {
+        binding_health: Default::default(),
         db_handles: state.db_handles.clone(),
         audit_writer: state.audit_writer.clone(),
         driver_registry: state.driver_registry.clone(),
@@ -3422,25 +3423,64 @@ async fn test_internal_storage_truncated_put_aborts_attempt_staging() {
 
     let object_key = "truncated-attempt.bin";
     let path = format!(
-        "/api/v1/internal/storage/objects/{object_key}?target_key={}",
+        "/api/v1/internal/storage/objects/{object_key}?target_key={}&max_file_size=1048576",
         urlencoding::encode(&target.target_key)
     );
     let timestamp = Utc::now().timestamp();
     let nonce = "truncated-attempt-nonce";
-    let signature = sign_internal_request(&secret_key, "PUT", &path, timestamp, nonce, None);
+    let body_sha256 = body_sha256_hex(b"short payload");
+    let signature = aster_drive::storage::remote_protocol::sign_internal_request(
+        &secret_key,
+        "PUT",
+        &path,
+        timestamp,
+        nonce,
+        Some(64),
+        &body_sha256,
+    );
     let request = test::TestRequest::put()
         .uri(&path)
+        .set_payload(b"short payload".to_vec())
         .insert_header(("x-aster-access-key", access_key.as_str()))
         .insert_header(("x-aster-timestamp", timestamp.to_string()))
         .insert_header(("x-aster-nonce", nonce))
         .insert_header(("x-aster-signature", signature))
-        .insert_header(("x-aster-content-sha256", empty_body_sha256()))
+        .insert_header(("x-aster-content-sha256", body_sha256.as_str()))
         .insert_header((actix_web::http::header::CONTENT_LENGTH, "64"))
-        .set_payload(b"short payload".to_vec())
         .to_request();
     let response = test::call_service(&app, request).await;
 
-    assert!(response.status().is_client_error() || response.status().is_server_error());
+    let status = response.status();
+    let body: serde_json::Value = test::read_body_json(response).await;
+    assert_eq!(status, actix_web::http::StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["code"], "upload.request_body_incomplete");
+    assert_eq!(body["error"]["retryable"], true);
+    assert!(
+        body["msg"]
+            .as_str()
+            .unwrap()
+            .contains("declared 64 bytes, received 13 bytes")
+    );
+    // Exercise the browser-facing presigned path with the same truncated body.
+    let expires_at = Utc::now().timestamp() + 300;
+    let signature = sign_presigned_request(&secret_key, "PUT", &path, &access_key, expires_at);
+    let request = test::TestRequest::put()
+        .uri(&format!("{path}&aster_access_key={access_key}&aster_expires={expires_at}&aster_signature={signature}"))
+        .set_payload(b"short payload".to_vec())
+        .insert_header((actix_web::http::header::CONTENT_LENGTH, "64"))
+        .to_request();
+    let response = test::call_service(&app, request).await;
+    let status = response.status();
+    let body: serde_json::Value = test::read_body_json(response).await;
+    assert_eq!(status, actix_web::http::StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["code"], "upload.request_body_incomplete");
+    assert_eq!(body["error"]["retryable"], true);
+    assert!(
+        body["msg"]
+            .as_str()
+            .unwrap()
+            .contains("declared 64 bytes, received 13 bytes")
+    );
     let storage_path = managed_ingress_object_path(
         &provider_state,
         &access_key,

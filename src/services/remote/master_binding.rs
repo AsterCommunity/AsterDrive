@@ -373,23 +373,6 @@ pub fn provider_storage_prefix(binding: &master_binding::Model, prefix: &str) ->
     }
 }
 
-pub async fn assert_follower_ready<S: FollowerRuntimeState>(state: &S) -> Result<()> {
-    let bindings = master_binding_repo::find_all(state.writer_db()).await?;
-    let enabled_bindings: Vec<_> = bindings
-        .into_iter()
-        .filter(|binding| binding.is_enabled)
-        .collect();
-    if enabled_bindings.is_empty() {
-        return Err(AsterError::storage_driver_error(
-            "no active master bindings configured",
-        ));
-    }
-
-    // Bindings no longer require a default target. Each remote request must
-    // carry its policy-owned target_key and is validated at request time.
-    Ok(())
-}
-
 async fn resolve_authorized_ingress<S: FollowerRuntimeState>(
     state: &S,
     binding: master_binding::Model,

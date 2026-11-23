@@ -135,7 +135,9 @@ pub async fn follower_ready(state: web::Data<FollowerAppState>) -> HttpResponse 
         .forge_recorder()
         .role_readiness(result.is_ok());
     match result {
-        Ok(_) => HttpResponse::Ok().json(crate::api::response::success(status_response("ready"))),
+        Ok(status) => {
+            HttpResponse::Ok().json(crate::api::response::success(status_response(status)))
+        }
         Err(error) => ready_storage_error(error),
     }
 }

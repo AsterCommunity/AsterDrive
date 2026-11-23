@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Upload diagnostics** — Debug logs explain the admitted policy group, rule evaluations, excluded targets, execution preference, transport candidates and size/capability limits. Interrupted follower PUT bodies return the retryable `upload.request_body_incomplete` code, log received versus declared bytes without credentials, and show a network/retry hint in the browser. (#756, #758)
+
+### Fixed
+
+- **Follower readiness** — An unconfigured follower returns `200 + needs_binding`. Enabled bindings require recent successful master control-plane communication; missing or expired evidence returns 503 and clears runtime readiness. `server.follower.master_readiness_timeout_secs` defaults to 90 seconds and must exceed the 60-second control-plane cycle; disabled bindings are intentionally offline. (#755)
+
 ## [v0.7.2] - 2026-11-08
 
 ### Added

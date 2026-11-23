@@ -69,6 +69,12 @@ pub struct ServerConfig {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ServerFollowerConfig {
+    /// Maximum age of successful master communication before readiness fails.
+    #[serde(
+        default = "ServerFollowerConfig::default_master_readiness_timeout_secs",
+        deserialize_with = "ServerFollowerConfig::deserialize_master_readiness_timeout_secs"
+    )]
+    pub master_readiness_timeout_secs: NonZeroU64,
     /// follower 受 primary 托管的 local remote storage target 根目录。
     /// primary 下发的本地落点只能在这个根目录下使用相对路径。
     #[serde(
@@ -81,12 +87,33 @@ pub struct ServerFollowerConfig {
 impl Default for ServerFollowerConfig {
     fn default() -> Self {
         Self {
+            master_readiness_timeout_secs: Self::default_master_readiness_timeout_secs(),
             remote_storage_target_local_root: Self::default_remote_storage_target_local_root(),
         }
     }
 }
 
 impl ServerFollowerConfig {
+    fn default_master_readiness_timeout_secs() -> NonZeroU64 {
+        nonzero_u64_or_min(90)
+    }
+
+    fn deserialize_master_readiness_timeout_secs<'de, D>(
+        deserializer: D,
+    ) -> Result<NonZeroU64, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = NonZeroU64::deserialize(deserializer)?;
+        let minimum = super::node_mode::FOLLOWER_MASTER_READINESS_MIN_SECS;
+        if value.get() <= minimum {
+            return Err(serde::de::Error::custom(format!(
+                "master_readiness_timeout_secs must be greater than {minimum} seconds (reconcile interval plus control-plane timeout)"
+            )));
+        }
+        Ok(value)
+    }
+
     fn default_remote_storage_target_local_root() -> String {
         "remote-storage-targets".to_string()
     }
@@ -434,6 +461,29 @@ fn nonzero_u32_or_min(value: u32) -> NonZeroU32 {
 #[cfg(test)]
 mod tests {
     use super::Config;
+
+    #[test]
+    fn follower_master_readiness_timeout_defaults_and_rejects_unsafe_intervals() {
+        let default: Config = toml::from_str("").unwrap();
+        assert_eq!(
+            default.server.follower.master_readiness_timeout_secs.get(),
+            90
+        );
+        let custom: Config =
+            toml::from_str("[server.follower]\nmaster_readiness_timeout_secs = 61\n").unwrap();
+        assert_eq!(
+            custom.server.follower.master_readiness_timeout_secs.get(),
+            61
+        );
+        for value in ["0", "-1", "1", "30", "59", "60", "1.5"] {
+            assert!(
+                toml::from_str::<Config>(&format!(
+                    "[server.follower]\nmaster_readiness_timeout_secs = {value}\n"
+                ))
+                .is_err()
+            );
+        }
+    }
 
     #[test]
     fn upload_staging_safety_floor_defaults_and_accepts_zero() {

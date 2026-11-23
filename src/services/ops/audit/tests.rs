@@ -447,6 +447,7 @@ async fn follower_state_can_record_allowed_audit_log() {
     })
     .await;
     let state = crate::runtime::FollowerAppState {
+        binding_health: Default::default(),
         audit_writer: crate::runtime::test_support::audit_writer(&db).await,
         db_handles: aster_forge_db::DbHandles::single(db.clone()),
         driver_registry: std::sync::Arc::new(

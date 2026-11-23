@@ -44,7 +44,6 @@ use tokio_util::sync::CancellationToken;
 const FOLLOWER_TUNNEL_STREAM_LANES: usize = 4;
 const FOLLOWER_TUNNEL_BASE_BACKOFF: Duration = Duration::from_secs(1);
 const FOLLOWER_TUNNEL_MAX_BACKOFF: Duration = Duration::from_secs(30);
-const FOLLOWER_TUNNEL_RECONCILE_INTERVAL: Duration = Duration::from_secs(30);
 const FOLLOWER_TUNNEL_WORKER_JOIN_TIMEOUT: Duration = Duration::from_secs(5);
 const FOLLOWER_TUNNEL_CLOSE_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(2);
 const FOLLOWER_TUNNEL_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -163,7 +162,7 @@ pub async fn run_follower_tunnel_worker(
         tokio::select! {
             biased;
             _ = shutdown_token.cancelled() => break,
-            _ = tokio::time::sleep(FOLLOWER_TUNNEL_RECONCILE_INTERVAL) => {}
+            _ = tokio::time::sleep(crate::config::node_mode::FOLLOWER_BINDING_RECONCILE_INTERVAL) => {}
         }
     }
 
@@ -490,7 +489,7 @@ async fn run_binding_stream_lane_loop(
                 tokio::select! {
                     biased;
                     _ = shutdown_token.cancelled() => break,
-                    _ = tokio::time::sleep(FOLLOWER_TUNNEL_RECONCILE_INTERVAL) => {}
+                    _ = tokio::time::sleep(crate::config::node_mode::FOLLOWER_BINDING_RECONCILE_INTERVAL) => {}
                 }
                 backoff = FOLLOWER_TUNNEL_BASE_BACKOFF;
             }

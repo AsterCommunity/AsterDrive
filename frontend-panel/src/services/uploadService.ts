@@ -48,6 +48,7 @@ export class UploadRequestError extends Error {
 	isAborted: boolean;
 	retryable: boolean;
 	status?: number;
+	code?: ApiErrorCode;
 
 	constructor(
 		message: string,
@@ -56,6 +57,7 @@ export class UploadRequestError extends Error {
 			isAborted?: boolean;
 			retryable?: boolean;
 			status?: number;
+			code?: ApiErrorCode;
 		},
 	) {
 		super(message);
@@ -64,6 +66,7 @@ export class UploadRequestError extends Error {
 		this.isAborted = options?.isAborted ?? false;
 		this.retryable = options?.retryable ?? false;
 		this.status = options?.status;
+		this.code = options?.code;
 	}
 }
 
@@ -598,13 +601,17 @@ export function createUploadService(
 						resolve(etag);
 					} else {
 						logFailure("http-error");
+						const apiError = parseApiErrorResponse(xhr.responseText);
 						reject(
 							new UploadRequestError(
 								parseApiMessage(xhr.responseText) ??
 									`Presigned upload failed: ${xhr.status}`,
 								{
 									status: xhr.status,
-									retryable: isRetryableHttpStatus(xhr.status),
+									code: apiError?.code,
+									retryable:
+										apiError?.retryable === true ||
+										isRetryableHttpStatus(xhr.status),
 								},
 							),
 						);
@@ -705,13 +712,22 @@ export function createUploadService(
 				observation.body_truncated ||
 				observation.status < 200 ||
 				observation.status >= 300
-			)
-				throw new UploadRequestError("Object part upload failed", {
-					status: observation.status,
-					retryable:
-						observation.status === 0 ||
-						isRetryableHttpStatus(observation.status),
-				});
+			) {
+				const apiError = observation.body_truncated
+					? null
+					: parseApiErrorResponse(observation.body);
+				throw new UploadRequestError(
+					apiError?.msg ?? "Object part upload failed",
+					{
+						status: observation.status,
+						code: apiError?.code,
+						retryable:
+							apiError?.retryable === true ||
+							observation.status === 0 ||
+							isRetryableHttpStatus(observation.status),
+					},
+				);
+			}
 			switch (completion.source) {
 				case "response_header": {
 					const token = observation.headers[completion.name.toLowerCase()];

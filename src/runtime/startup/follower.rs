@@ -29,6 +29,7 @@ pub async fn prepare_follower() -> Result<PreparedFollowerRuntime> {
 
     Ok(PreparedFollowerRuntime {
         state: FollowerAppState {
+            binding_health: Default::default(),
             db_handles: common.db_handles,
             audit_writer: common.audit_writer,
             driver_registry: common.driver_registry,
