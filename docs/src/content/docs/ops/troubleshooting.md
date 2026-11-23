@@ -30,12 +30,12 @@ title: "故障排查"
 
 `/health` 只看进程活着。primary 的 `/health/ready` 检查数据库、缓存、初始化状态及默认存储驱动的轻量就绪条件，不等同于完整对象读写验收。
 
-follower 没有启用的 master binding 时返回 `200 + needs_binding`，表示等待配置；全部禁用也按主动下线处理。有启用 binding 后，每个 binding 都必须在最近 90 秒内成功拉取 master 控制面，否则返回 503。阈值可通过 `server.follower.master_readiness_timeout_secs` 调整（必须大于 60 秒，即 reconcile 间隔与拉取超时之和；重启生效）。进程重启后需要重新建立成功通信记录。direct 和 reverse tunnel 使用同一判断。
+follower 没有启用的 master binding 时返回 `200 + needs_binding`，表示等待配置；全部禁用也按主动下线处理。有启用 binding 后，每个 binding 都必须在配置的有效窗口内成功拉取 master 控制面，否则返回 503。默认是 90 秒；所有已配置 binding（包括仍需轮询状态变化的禁用项）超过控制面每轮 8 个请求的并发上限时，有效窗口会覆盖排队批次（例如 9 个 binding 需要 120 秒）。`server.follower.master_readiness_timeout_secs` 必须大于 60 秒，重启生效。进程重启后需要重新建立成功通信记录。direct 和 reverse tunnel 使用同一判断。
 
 按 503 返回里的 `code` 区分：
 
 - `database.error`：DB 连不上；先看连接字符串、网络、用户名密码
-- `storage.*` 相关错误码：默认存储策略起不来；如果是 S3，看 endpoint、credentials、bucket 是否存在；如果是 local，看路径权限
+- `storage.*` 相关错误码：primary 通常表示默认存储策略起不来；如果是 S3，看 endpoint、credentials、bucket 是否存在；如果是 local，看路径权限。follower 的 `storage.transient` 也可能表示启用 binding 的 master 控制面通信过期，先检查 binding 配置和 follower 控制面日志
 
 ### 改完配置不生效
 

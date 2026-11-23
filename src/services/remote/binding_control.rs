@@ -15,8 +15,6 @@ use crate::storage::remote_protocol::{
 use aster_drive_model::entities::master_binding;
 use aster_drive_storage::StorageErrorKind;
 
-const CONTROL_PULL_CONCURRENCY: usize = 8;
-
 /// Pull every primary-owned desired state and refresh the follower's runtime
 /// binding projection. Returns `true` only when the persisted bindings are
 /// available through the runtime registry and can be acknowledged after the
@@ -50,7 +48,7 @@ pub async fn reconcile_all<S: FollowerRuntimeState>(
         });
         (binding, result)
     }))
-    .buffer_unordered(CONTROL_PULL_CONCURRENCY);
+    .buffer_unordered(crate::config::node_mode::FOLLOWER_BINDING_CONTROL_CONCURRENCY);
     while let Some((binding, result)) = pulls.next().await {
         match result {
             Ok(Some(desired)) => {

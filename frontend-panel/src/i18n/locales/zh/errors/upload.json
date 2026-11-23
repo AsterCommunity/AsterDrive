@@ -1,5 +1,5 @@
 {
-	"upload_request_body_incomplete": "上传连接中断或网络不稳定，请检查网络后重试。",
+	"upload_request_body_incomplete": "上传连接中断或网络不稳定，请检查网络后重试",
 	"upload_field_read_failed": "读取上传表单内容失败，请稍后重试",
 	"upload_request_body_read_failed": "读取上传请求体失败，请稍后重试",
 	"upload_request_body_size_overflow": "上传内容大小超出服务器可处理范围，请重新上传",

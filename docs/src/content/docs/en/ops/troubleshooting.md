@@ -30,12 +30,12 @@ Check in this order:
 
 `/health` checks process liveness. Primary `/health/ready` checks the database, cache, setup state and lightweight default-driver readiness; it does not prove complete object read/write acceptance.
 
-A follower without enabled master bindings returns `200 + needs_binding`, meaning configuration is pending. All-disabled bindings are intentionally offline. Once bindings are enabled, each must successfully pull the master control plane within the last 90 seconds or readiness returns 503. Configure `server.follower.master_readiness_timeout_secs` above 60 seconds (the reconcile interval plus pull timeout) to change the threshold; restart is required. Communication evidence is rebuilt after process restart. Direct and reverse-tunnel modes use the same checks.
+A follower without enabled master bindings returns `200 + needs_binding`, meaning configuration is pending. All-disabled bindings are intentionally offline. Once bindings are enabled, each must successfully pull the master control plane within the configured freshness window or readiness returns 503. The default is 90 seconds; when all configured bindings, including disabled ones still polled for state changes, exceed the eight-request control-plane concurrency, the effective window expands to cover the queued pull batches (for example, nine bindings require 120 seconds). Configure `server.follower.master_readiness_timeout_secs` above 60 seconds; restart is required. Communication evidence is rebuilt after process restart. Direct and reverse-tunnel modes use the same checks.
 
 Distinguish by the `code` in the 503 response:
 
 - `database.error`: DB cannot connect. Check connection string, network, username, and password first.
-- `storage.*` related error code: default storage policy cannot start. For S3, check endpoint, credentials, and bucket existence. For local storage, check path permissions.
+- `storage.*` related error code: on a primary, the default storage policy cannot start. For S3, check endpoint, credentials, and bucket existence. For local storage, check path permissions. On a follower, `storage.transient` can instead mean that an enabled master binding has stale control-plane communication; check the binding configuration and follower control-plane logs first.
 
 ### Configuration Changes Do Not Take Effect
 
