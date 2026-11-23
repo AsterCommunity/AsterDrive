@@ -1,13 +1,10 @@
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
-use aster_forge_panic::{DEFAULT_CRASH_LOG_PATH, PrivateReportWriter};
+use aster_forge_panic::PrivateReportWriter;
 
-pub(crate) fn install() -> Arc<DeferredPrivateReportWriter> {
-    let writer = Arc::new(DeferredPrivateReportWriter::new(
-        DEFAULT_CRASH_LOG_PATH.into(),
-    ));
+pub(crate) fn install(writer: Arc<DeferredPrivateReportWriter>) {
     aster_forge_panic::install_panic_hook(
         aster_forge_panic::PanicHookConfig::new(
             env!("CARGO_PKG_NAME"),
@@ -16,33 +13,39 @@ pub(crate) fn install() -> Arc<DeferredPrivateReportWriter> {
         )
         .with_report_writer(writer.clone()),
     );
-    writer
 }
 
 pub(crate) struct DeferredPrivateReportWriter {
-    path: PathBuf,
     writer: OnceLock<Option<PrivateReportWriter>>,
 }
 
 impl DeferredPrivateReportWriter {
-    fn new(path: PathBuf) -> Self {
+    pub(crate) fn new() -> Self {
         Self {
-            path,
             writer: OnceLock::new(),
         }
     }
 
-    pub(crate) fn prepare(&self) {
+    pub(crate) fn prepare_for_config(&self, config_path: &Path) {
+        if self.writer.get().is_some() {
+            return;
+        }
+        let parent = config_path.parent().unwrap_or(Path::new("."));
+        let path = parent.join("crash.log");
+        self.prepare_at(path);
+    }
+
+    fn prepare_at(&self, path: PathBuf) {
         let result = (|| {
-            if let Some(parent) = self.path.parent() {
+            if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            PrivateReportWriter::try_new(&self.path)
+            PrivateReportWriter::try_new(&path)
         })();
         if let Err(error) = &result {
             eprintln!(
                 "warning: private crash reports are unavailable at {}: {error}",
-                self.path.display()
+                path.display()
             );
         }
         let _ = self.writer.set(result.ok());
@@ -61,5 +64,31 @@ impl aster_forge_panic::ReportWriter for DeferredPrivateReportWriter {
                 )
             })
             .and_then(|writer| aster_forge_panic::ReportWriter::write_report(writer, report))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::DeferredPrivateReportWriter;
+
+    #[test]
+    fn prepare_creates_the_crash_log_parent_before_hook_installation() {
+        let root = aster_forge_test::temp::TestTempDir::new("panic-report-bootstrap");
+        let config = root.path().join("nested/config.toml");
+        let path = root.path().join("nested/crash.log");
+        let writer = DeferredPrivateReportWriter::new();
+
+        writer.prepare_for_config(&config);
+
+        assert!(path.parent().is_some_and(Path::exists));
+        assert!(!root.path().join("data").exists());
+        #[cfg(target_os = "linux")]
+        {
+            aster_forge_panic::ReportWriter::write_report(&writer, "panic report")
+                .expect("prepared report writer should accept reports");
+            assert!(std::fs::metadata(path).is_ok());
+        }
     }
 }

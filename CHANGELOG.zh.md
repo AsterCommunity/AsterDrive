@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **AsterForge 运行时与可观测性契约** — 升级已发布 Forge crate 批次，将配置校验和 metrics provider 组装迁移到 Forge，统一 `com.astercosm.drive` / `astercosm-metrics/v1` 指标身份并同步 Grafana／目录过滤；审计恢复继续只供人工核对，不自动重放。配置显式启用的 exporter 必须包含在构建 feature 中。
+- **AsterForge 运行时与可观测性契约** — 升级已发布 Forge crate 批次，将配置校验和 metrics provider 组装迁移到 Forge，统一 `com.astercosm.drive` / `astercosm-metrics/v1` 指标身份并同步 Grafana／目录过滤；审计恢复继续只供人工核对，不自动重放。未编译的 exporter 视为省略，已编译的 exporter 仅在显式启用时运行；崩溃报告跟随所选实例配置目录。
 
 ## [v0.7.2] - 2026-11-08
 

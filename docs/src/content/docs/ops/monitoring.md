@@ -288,7 +288,7 @@ OTLP resource 包含 service/version/environment/role，以及每次启动生成
 | `otlp-metrics` | otlp_metrics=true | 不存在 |
 | 两个 feature | 分别开启 | 只有 prometheus=true 才存在 |
 
-请求启用未编译的 exporter 会在配置校验阶段明确拒绝，不会静默当成 Noop。只有已编译且显式启用的 exporter 才参与运行；全部 exporter 均关闭时为 Noop。升级时应使用包含目标 exporter feature 的镜像，或先关闭对应配置。新增 blob 待清理起始时间作为持久状态始终随引用计数维护，保证以后开启观测时年龄正确，不受 metrics feature 影响；没有因此增加业务 DB 往返。
+未编译的 exporter 及其专属设置视为省略。只有已编译且显式启用的 exporter 才参与运行；没有生效的 exporter 时为 Noop。CLI 运维命令不启动 exporter。新增 blob 待清理起始时间作为持久状态始终随引用计数维护，保证以后开启观测时年龄正确，不受 metrics feature 影响；没有因此增加业务 DB 往返。
 
 
 本地冒烟验证可将 metrics endpoint 指向 `http://127.0.0.1:4318/v1/metrics`，并用以下配置启动 OpenTelemetry Collector。只接收 metrics 并打印诊断，不启用 traces，也不提供持久化；本次文档更新未实际运行 Collector。

@@ -286,7 +286,7 @@ OTLP resource identity includes service/version/environment/role and the automat
 | `otlp-metrics` | otlp_metrics=true | Absent |
 | Both features | independent enablement | Present only with prometheus=true |
 
-Enabling an exporter absent from the build is rejected during configuration validation instead of being silently treated as Noop. Only compiled and explicitly enabled exporters run; when all exporters are disabled, the provider is Noop. During upgrades, use an image built with the requested exporter feature or disable that exporter first. Persistent blob cleanup timestamps are maintained with reference-count writes in every build, so enabling metrics later retains useful ages; this adds no business DB round trips.
+Exporters absent from the build are treated as omitted, including their exporter-specific settings. Only compiled and explicitly enabled exporters run; when none are active, the provider is Noop. Operational CLI commands do not start exporters. Persistent blob cleanup timestamps are maintained with reference-count writes in every build, so enabling metrics later retains useful ages; this adds no business DB round trips.
 
 
 For a local smoke test, point the metrics endpoint at `http://127.0.0.1:4318/v1/metrics` and run an OpenTelemetry Collector with the following configuration. This accepts metrics only and prints diagnostics; it does not enable traces or persistent storage. No Collector instance was run for this documentation update.

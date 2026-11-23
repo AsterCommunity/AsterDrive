@@ -82,16 +82,19 @@ static GLOBAL: aster_forge_alloc::TrackingAlloc = aster_forge_alloc::TrackingAll
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenvy::dotenv().ok();
-    let panic_writer = panic::install();
-
     aster_forge_auth::initialize_jwt_crypto_provider().map_err(io_other)?;
-
-    let (serve_role, config_location) = match aster_drive::cli::run().await? {
+    let panic_writer = std::sync::Arc::new(panic::DeferredPrivateReportWriter::new());
+    let prepare_panic = |config_path: &std::path::Path| {
+        panic_writer.prepare_for_config(config_path);
+        panic::install(panic_writer.clone());
+    };
+    let (serve_role, config_location) = match aster_drive::cli::run(&prepare_panic).await? {
         aster_drive::cli::CommandOutcome::Serve { role, location } => (role, location),
         aster_drive::cli::CommandOutcome::Exit(0) => return Ok(()),
         aster_drive::cli::CommandOutcome::Exit(code) => std::process::exit(code),
     };
-    panic_writer.prepare();
+    panic_writer.prepare_for_config(config_location.path());
+    panic::install(panic_writer.clone());
     let bootstrap_config_path =
         aster_drive::services::remote::node_enrollment::prepare_follower_bootstrap_config(
             &config_location,

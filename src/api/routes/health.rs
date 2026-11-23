@@ -267,7 +267,6 @@ mod tests {
             {
                 let mut explicit = config;
                 explicit.prometheus.enabled = true;
-                assert!(aster_forge_config::ValidatableConfig::validate(&explicit).is_err());
                 let app = test::init_service(App::new().service(routes(&explicit))).await;
                 assert_eq!(
                     test::call_service(

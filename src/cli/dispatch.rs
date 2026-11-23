@@ -18,7 +18,11 @@ use super::commands::build_info::render_build_info;
 pub(super) async fn execute(
     cli: RootCli,
     command: &mut clap::Command,
+    prepare_panic: &impl Fn(&std::path::Path),
 ) -> io::Result<CommandOutcome> {
+    #[cfg(not(feature = "operations-cli"))]
+    let _ = prepare_panic;
+
     if let Some(RootCommand::Completions { action }) = cli.command.as_ref() {
         match action {
             CompletionCommand::Install { shell } => {
@@ -88,6 +92,7 @@ pub(super) async fn execute(
             {
                 return Ok(CommandOutcome::Exit(confirmation_error_exit(error)));
             }
+            prepare_panic(config_location.path());
             let context = match CliContext::existing(&config_location, args.database_url.as_deref())
             {
                 Ok(context) => context,
@@ -149,6 +154,7 @@ pub(super) async fn execute(
             {
                 return Ok(CommandOutcome::Exit(confirmation_error_exit(error)));
             }
+            prepare_panic(config_location.path());
             match database_migration::execute::execute_database_migration(&args).await {
                 Ok(data) => {
                     println!(

@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **AsterForge runtime and observability contract** — Upgrade the published Forge crate batch, migrate configuration validation and metrics provider assembly to Forge, publish the `com.astercosm.drive` / `astercosm-metrics/v1` metrics identity, update Grafana/catalog filters, and preserve audit recovery reconciliation without automatic replay. Builds must include any exporter explicitly enabled in configuration.
+- **AsterForge runtime and observability contract** — Upgrade the published Forge crate batch, migrate configuration validation and metrics provider assembly to Forge, publish the `com.astercosm.drive` / `astercosm-metrics/v1` metrics identity, update Grafana/catalog filters, and preserve audit recovery reconciliation without automatic replay. Uncompiled exporters are ignored; compiled exporters run only when explicitly enabled. Crash reports follow the selected instance configuration directory.
 
 ### Fixed
 

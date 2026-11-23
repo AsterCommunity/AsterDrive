@@ -3,6 +3,13 @@
 
 [advisories]
 ignore = [
+    # cookie 0.16.2 PrivateJar nonce reuse after fork (RUSTSEC-2026-0594)
+    # 2026-11-24: default/all-features only enable percent-encode, not private/secure;
+    # Drive never calls PrivateJar. The affected encryption code is not compiled.
+    # actix-web 4.20.0 requires cookie ^0.16, so 0.18.3 is not a compatible update.
+    # Remove after Actix upgrades cookie; reassess before enabling private/secure.
+    "RUSTSEC-2026-0594",
+
     # rsa 0.9.10 / 0.10.0-rc.18 Marvin Attack (timing sidechannel)
     # 0.9.10 经 openidconnect / webauthn 引入，只用于远端签名的公钥验证；
     # 0.10.0-rc.18 经 russh / ssh-key 引入，当前 SFTP 仅使用密码认证，

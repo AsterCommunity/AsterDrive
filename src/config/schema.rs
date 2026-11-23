@@ -12,7 +12,10 @@ use aster_forge_logging::LoggingConfig;
 pub struct Config {
     #[serde(default)]
     pub worker: crate::config::worker::WorkerConfig,
-    #[serde(default)]
+    #[serde(
+        default,
+        deserialize_with = "crate::config::metrics::deserialize_observability"
+    )]
     pub observability: crate::config::metrics::ObservabilityConfig,
     #[serde(default)]
     pub deployment: crate::config::deployment::DeploymentConfig,

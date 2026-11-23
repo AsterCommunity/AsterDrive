@@ -9,13 +9,33 @@ pub use aster_forge_metrics::{
     PrometheusSettings as PrometheusConfig,
 };
 
+fn effective_config(mut config: ObservabilityConfig) -> ObservabilityConfig {
+    if !cfg!(feature = "metrics") {
+        config.prometheus = PrometheusConfig::default();
+    }
+    if !cfg!(feature = "otlp-metrics") {
+        config.otlp_metrics = OtlpMetricsConfig::default();
+    }
+    config
+}
+
+pub(super) fn deserialize_observability<'de, D>(
+    deserializer: D,
+) -> std::result::Result<ObservabilityConfig, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize;
+    ObservabilityConfig::deserialize(deserializer).map(effective_config)
+}
+
 pub fn create_provider(
     config: &ObservabilityConfig,
     node_mode: NodeRuntimeMode,
     role: ServeRole,
     instance_id: &str,
 ) -> Result<aster_forge_metrics::MetricsProvider> {
-    config
+    effective_config(config.clone())
         .create_provider(aster_forge_metrics::MetricsIdentity {
             service_name: "asterdrive".into(),
             service_version: env!("CARGO_PKG_VERSION").into(),
@@ -224,7 +244,7 @@ mod tests {
     }
 
     #[test]
-    fn unavailable_exporters_are_rejected_without_leaking_settings() {
+    fn unavailable_exporters_are_ignored_without_activating_a_provider() {
         for prometheus in [true, false] {
             if (prometheus && cfg!(feature = "metrics"))
                 || (!prometheus && cfg!(feature = "otlp-metrics"))
@@ -250,16 +270,25 @@ mod tests {
                     .headers
                     .insert("invalid header".into(), "secret-marker".into());
             }
-            let error = ValidatableConfig::validate(&config).unwrap_err();
-            assert!(!error.to_string().contains("secret-marker"));
+            ValidatableConfig::validate(&effective_config(config.clone())).unwrap();
+            let loaded: crate::config::Config = toml::from_str(
+                &toml::to_string(&crate::config::Config {
+                    observability: config.clone(),
+                    ..Default::default()
+                })
+                .unwrap(),
+            )
+            .unwrap();
+            aster_forge_config::ConfigSections::validate_sections(&loaded).unwrap();
             assert!(
-                create_provider(
+                !create_provider(
                     &config,
                     NodeRuntimeMode::Primary,
                     ServeRole::All,
                     "ignored-exporter",
                 )
-                .is_err()
+                .unwrap()
+                .enabled()
             );
         }
     }
@@ -332,6 +361,7 @@ mod tests {
         ValidatableConfig::validate(&config).unwrap();
     }
 
+    #[cfg(feature = "metrics")]
     #[test]
     fn environment_source_overrides_file_credentials_without_changing_the_file() {
         let input = "[observability.prometheus.basic_auth]\nenabled = false\nusername = 'file-user'\npassword_hash = 'file-hash'\n";
