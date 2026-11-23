@@ -7,6 +7,7 @@
 //! - 在需要 session 的模式下预先写入 upload_sessions
 
 mod context;
+mod diagnostics;
 pub(crate) mod mime;
 mod object_storage;
 mod provider;
@@ -176,6 +177,7 @@ async fn init_upload_for_scope_impl(
         ctx.total_size,
         max_single_put_size,
     );
+    diagnostics::log_upload_decision(state, &ctx, transport, planned_mode, target_driver.as_ref());
     let data_plane = upload_data_plane_label(transport, planned_mode);
     let mut staging_admission = if data_plane == "staged" {
         Some(state.driver_registry().staging_capacity().lock().await)

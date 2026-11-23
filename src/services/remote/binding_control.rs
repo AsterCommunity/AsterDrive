@@ -1,5 +1,6 @@
 //! Follower-side reconciliation of binding state owned by the primary.
 
+use futures::StreamExt;
 use reqwest::Method;
 use sea_orm::Set;
 
@@ -13,6 +14,8 @@ use crate::storage::remote_protocol::{
 };
 use aster_drive_model::entities::master_binding;
 use aster_drive_storage::StorageErrorKind;
+
+const CONTROL_PULL_CONCURRENCY: usize = 8;
 
 /// Pull every primary-owned desired state and refresh the follower's runtime
 /// binding projection. Returns `true` only when the persisted bindings are
@@ -29,16 +32,34 @@ pub async fn reconcile_all<S: FollowerRuntimeState>(
             return false;
         }
     };
+    state
+        .binding_health()
+        .retain_bindings(&bindings.iter().map(|binding| binding.id).collect());
     let mut all_reconciled = true;
-    for binding in bindings {
-        match pull_desired_state(client, &binding).await {
-            Ok(Some(desired)) => match apply_desired_state(state, binding, desired).await {
-                Ok(()) => {}
-                Err(error) => {
+    let mut pulls = futures::stream::iter(bindings.into_iter().map(|binding| async move {
+        let result = tokio::time::timeout(
+            crate::config::node_mode::FOLLOWER_BINDING_CONTROL_TIMEOUT,
+            pull_desired_state(client, &binding),
+        )
+        .await
+        .unwrap_or_else(|_| {
+            Err(crate::errors::storage_driver_error(
+                StorageErrorKind::Transient,
+                "master control-plane pull timed out",
+            ))
+        });
+        (binding, result)
+    }))
+    .buffer_unordered(CONTROL_PULL_CONCURRENCY);
+    while let Some((binding, result)) = pulls.next().await {
+        match result {
+            Ok(Some(desired)) => {
+                state.binding_health().record_success(binding.id);
+                if let Err(error) = apply_desired_state(state, binding, desired).await {
                     all_reconciled = false;
-                    tracing::warn!("failed to persist remote binding desired state: {error}")
+                    tracing::warn!("failed to persist remote binding desired state: {error}");
                 }
-            },
+            }
             Ok(None) => {}
             Err(error) => {
                 all_reconciled = false;
@@ -169,6 +190,118 @@ mod tests {
     use aster_drive_model::entities::master_binding;
     use aster_drive_model::types::ResolvedRemoteTransport;
     use aster_drive_storage::StorageErrorKind;
+
+    #[tokio::test]
+    async fn reconciliation_health_requires_valid_responses_and_recovers_after_failure() {
+        use crate::runtime::FollowerRuntimeState;
+        use std::sync::{
+            Arc,
+            atomic::{AtomicU8, Ordering},
+        };
+        use std::time::Duration;
+
+        let mode = Arc::new(AtomicU8::new(0));
+        let server_mode = mode.clone();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = HttpServer::new(move || {
+            let mode = server_mode.clone();
+            App::new().route(
+                "/api/v1/internal/remote-node-control/binding-state",
+                web::get().to(move || {
+                    let mode = mode.clone();
+                    async move {
+                        match mode.load(Ordering::SeqCst) {
+                            1 => HttpResponse::NotFound().finish(),
+                            2 => HttpResponse::Unauthorized().finish(),
+                            3 => HttpResponse::BadGateway().body("upstream unavailable"),
+                            4 => HttpResponse::Ok().body("invalid JSON"),
+                            5 => HttpResponse::Ok().json(crate::api::response::empty_success()),
+                            6 => HttpResponse::Ok().json(crate::api::response::failure(
+                                crate::api::api_error_code::ApiErrorCode::Forbidden,
+                                "denied",
+                            )),
+                            7 => futures::future::pending::<HttpResponse>().await,
+                            _ => HttpResponse::Ok().json(crate::api::response::success(
+                                crate::storage::remote_protocol::RemoteBindingDesiredState {
+                                    name: "master".to_owned(),
+                                    is_enabled: true,
+                                    resolved_transport: ResolvedRemoteTransport::Direct,
+                                    desired_revision: 1,
+                                },
+                            )),
+                        }
+                    }
+                }),
+            )
+        })
+        .listen(listener)
+        .unwrap()
+        .run();
+        let handle = server.handle();
+        let task = tokio::spawn(server);
+        let primary = crate::runtime::tasks::test_support::setup_primary_state().await;
+        let state = primary.follower_view();
+        let (binding, _) = crate::services::remote::master_binding::upsert_from_enrollment(
+            state.writer_db(),
+            crate::services::remote::master_binding::UpsertMasterBindingInput {
+                name: "master".to_owned(),
+                master_url: format!("http://{address}"),
+                access_key: "health-access".to_owned(),
+                secret_key: "health-secret".to_owned(),
+                is_enabled: true,
+            },
+        )
+        .await
+        .unwrap();
+        let client =
+            aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::InternalControl)
+                .timeout(Duration::from_secs(2))
+                .build()
+                .unwrap();
+        let max_age = Duration::from_secs(90);
+
+        for failure in 1..=7 {
+            state.binding_health().retain_bindings(&Default::default());
+            mode.store(failure, Ordering::SeqCst);
+            super::reconcile_all(&state, &client).await;
+            assert!(
+                !state.binding_health().is_fresh(binding.id, max_age),
+                "failure mode {failure} refreshed readiness"
+            );
+        }
+        mode.store(0, Ordering::SeqCst);
+        assert!(super::reconcile_all(&state, &client).await);
+        assert!(state.binding_health().is_fresh(binding.id, max_age));
+        assert_eq!(
+            crate::services::ops::health::check_follower_ready(&state)
+                .await
+                .unwrap(),
+            "ready"
+        );
+        mode.store(3, Ordering::SeqCst);
+        assert!(!super::reconcile_all(&state, &client).await);
+        assert!(
+            state.binding_health().is_fresh(binding.id, max_age),
+            "a transient failure must not discard recent successful communication"
+        );
+        state.binding_health().retain_bindings(&Default::default());
+        assert!(
+            crate::services::ops::health::check_follower_ready(&state)
+                .await
+                .is_err()
+        );
+        mode.store(0, Ordering::SeqCst);
+        assert!(super::reconcile_all(&state, &client).await);
+        assert_eq!(
+            crate::services::ops::health::check_follower_ready(&state)
+                .await
+                .unwrap(),
+            "ready"
+        );
+        handle.stop(false).await;
+        task.await.unwrap().unwrap();
+    }
 
     #[tokio::test]
     async fn non_success_html_response_remains_transient_http_failure() {

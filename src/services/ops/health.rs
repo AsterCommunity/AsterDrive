@@ -53,8 +53,41 @@ pub async fn check_primary_ready<S: SharedRuntimeState>(
     Ok(setup_state)
 }
 
-pub async fn check_follower_ready<S: FollowerRuntimeState>(state: &S) -> Result<()> {
-    crate::services::remote::master_binding::assert_follower_ready(state).await
+/// Disabled bindings are intentionally offline and do not participate in readiness.
+/// A newly started process must observe successful communication before becoming ready.
+pub async fn check_follower_ready<S: FollowerRuntimeState>(state: &S) -> Result<&'static str> {
+    let bindings = crate::db::repository::master_binding_repo::find_all(state.writer_db()).await?;
+    let enabled: Vec<_> = bindings
+        .iter()
+        .filter(|binding| binding.is_enabled)
+        .collect();
+    if enabled.is_empty() {
+        tracing::debug!(
+            status = "needs_binding",
+            "follower awaiting an enabled master binding"
+        );
+        return Ok("needs_binding");
+    }
+    let max_age = std::time::Duration::from_secs(
+        state
+            .config()
+            .server
+            .follower
+            .master_readiness_timeout_secs
+            .get(),
+    );
+    for binding in enabled {
+        if !state.binding_health().is_fresh(binding.id, max_age) {
+            return Err(crate::errors::storage_driver_error(
+                aster_drive_storage::StorageErrorKind::Transient,
+                format!(
+                    "master communication unavailable or stale for binding {}",
+                    binding.id
+                ),
+            ));
+        }
+    }
+    Ok("ready")
 }
 
 pub async fn run_primary_system_health_checks<S>(state: &S) -> SystemHealthReport

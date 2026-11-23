@@ -3,10 +3,13 @@
 pub mod assembly;
 mod audit_recovery;
 pub mod components;
+pub mod follower_health;
 pub mod role;
 pub mod shutdown;
 pub mod startup;
 pub mod tasks;
+#[cfg(test)]
+pub(crate) mod test_logs;
 
 use crate::config::{Config, RuntimeConfig};
 use crate::services::events::storage_change::StorageChangeBus;
@@ -40,6 +43,7 @@ pub struct PrimaryAppState {
 
 #[derive(Clone)]
 pub struct FollowerAppState {
+    pub binding_health: Arc<follower_health::FollowerBindingHealth>,
     pub db_handles: DbHandles,
     pub audit_writer: Arc<aster_forge_audit::AuditWriter>,
     pub driver_registry: Arc<DriverRegistry>,
@@ -102,7 +106,9 @@ pub trait TaskRuntimeState: SharedRuntimeState {
     fn task_wakeup(&self) -> &aster_forge_tasks::TaskWakeup;
 }
 
-pub trait FollowerRuntimeState: SharedRuntimeState {}
+pub trait FollowerRuntimeState: SharedRuntimeState {
+    fn binding_health(&self) -> &follower_health::FollowerBindingHealth;
+}
 
 impl PrimaryAppState {
     pub fn new_remote_protocol() -> Arc<RemoteProtocolRuntime> {
@@ -141,6 +147,7 @@ impl PrimaryAppState {
 impl From<&PrimaryAppState> for FollowerAppState {
     fn from(state: &PrimaryAppState) -> Self {
         Self {
+            binding_health: Arc::default(),
             db_handles: state.db_handles.clone(),
             audit_writer: state.audit_writer.clone(),
             driver_registry: state.driver_registry.clone(),
@@ -292,7 +299,11 @@ impl SharedRuntimeState for FollowerAppState {
     }
 }
 
-impl FollowerRuntimeState for FollowerAppState {}
+impl FollowerRuntimeState for FollowerAppState {
+    fn binding_health(&self) -> &follower_health::FollowerBindingHealth {
+        &self.binding_health
+    }
+}
 
 #[cfg(test)]
 pub(crate) mod test_support {

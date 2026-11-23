@@ -28,7 +28,9 @@ title: "故障排查"
 
 ### `/health` 200 但 `/health/ready` 503
 
-`/health` 只看进程活着，`/health/ready` 会真的 ping 数据库和默认存储策略。
+`/health` 只看进程活着。primary 的 `/health/ready` 检查数据库、缓存、初始化状态及默认存储驱动的轻量就绪条件，不等同于完整对象读写验收。
+
+follower 没有启用的 master binding 时返回 `200 + needs_binding`，表示等待配置；全部禁用也按主动下线处理。有启用 binding 后，每个 binding 都必须在最近 90 秒内成功拉取 master 控制面，否则返回 503。阈值可通过 `server.follower.master_readiness_timeout_secs` 调整（必须大于 60 秒，即 reconcile 间隔与拉取超时之和；重启生效）。进程重启后需要重新建立成功通信记录。direct 和 reverse tunnel 使用同一判断。
 
 按 503 返回里的 `code` 区分：
 

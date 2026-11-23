@@ -80,6 +80,9 @@ pub fn build_remote_status_error_from_parts(
 
 pub(super) fn remote_api_error(code: ApiErrorCode, message: &str) -> Option<AsterError> {
     match code {
+        ApiErrorCode::UploadRequestBodyIncomplete => {
+            Some(crate::errors::validation_error_with_code(code, message))
+        }
         ApiErrorCode::StorageQuotaExceeded => {
             Some(AsterError::storage_quota_exceeded(message.to_string()))
         }

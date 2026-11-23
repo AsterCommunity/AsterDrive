@@ -1562,6 +1562,7 @@ async fn setup_with_database_url_and_pool_size(
             temp_dir,
             upload_temp_dir,
             follower: aster_drive::config::ServerFollowerConfig {
+                master_readiness_timeout_secs: std::num::NonZeroU64::new(90).unwrap(),
                 remote_storage_target_local_root: format!("{test_dir}/remote-storage-targets"),
             },
             ..Default::default()

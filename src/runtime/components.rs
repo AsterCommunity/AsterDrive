@@ -277,6 +277,7 @@ mod tests {
             aster_forge_cache::create_cache(&aster_forge_cache::CacheConfig::default()).await;
 
         FollowerAppState {
+            binding_health: Default::default(),
             audit_writer: std::sync::Arc::new(aster_forge_audit::AuditWriter::new(db.clone())),
             db_handles: aster_forge_db::DbHandles::single(db),
             driver_registry: Arc::new(

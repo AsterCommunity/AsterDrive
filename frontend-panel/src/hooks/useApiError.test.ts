@@ -129,6 +129,19 @@ describe("handleApiError", () => {
 		);
 	});
 
+	it("translates interrupted upload errors from the transport adapter", async () => {
+		const { getApiErrorMessage } = await import("@/hooks/useApiError");
+		const error = Object.assign(
+			new Error("declared 5 bytes, received 2 bytes"),
+			{
+				code: ApiErrorCode.UploadRequestBodyIncomplete,
+			},
+		);
+		expect(getApiErrorMessage(error)).toBe(
+			"translated:errors:upload_request_body_incomplete",
+		);
+	});
+
 	it("falls back to the raw ApiError message when no translation exists", async () => {
 		mockState.exists.mockReturnValue(false);
 		const { handleApiError } = await import("@/hooks/useApiError");

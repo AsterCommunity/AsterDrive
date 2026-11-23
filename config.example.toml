@@ -13,6 +13,7 @@ upload_temp_min_free_bytes = 268435456  # 256 MiB safety floor after staged-uplo
 start_mode = "primary"  # "primary" | "follower"
 
 [server.follower]
+master_readiness_timeout_secs = 90  # must exceed 60 seconds (reconcile interval + pull timeout); disabled bindings are offline
 remote_storage_target_local_root = "remote-storage-targets"
 
 [database]

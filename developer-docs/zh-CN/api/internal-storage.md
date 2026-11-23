@@ -47,7 +47,15 @@ primary 侧 reverse tunnel 当前入口：
 
 binding 控制面和 reverse tunnel 接口都使用远端节点签名鉴权，不是浏览器或第三方客户端 API。binding 控制面允许 direct、reverse tunnel 和 disabled 节点访问；reverse tunnel 数据面还会校验节点已启用且当前 `resolved_transport` 为 `reverse_tunnel`，因此解析为 direct 的节点即使签名有效，也不能访问 `poll`、`complete` 或 `connect`。
 
-这次 binding 控制面扩展没有改变 tunnel frame wire format：WebSocket frame version 仍为 `1`。它也没有抬高 internal storage 协议版本，当前仍是 `v5`、最低兼容 `v4`；滚动升级通过 optional capability 和 JSON 字段默认值处理。
+WebSocket tunnel frame version 为 `1`。当前 internal storage 协议及最低兼容版本均为 `v7`，primary 与 follower 必须满足这一协议范围；本次 readiness 和诊断变更不增加协议版本。
+
+## Readiness 与上传诊断
+
+follower `/health/ready` 检查数据库、缓存和每个启用 binding 的最近成功控制面通信。没有启用 binding（包括全部禁用）返回 `200`，`data.status=needs_binding`，属于等待配置；禁用 binding 是主动下线，不参与失联判断。进程启动后还未成功拉取、或成功通信超过 `server.follower.master_readiness_timeout_secs`（默认 90 秒，必须大于 60 秒，以覆盖 reconcile 间隔与拉取超时之和）时返回 `503`。该判断同步驱动 runtime readiness 指标。direct 与 reverse tunnel 使用相同语义；收到有效 desired state 才刷新成功时间，404、错误状态和无效响应都不刷新。成功通信的记录仅保留在当前进程内，重启后重新建立。
+
+对象 PUT 读取遇到提前 EOF 或连接中断时返回 `400 + upload.request_body_incomplete`，`error.retryable=true`，消息包含声明与实际接收的字节数。超过声明长度的 chunk 在写入 staging 前立即以 `upload.request_size_mismatch` 拒绝；其他 payload 解析错误为 `upload.request_body_read_failed`。失败仍通过原有 attempt 清理流程，不能发布部分对象或替换已有对象。WARN 日志包含 `object_key`、`content_length`、`received_bytes`、`binding_id`、`auth_path`（`signed` / `presigned`）、可信来源 IP，并继承请求 span；不输出签名 query、凭据或内部 provider 路径。客户端连接已断开时，响应可能无法送达，使用 follower 日志核对。
+
+primary 上传 init 的 DEBUG 日志分别输出 `resolved upload routing decision` 和 `selected upload transport`。字段沿用 `StorageRoutingDecision` 的 `profile_id`、`revision`、`rule_id`、`policy_id`，并包含 `profile_name`、容量重选后的排除候选、规则评估、weight、execution preference、候选 mode、大小阈值、driver 能力和远端 `resolved_transport`，可按同一 request span 对账。
 
 ## 认证方式
 

@@ -1128,6 +1128,27 @@ describe("uploadService", () => {
 		expect(logged).not.toContain("temporary-storage-credential");
 	});
 
+	it("preserves the interrupted-body code and retryability from a follower", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+		const promise = uploadService.presignedUpload(
+			"https://follower.example/upload",
+			new Blob(["hello"]),
+		);
+		const xhr = MockXMLHttpRequest.instances[0];
+		xhr.status = 400;
+		xhr.responseText = JSON.stringify({
+			code: ApiErrorCode.UploadRequestBodyIncomplete,
+			msg: "Upload body incomplete: declared 5 bytes, received 2 bytes.",
+			error: { retryable: true },
+		});
+		xhr.onload?.();
+		await expect(promise).rejects.toMatchObject({
+			code: ApiErrorCode.UploadRequestBodyIncomplete,
+			status: 400,
+			retryable: true,
+		});
+	});
+
 	it("uses Azure block IDs as presigned multipart completion markers", async () => {
 		const { uploadService } = await import("@/services/uploadService");
 
@@ -1192,6 +1213,49 @@ describe("common numbered-part execution", () => {
 			completion,
 		};
 	}
+	it("preserves incomplete-body diagnostics for numbered remote parts", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+		const pending = uploadService.uploadPartRequest(
+			request({ source: "response_header", name: "etag" }),
+			new Blob(["part"]),
+		);
+		const xhr = MockXMLHttpRequest.instances[0];
+		xhr.status = 400;
+		xhr.responseText = JSON.stringify({
+			code: ApiErrorCode.UploadRequestBodyIncomplete,
+			msg: "connection interrupted",
+			error: { retryable: true },
+		});
+		xhr.onload?.();
+		await expect(pending).rejects.toMatchObject({
+			code: ApiErrorCode.UploadRequestBodyIncomplete,
+			retryable: true,
+			status: 400,
+		});
+	});
+
+	it("ignores a truncated envelope even when its retained prefix is valid JSON", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+		const pending = uploadService.uploadPartRequest(
+			request({ source: "response_header", name: "etag" }),
+			new Blob(["part"]),
+		);
+		const xhr = MockXMLHttpRequest.instances[0];
+		xhr.status = 400;
+		xhr.responseText =
+			JSON.stringify({
+				code: ApiErrorCode.UploadRequestBodyIncomplete,
+				msg: "untrusted truncated response",
+				error: { retryable: true },
+			}) + " ".repeat(65536);
+		xhr.onload?.();
+		await expect(pending).rejects.toMatchObject({
+			message: "Object part upload failed",
+			code: undefined,
+			retryable: false,
+			status: 400,
+		});
+	});
 	it.each([
 		[{ source: "response_header" as const, name: "etag" }, '"part-etag"'],
 		[{ source: "fixed" as const, token: "block-identity" }, "block-identity"],

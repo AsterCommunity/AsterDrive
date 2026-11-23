@@ -47,7 +47,15 @@ Primary-side reverse-tunnel entries:
 
 Both the binding control plane and reverse-tunnel endpoints use remote-node signature auth. Direct, reverse-tunnel, and disabled nodes may access the binding control plane. The reverse-tunnel data plane additionally requires the node to be enabled and currently resolved to `reverse_tunnel`, so an effectively direct node cannot use `poll`, `complete`, or `connect` even with a valid signature.
 
-This binding control extension does not change the tunnel frame wire format: the WebSocket frame version remains `1`. It also does not raise the internal-storage protocol version, which remains `v5` with a `v4` compatibility floor; rolling upgrades are handled through an optional capability and JSON defaults.
+The WebSocket tunnel frame version is `1`. The current internal-storage protocol version and compatibility floor are both `v7`; primary and follower nodes must satisfy that range. These readiness and diagnostic changes do not increase the protocol version.
+
+## Readiness and upload diagnostics
+
+Follower `/health/ready` checks the database, cache and recent successful control-plane communication for every enabled binding. No enabled bindings, including all-disabled configurations, returns `200` with `data.status=needs_binding`: setup is pending. Disabled bindings are intentionally offline and excluded from connectivity checks. An enabled binding without a successful pull since process startup, or older than `server.follower.master_readiness_timeout_secs` (90 seconds by default; must exceed the sum of the reconcile interval and pull timeout, currently 60 seconds), returns `503`. The runtime readiness metric uses the same result. Direct and reverse-tunnel modes share this behavior. Only a valid desired-state response refreshes communication evidence; 404, error statuses and malformed responses do not. Evidence is process-local and rebuilt after restart.
+
+Premature EOF or an interrupted object PUT returns `400 + upload.request_body_incomplete` with `error.retryable=true` and declared/received byte counts in the message. Chunks exceeding the declared length are rejected before staging with `upload.request_size_mismatch`; other payload parsing errors use `upload.request_body_read_failed`. Existing attempt cleanup prevents partial publication or replacement of the previous object. WARN logs include `object_key`, `content_length`, `received_bytes`, `binding_id`, `auth_path` (`signed` / `presigned`) and trusted source IP in the request span, without signed queries, credentials or provider paths. If the client has disconnected, the response may not reach it; inspect follower logs.
+
+Primary upload initialization emits DEBUG events `resolved upload routing decision` and `selected upload transport`. Fields use the `StorageRoutingDecision` names `profile_id`, `revision`, `rule_id` and `policy_id`, with `profile_name`, exclusions after capacity reselection, rule evaluations, weight, execution preference, candidate modes, size thresholds, driver capabilities and remote `resolved_transport` in the same request span.
 
 ## Authentication
 

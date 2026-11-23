@@ -3,6 +3,15 @@
 use crate::config::Config;
 use serde::{Deserialize, Serialize};
 
+// Keep the follower failure detector and its configuration lower bound tied to
+// the control-plane cadence rather than duplicating independent magic numbers.
+pub(crate) const FOLLOWER_BINDING_RECONCILE_INTERVAL: std::time::Duration =
+    std::time::Duration::from_secs(30);
+pub(crate) const FOLLOWER_BINDING_CONTROL_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_secs(30);
+pub(crate) const FOLLOWER_MASTER_READINESS_MIN_SECS: u64 =
+    FOLLOWER_BINDING_RECONCILE_INTERVAL.as_secs() + FOLLOWER_BINDING_CONTROL_TIMEOUT.as_secs();
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]

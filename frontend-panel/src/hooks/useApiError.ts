@@ -2,6 +2,7 @@ import axios from "axios";
 import { toast } from "sonner";
 import i18n from "@/i18n";
 import { ApiError } from "@/services/http";
+import { isApiErrorCode } from "@/types/api-helpers";
 
 function errorCodeToMessageKey(code: string): string {
 	return `errors:${code.replaceAll(".", "_")}`;
@@ -66,6 +67,11 @@ export function getApiErrorMessage(error: unknown) {
 		return message || i18n.t("errors:unexpected_error");
 	}
 
+	const code = getErrorCode(error);
+	if (code && isApiErrorCode(code)) {
+		const key = errorCodeToMessageKey(code);
+		if (i18n.exists(key)) return i18n.t(key);
+	}
 	const transportErrorKey = getTransportErrorMessageKey(error);
 	if (transportErrorKey) {
 		return i18n.t(transportErrorKey);

@@ -736,6 +736,33 @@ fn not_found_record_error_uses_contextual_remote_message() {
 }
 
 #[test]
+fn remote_incomplete_upload_preserves_client_status_and_retryability() {
+    let message = "Upload body incomplete: declared 64 bytes, received 13 bytes. Check the connection and retry.";
+    let body = serde_json::json!({
+        "code": "upload.request_body_incomplete", "msg": message,
+        "error": {"retryable": true},
+    })
+    .to_string();
+    let error = build_remote_status_error_from_parts(
+        reqwest::StatusCode::BAD_REQUEST,
+        &body,
+        "put remote object",
+        false,
+    );
+    assert!(matches!(error, AsterError::ValidationError(_)));
+    assert_eq!(
+        error.api_error_code(),
+        ApiErrorCode::UploadRequestBodyIncomplete
+    );
+    assert_eq!(
+        error.http_status(),
+        actix_web::http::StatusCode::BAD_REQUEST
+    );
+    assert!(error.api_error_info().retryable);
+    assert_eq!(error.message(), format!("put remote object: {message}"));
+}
+
+#[test]
 fn remote_status_error_preserves_known_api_codes() {
     let body = serde_json::json!({
         "code": "storage.permission",

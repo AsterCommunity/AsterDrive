@@ -1,5 +1,7 @@
 //! 内部对象存储协议路由：`internal_storage`。
 
+mod upload_body;
+
 use crate::api::api_error_code::ApiErrorCode;
 use crate::api::middleware::internal_storage_cors::PresignedInternalStorageCors;
 use crate::errors::{AsterError, Result, validation_error_with_code};
@@ -558,11 +560,16 @@ async fn put_object(
                 },
             },
         );
-        Box::pin(payload.map(|chunk| {
-            chunk.map_err(|error| {
-                AsterError::validation_error(format!("read upload payload: {error}"))
-            })
-        }))
+        upload_body::diagnosed_upload_body(
+            payload,
+            upload_body::UploadBodyContext {
+                object_key: object_key.clone(),
+                binding_id: ctx.binding.id,
+                content_length,
+                auth_path: if signed { "signed" } else { "presigned" },
+                source_ip: audit::AuditRequestInfo::from_request(&req).ip_address,
+            },
+        )
     };
     let etag = write_follower_object(
         ctx.ingress_driver,

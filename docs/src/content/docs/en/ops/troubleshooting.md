@@ -28,7 +28,9 @@ Check in this order:
 
 ### `/health` 200 but `/health/ready` 503
 
-`/health` only checks whether the process is alive. `/health/ready` actually pings the database and default storage policy.
+`/health` checks process liveness. Primary `/health/ready` checks the database, cache, setup state and lightweight default-driver readiness; it does not prove complete object read/write acceptance.
+
+A follower without enabled master bindings returns `200 + needs_binding`, meaning configuration is pending. All-disabled bindings are intentionally offline. Once bindings are enabled, each must successfully pull the master control plane within the last 90 seconds or readiness returns 503. Configure `server.follower.master_readiness_timeout_secs` above 60 seconds (the reconcile interval plus pull timeout) to change the threshold; restart is required. Communication evidence is rebuilt after process restart. Direct and reverse-tunnel modes use the same checks.
 
 Distinguish by the `code` in the 503 response:
 

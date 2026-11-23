@@ -390,6 +390,9 @@ impl AsterError {
     }
 
     pub(crate) fn api_error_retryable(&self) -> bool {
+        if self.api_error_code() == ApiErrorCode::UploadRequestBodyIncomplete {
+            return true;
+        }
         match self {
             Self::RateLimited(_) | Self::UploadAssembling(_) => true,
             Self::StorageDriverError(_) => {

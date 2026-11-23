@@ -11,6 +11,7 @@ use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncWriteExt;
+use tracing::{Instrument, instrument::WithSubscriber};
 
 use super::{StreamUploadMetricsGuard, cleanup_stream_upload_attempt};
 use crate::errors::{AsterError, Result};
@@ -51,7 +52,8 @@ where
 {
     tokio::task::LocalSet::new()
         .run_until(async move {
-            let relay_task = tokio::task::spawn_local(relay);
+            let relay_task =
+                tokio::task::spawn_local(relay.in_current_span().with_current_subscriber());
             let stage = stream_driver.stage_attempt(attempt, Box::new(reader));
             match tokio::time::timeout(timeout, stage).await {
                 Ok(Ok(())) => {}

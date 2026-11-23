@@ -11,6 +11,184 @@ use sea_orm::{ActiveModelTrait, Set};
 use serde_json::Value;
 
 #[actix_web::test]
+async fn follower_readiness_tracks_each_enabled_binding_and_setup() {
+    use actix_web::{App, HttpRequest, HttpResponse, HttpServer, web};
+    use aster_drive::services::remote::{binding_control, master_binding};
+    use aster_drive_model::types::ResolvedRemoteTransport;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    struct ReadinessProbe(Arc<AtomicBool>);
+    impl aster_forge_metrics::DbMetricsRecorder for ReadinessProbe {
+        fn enabled(&self) -> bool {
+            true
+        }
+        fn record_db_query(&self, _: &aster_forge_metrics::DbQueryMetric) {}
+    }
+    impl aster_forge_metrics::MetricsRecorder for ReadinessProbe {
+        fn role_readiness(&self, ready: bool) {
+            self.0.store(ready, Ordering::SeqCst);
+        }
+    }
+    impl aster_drive_metrics::MetricsRecorder for ReadinessProbe {
+        fn forge_recorder(&self) -> aster_forge_metrics::SharedMetricsRecorder {
+            Arc::new(Self(self.0.clone()))
+        }
+    }
+    let ready_metric = Arc::new(AtomicBool::new(false));
+    let mut state = common::setup().await.follower_view();
+    state.metrics = Arc::new(ReadinessProbe(ready_metric.clone()));
+    let app = test::init_service(App::new().app_data(web::Data::new(state.clone())).route(
+        "/health/ready",
+        web::get().to(aster_drive::api::routes::health::follower_ready),
+    ))
+    .await;
+    let response = test::call_service(
+        &app,
+        test::TestRequest::get().uri("/health/ready").to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["data"]["status"], "needs_binding");
+    assert!(ready_metric.load(Ordering::SeqCst));
+
+    let reachable = Arc::new(AtomicBool::new(true));
+    let server_reachable = reachable.clone();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let server = HttpServer::new(move || {
+        let reachable = server_reachable.clone();
+        App::new().route(
+            "/api/v1/internal/remote-node-control/binding-state",
+            web::get().to(move |req: HttpRequest| {
+                let reachable = reachable.clone();
+                async move {
+                    if !reachable.load(Ordering::SeqCst) {
+                        return HttpResponse::BadGateway().finish();
+                    }
+                    let reverse = req
+                        .headers()
+                        .get("x-aster-access-key")
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .ends_with("reverse_tunnel");
+                    HttpResponse::Ok().json(aster_drive::api::response::success(
+                        aster_drive::storage::remote_protocol::RemoteBindingDesiredState {
+                            name: "master".to_string(),
+                            is_enabled: true,
+                            resolved_transport: if reverse {
+                                ResolvedRemoteTransport::ReverseTunnel
+                            } else {
+                                ResolvedRemoteTransport::Direct
+                            },
+                            desired_revision: 1,
+                        },
+                    ))
+                }
+            }),
+        )
+    })
+    .listen(listener)
+    .unwrap()
+    .run();
+    let handle = server.handle();
+    let server_task = tokio::spawn(server);
+    let client =
+        aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::InternalControl)
+            .build()
+            .unwrap();
+    let mut ids = Vec::new();
+    for transport in [
+        ResolvedRemoteTransport::Direct,
+        ResolvedRemoteTransport::ReverseTunnel,
+    ] {
+        let (binding, _) = master_binding::upsert_from_enrollment(
+            state.writer_db(),
+            master_binding::UpsertMasterBindingInput {
+                name: "master".into(),
+                master_url: url.clone(),
+                access_key: format!("readiness-{}", transport.as_str()),
+                secret_key: "test-secret".into(),
+                is_enabled: true,
+            },
+        )
+        .await
+        .unwrap();
+        ids.push(binding.id);
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get().uri("/health/ready").to_request(),
+        )
+        .await;
+        assert_eq!(
+            response.status(),
+            503,
+            "an unobserved enabled binding is unavailable"
+        );
+        assert!(!ready_metric.load(Ordering::SeqCst));
+        assert!(binding_control::reconcile_all(&state, &client).await);
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get().uri("/health/ready").to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), 200);
+        let body: Value = test::read_body_json(response).await;
+        assert_eq!(body["data"]["status"], "ready");
+        assert!(ready_metric.load(Ordering::SeqCst));
+    }
+    reachable.store(false, Ordering::SeqCst);
+    assert!(!binding_control::reconcile_all(&state, &client).await);
+    assert_eq!(
+        test::call_service(
+            &app,
+            test::TestRequest::get().uri("/health/ready").to_request()
+        )
+        .await
+        .status(),
+        200,
+        "transient failures retain recent success"
+    );
+    // Simulate loss of per-binding evidence without wall-clock sleeps.
+    state
+        .binding_health
+        .retain_bindings(&[ids[0]].into_iter().collect());
+    assert_eq!(
+        test::call_service(
+            &app,
+            test::TestRequest::get().uri("/health/ready").to_request()
+        )
+        .await
+        .status(),
+        503,
+        "one healthy binding cannot mask another unavailable master"
+    );
+    for id in ids {
+        let mut binding: aster_drive_model::entities::master_binding::ActiveModel =
+            aster_drive::db::repository::master_binding_repo::find_by_id(state.writer_db(), id)
+                .await
+                .unwrap()
+                .into();
+        binding.is_enabled = Set(false);
+        binding.update(state.writer_db()).await.unwrap();
+    }
+    let response = test::call_service(
+        &app,
+        test::TestRequest::get().uri("/health/ready").to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["data"]["status"], "needs_binding");
+    handle.stop(true).await;
+    server_task.await.unwrap().unwrap();
+}
+
+#[actix_web::test]
 async fn test_health() {
     let state = common::setup().await;
     let app = create_test_app!(state);

@@ -1,4 +1,5 @@
 {
+	"upload_request_body_incomplete": "The upload connection was interrupted or unstable. Check your network and retry.",
 	"upload_field_read_failed": "Failed to read the uploaded form data. Please try again",
 	"upload_request_body_read_failed": "Failed to read the upload request body. Please try again",
 	"upload_request_body_size_overflow": "The uploaded content exceeded the server's size handling limits. Upload the file again",

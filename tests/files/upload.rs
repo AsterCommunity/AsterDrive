@@ -34,6 +34,18 @@ const PERSONAL_FINALIZATION_CONCURRENCY: usize = 8;
 const TEAM_FINALIZATION_CONCURRENCY: usize = 4;
 const RUSTFS_TEST_IMAGE_TAG: &str = "1.0.0-alpha.90";
 
+#[derive(Clone, Default)]
+struct LogWriter(Arc<Mutex<Vec<u8>>>);
+impl std::io::Write for LogWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 #[derive(Default)]
 struct UploadDataPlaneProbe {
     objects: Mutex<BTreeMap<String, Vec<u8>>>,
@@ -2530,9 +2542,73 @@ async fn upload_capacity_admission_falls_back_before_creating_session_or_target_
         .driver_registry
         .insert_for_test(second.id, second_driver.clone());
 
-    let init = upload::init_upload(&state, user.id, "fallback.bin", 4, None, None)
-        .await
-        .expect("capacity admission should use the second target");
+    use tracing::{Instrument, instrument::WithSubscriber};
+    let logs = LogWriter::default();
+    let output = logs.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .without_time()
+        .with_ansi(false)
+        .with_max_level(tracing::Level::DEBUG)
+        .with_writer(move || output.clone())
+        .finish();
+    let init = async {
+        upload::init_upload(&state, user.id, "fallback.bin", 4, None, None)
+            .instrument(tracing::info_span!("request", request_id = "routing-test"))
+            .await
+    }
+    .with_subscriber(subscriber)
+    .await
+    .expect("capacity admission should use the second target");
+    let text = String::from_utf8(logs.0.lock().unwrap().clone()).unwrap();
+    let routing = text
+        .lines()
+        .find(|line| line.contains("resolved upload routing decision"))
+        .expect(&text);
+    for field in [
+        "profile_id=",
+        "profile_name=",
+        "revision=",
+        "rule_id=",
+        "selection_mode=",
+        "evaluated_rules=",
+        "matched: true",
+        "excluded_targets=",
+        "capacity_insufficient",
+        "folder_override=false",
+        "execution_preference=",
+        "weight=100",
+        "accepting_new_writes=true",
+        "routing-test",
+    ] {
+        assert!(routing.contains(field), "missing {field}: {routing}");
+    }
+    assert!(
+        routing.contains(&format!("policy_id={}", second.id)),
+        "{routing}"
+    );
+    assert!(
+        routing.contains(&format!("({}, \"capacity_insufficient\")", first.id)),
+        "{routing}"
+    );
+    let transport = text
+        .lines()
+        .find(|line| line.contains("selected upload transport"))
+        .expect(&text);
+    for field in [
+        "mode=\"stream\"",
+        "transport=Local",
+        "total_size=4",
+        "chunk_size=5242880",
+        "fits_chunk_size=true",
+        "fits_single_put=true",
+        "supports_stream_upload=true",
+        "supports_presigned_upload=true",
+        "data_plane=\"streaming_direct\"",
+    ] {
+        assert!(transport.contains(field), "missing {field}: {transport}");
+    }
+    assert!(!routing.contains("storage_config"));
+    assert!(!transport.contains("secret"));
     let session = upload_session_repo::find_by_id(
         state.writer_db(),
         init.upload_id.as_deref().expect("stream session id"),
@@ -2550,6 +2626,89 @@ async fn upload_capacity_admission_falls_back_before_creating_session_or_target_
             .unwrap(),
         0
     );
+}
+
+#[actix_web::test]
+async fn upload_decision_logs_exact_chunk_boundary_and_unlimited_single_request() {
+    use aster_drive::services::files::upload;
+    use aster_drive_model::types::UploadTransport;
+    use sea_orm::{ActiveModelTrait, Set};
+    use tracing::instrument::WithSubscriber;
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "routingboundary",
+        "routing-boundary@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let policy = create_capacity_test_local_policy(&state, "Routing boundary").await;
+    assign_capacity_test_group(&state, user.id, &[policy.id], Default::default()).await;
+    for (chunk_size, total_size, expected) in [
+        (1024, 1023, UploadTransport::Stream),
+        (1024, 1024, UploadTransport::Stream),
+        (1024, 1025, UploadTransport::Chunked),
+        (0, 1025, UploadTransport::Stream),
+    ] {
+        let mut active: aster_drive_model::entities::storage_policy::ActiveModel =
+            policy_repo::find_by_id(state.writer_db(), policy.id)
+                .await
+                .unwrap()
+                .into();
+        active.chunk_size = Set(chunk_size);
+        active.update(state.writer_db()).await.unwrap();
+        reload_policy_snapshot(&state).await;
+        let logs = LogWriter::default();
+        let output = logs.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .without_time()
+            .with_ansi(false)
+            .with_max_level(tracing::Level::DEBUG)
+            .with_writer(move || output.clone())
+            .finish();
+        let result = upload::init_upload(&state, user.id, "boundary.bin", total_size, None, None)
+            .with_subscriber(subscriber)
+            .await
+            .unwrap();
+        assert_eq!(result.mode, expected);
+        let text = String::from_utf8(logs.0.lock().unwrap().clone()).unwrap();
+        let transport = text
+            .lines()
+            .find(|line| line.contains("selected upload transport"))
+            .expect(&text);
+        assert!(
+            transport.contains(&format!("mode=\"{}\"", expected.as_str())),
+            "{transport}"
+        );
+        assert!(
+            transport.contains(&format!("chunk_size={chunk_size}")),
+            "{transport}"
+        );
+        assert!(
+            transport.contains(&format!("total_size={total_size}")),
+            "{transport}"
+        );
+        assert!(
+            transport.contains(&format!(
+                "fits_chunk_size={}",
+                chunk_size == 0 || total_size <= chunk_size
+            )),
+            "{transport}"
+        );
+        assert!(
+            transport.contains("max_single_put_size=None"),
+            "an absent driver limit must be explicit: {transport}"
+        );
+        assert!(
+            transport.contains("candidate_modes=[\"stream\", \"chunked\"]"),
+            "{transport}"
+        );
+        upload::cancel_upload(&state, result.upload_id.as_deref().unwrap(), user.id)
+            .await
+            .unwrap();
+    }
 }
 
 #[actix_web::test]
