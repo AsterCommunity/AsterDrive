@@ -51,7 +51,7 @@ WebSocket tunnel frame version 为 `1`。当前 internal storage 协议及最低
 
 ## Readiness 与上传诊断
 
-follower `/health/ready` 检查数据库、缓存和每个启用 binding 的最近成功控制面通信。没有启用 binding（包括全部禁用）返回 `200`，`data.status=needs_binding`，属于等待配置；禁用 binding 是主动下线，不参与失联判断。进程启动后还未成功拉取、或成功通信超过 `server.follower.master_readiness_timeout_secs`（默认 90 秒，必须大于 60 秒，以覆盖 reconcile 间隔与拉取超时之和）时返回 `503`。该判断同步驱动 runtime readiness 指标。direct 与 reverse tunnel 使用相同语义；收到有效 desired state 才刷新成功时间，404、错误状态和无效响应都不刷新。成功通信的记录仅保留在当前进程内，重启后重新建立。
+follower `/health/ready` 检查数据库、缓存和每个启用 binding 的最近成功控制面通信。没有启用 binding（包括全部禁用）返回 `200`，`data.status=needs_binding`，属于等待配置；禁用 binding 不参与失联判断，但仍在控制面拉取队列中，以便接收状态变化。进程启动后还未成功拉取、或成功通信超过 `server.follower.master_readiness_timeout_secs` 的有效窗口（默认 90 秒；窗口按所有已配置 binding 计算，控制面请求排队时会自动扩展以覆盖完整批次）时返回 `503`。该判断同步驱动 runtime readiness 指标。direct 与 reverse tunnel 使用相同语义；收到有效 desired state 才刷新成功时间，404、错误状态和无效响应都不刷新。成功通信的记录仅保留在当前进程内，重启后重新建立。
 
 对象 PUT 读取遇到提前 EOF 或连接中断时返回 `400 + upload.request_body_incomplete`，`error.retryable=true`，消息包含声明与实际接收的字节数。超过声明长度的 chunk 在写入 staging 前立即以 `upload.request_size_mismatch` 拒绝；其他 payload 解析错误为 `upload.request_body_read_failed`。失败仍通过原有 attempt 清理流程，不能发布部分对象或替换已有对象。WARN 日志包含 `object_key`、`content_length`、`received_bytes`、`binding_id`、`auth_path`（`signed` / `presigned`）、可信来源 IP，并继承请求 span；不输出签名 query、凭据或内部 provider 路径。客户端连接已断开时，响应可能无法送达，使用 follower 日志核对。
 

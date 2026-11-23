@@ -68,14 +68,15 @@ pub async fn check_follower_ready<S: FollowerRuntimeState>(state: &S) -> Result<
         );
         return Ok("needs_binding");
     }
-    let max_age = std::time::Duration::from_secs(
-        state
-            .config()
-            .server
-            .follower
-            .master_readiness_timeout_secs
-            .get(),
-    );
+    let configured_max_age = state
+        .config()
+        .server
+        .follower
+        .master_readiness_timeout_secs
+        .get();
+    let effective_max_age = configured_max_age
+        .max(crate::config::node_mode::follower_master_readiness_min_secs(bindings.len()));
+    let max_age = std::time::Duration::from_secs(effective_max_age);
     for binding in enabled {
         if !state.binding_health().is_fresh(binding.id, max_age) {
             return Err(crate::errors::storage_driver_error(
