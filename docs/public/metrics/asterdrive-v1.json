@@ -7,7 +7,7 @@
         "status"
       ],
       "buckets": [],
-      "description": "aster.application.events under aster-metrics/v1.",
+      "description": "aster.application.events under astercosm-metrics/v1.",
       "integer_attributes": [],
       "kind": "Counter",
       "name": "aster.application.events",
@@ -21,7 +21,7 @@
         "reason"
       ],
       "buckets": [],
-      "description": "aster.auth.events under aster-metrics/v1.",
+      "description": "aster.auth.events under astercosm-metrics/v1.",
       "integer_attributes": [],
       "kind": "Counter",
       "name": "aster.auth.events",
@@ -44,7 +44,7 @@
         50.0,
         100.0
       ],
-      "description": "aster.config.mutation.changed_keys under aster-metrics/v1.",
+      "description": "aster.config.mutation.changed_keys under astercosm-metrics/v1.",
       "integer_attributes": [],
       "kind": "Histogram",
       "name": "aster.config.mutation.changed_keys",
@@ -58,7 +58,7 @@
         "status"
       ],
       "buckets": [],
-      "description": "aster.config.mutations under aster-metrics/v1.",
+      "description": "aster.config.mutations under astercosm-metrics/v1.",
       "integer_attributes": [],
       "kind": "Counter",
       "name": "aster.config.mutations",
@@ -82,7 +82,7 @@
         100.0,
         500.0
       ],
-      "description": "aster.config.reload.changed_keys under aster-metrics/v1.",
+      "description": "aster.config.reload.changed_keys under astercosm-metrics/v1.",
       "integer_attributes": [],
       "kind": "Histogram",
       "name": "aster.config.reload.changed_keys",
@@ -107,7 +107,7 @@
         1.0,
         5.0
       ],
-      "description": "aster.config.reload.duration under aster-metrics/v1.",
+      "description": "aster.config.reload.duration under astercosm-metrics/v1.",
       "integer_attributes": [],
       "kind": "Histogram",
       "name": "aster.config.reload.duration",
@@ -121,7 +121,7 @@
         "status"
       ],
       "buckets": [],
-      "description": "aster.config.reloads under aster-metrics/v1.",
+      "description": "aster.config.reloads under astercosm-metrics/v1.",
       "integer_attributes": [],
       "kind": "Counter",
       "name": "aster.config.reloads",
@@ -862,7 +862,7 @@
         15.0,
         60.0
       ],
-      "description": "aster.external.operation.duration under aster-metrics/v1.",
+      "description": "aster.external.operation.duration under astercosm-metrics/v1.",
       "integer_attributes": [],
       "kind": "Histogram",
       "name": "aster.external.operation.duration",
@@ -876,7 +876,7 @@
         "status"
       ],
       "buckets": [],
-      "description": "aster.external.operations under aster-metrics/v1.",
+      "description": "aster.external.operations under astercosm-metrics/v1.",
       "integer_attributes": [],
       "kind": "Counter",
       "name": "aster.external.operations",
@@ -888,7 +888,7 @@
         "aster.request.outcome"
       ],
       "buckets": [],
-      "description": "aster.http.server.requests under aster-metrics/v1.",
+      "description": "aster.http.server.requests under astercosm-metrics/v1.",
       "integer_attributes": [],
       "kind": "Counter",
       "name": "aster.http.server.requests",
@@ -901,7 +901,7 @@
         "operation"
       ],
       "buckets": [],
-      "description": "aster.observability.failures under aster-metrics/v1.",
+      "description": "aster.observability.failures under astercosm-metrics/v1.",
       "integer_attributes": [],
       "kind": "ObservableCounter",
       "name": "aster.observability.failures",
@@ -913,7 +913,7 @@
         "kind"
       ],
       "buckets": [],
-      "description": "aster.process.heap under aster-metrics/v1.",
+      "description": "aster.process.heap under astercosm-metrics/v1.",
       "integer_attributes": [],
       "kind": "Gauge",
       "name": "aster.process.heap",
@@ -936,7 +936,7 @@
         1.0,
         5.0
       ],
-      "description": "aster.runtime.component.health.duration under aster-metrics/v1.",
+      "description": "aster.runtime.component.health.duration under astercosm-metrics/v1.",
       "integer_attributes": [],
       "kind": "Histogram",
       "name": "aster.runtime.component.health.duration",
@@ -971,7 +971,7 @@
         1.0,
         5.0
       ],
-      "description": "aster.runtime.health.duration under aster-metrics/v1.",
+      "description": "aster.runtime.health.duration under astercosm-metrics/v1.",
       "integer_attributes": [],
       "kind": "Histogram",
       "name": "aster.runtime.health.duration",
@@ -1050,7 +1050,7 @@
     {
       "attributes": [],
       "buckets": [],
-      "description": "aster.task.pending under aster-metrics/v1.",
+      "description": "aster.task.pending under astercosm-metrics/v1.",
       "integer_attributes": [],
       "kind": "Gauge",
       "name": "aster.task.pending",
@@ -1072,7 +1072,7 @@
         "kind"
       ],
       "buckets": [],
-      "description": "aster.task.retries under aster-metrics/v1.",
+      "description": "aster.task.retries under astercosm-metrics/v1.",
       "integer_attributes": [],
       "kind": "Counter",
       "name": "aster.task.retries",
@@ -1085,7 +1085,7 @@
         "status"
       ],
       "buckets": [],
-      "description": "aster.task.transitions under aster-metrics/v1.",
+      "description": "aster.task.transitions under astercosm-metrics/v1.",
       "integer_attributes": [],
       "kind": "Counter",
       "name": "aster.task.transitions",
@@ -1097,7 +1097,7 @@
         "exporter"
       ],
       "buckets": [],
-      "description": "aster.telemetry.export.failures under aster-metrics/v1.",
+      "description": "aster.telemetry.export.failures under astercosm-metrics/v1.",
       "integer_attributes": [],
       "kind": "ObservableCounter",
       "name": "aster.telemetry.export.failures",
@@ -1109,7 +1109,7 @@
         "exporter"
       ],
       "buckets": [],
-      "description": "aster.telemetry.export.last_success under aster-metrics/v1.",
+      "description": "aster.telemetry.export.last_success under astercosm-metrics/v1.",
       "integer_attributes": [],
       "kind": "Gauge",
       "name": "aster.telemetry.export.last_success",
@@ -1121,7 +1121,7 @@
         "exporter"
       ],
       "buckets": [],
-      "description": "aster.telemetry.exports under aster-metrics/v1.",
+      "description": "aster.telemetry.exports under astercosm-metrics/v1.",
       "integer_attributes": [],
       "kind": "ObservableCounter",
       "name": "aster.telemetry.exports",
@@ -1173,7 +1173,7 @@
         1.0,
         5.0
       ],
-      "description": "db.client.operation.duration under aster-metrics/v1.",
+      "description": "db.client.operation.duration under astercosm-metrics/v1.",
       "integer_attributes": [],
       "kind": "Histogram",
       "name": "db.client.operation.duration",
@@ -1186,7 +1186,7 @@
         "url.scheme"
       ],
       "buckets": [],
-      "description": "http.server.active_requests under aster-metrics/v1.",
+      "description": "http.server.active_requests under astercosm-metrics/v1.",
       "integer_attributes": [],
       "kind": "UpDownCounter",
       "name": "http.server.active_requests",
@@ -1217,7 +1217,7 @@
         7.5,
         10.0
       ],
-      "description": "http.server.request.duration under aster-metrics/v1.",
+      "description": "http.server.request.duration under astercosm-metrics/v1.",
       "integer_attributes": [
         "http.response.status_code"
       ],
@@ -1229,7 +1229,7 @@
     {
       "attributes": [],
       "buckets": [],
-      "description": "process.cpu.time under aster-metrics/v1.",
+      "description": "process.cpu.time under astercosm-metrics/v1.",
       "integer_attributes": [],
       "kind": "ObservableCounter",
       "name": "process.cpu.time",
@@ -1239,7 +1239,7 @@
     {
       "attributes": [],
       "buckets": [],
-      "description": "process.memory.usage under aster-metrics/v1.",
+      "description": "process.memory.usage under astercosm-metrics/v1.",
       "integer_attributes": [],
       "kind": "ObservableUpDownCounter",
       "name": "process.memory.usage",
@@ -1249,7 +1249,7 @@
     {
       "attributes": [],
       "buckets": [],
-      "description": "process.uptime under aster-metrics/v1.",
+      "description": "process.uptime under astercosm-metrics/v1.",
       "integer_attributes": [],
       "kind": "Gauge",
       "name": "process.uptime",
@@ -1257,6 +1257,6 @@
       "unit": "s"
     }
   ],
-  "schema": "aster-metrics/v1",
+  "schema": "astercosm-metrics/v1",
   "semantic_conventions": "1.44.0"
 }

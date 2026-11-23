@@ -195,7 +195,10 @@ async fn dashboard_resource_filters_exist_in_actual_prometheus_output() {
             instance_id: "test-boot-id".into(),
         })
         .unwrap()
-        .with_profile("aster", "aster-metrics/v1")
+        .with_profile(
+            "com.astercosm.drive",
+            aster_forge_metrics::METRICS_PROFILE_VERSION,
+        )
         .unwrap()
         .with_prometheus()
         .unwrap()
@@ -359,7 +362,10 @@ fn published_catalog_matches_actual_schema() {
         .unwrap();
     let _recorder = aster_drive_metrics::create_metrics_recorder(provider.clone()).unwrap();
     let actual = provider.descriptors();
-    assert_eq!(catalog["schema"], "aster-metrics/v1");
+    assert_eq!(
+        catalog["schema"],
+        aster_forge_metrics::METRICS_PROFILE_VERSION
+    );
     assert_eq!(
         catalog["instruments"].as_array().unwrap().len(),
         actual.len()

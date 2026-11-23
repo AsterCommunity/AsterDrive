@@ -175,15 +175,16 @@ fn load_from_path(
             .map_err(map_static_config_error)?;
     }
 
-    let mut cfg = builder
-        .build()
-        .map_err(map_static_config_error)?
-        .try_deserialize::<Config>()
-        .map_err(map_static_config_error)?;
-
-    resolve_loaded_paths(base_dir, config_path, &mut cfg)?;
-    cfg.auth.validate()?;
-    cfg.observability.validate()?;
+    let cfg = aster_forge_config::load_config(|| {
+        let mut cfg = builder
+            .build()
+            .map_err(map_static_config_error)?
+            .try_deserialize::<Config>()
+            .map_err(map_static_config_error)?;
+        resolve_loaded_paths(base_dir, config_path, &mut cfg)?;
+        Ok::<_, AsterError>(cfg)
+    })
+    .map_err(map_forge_config_error)?;
 
     Ok(LoadedConfig {
         config: cfg,
@@ -212,15 +213,22 @@ fn load_read_only_from_path(
         );
     }
 
-    let mut config = builder
-        .build()
-        .map_err(map_static_config_error)?
-        .try_deserialize::<Config>()
-        .map_err(map_static_config_error)?;
-    resolve_loaded_paths(base_dir, config_path, &mut config)?;
-    config.auth.validate()?;
-    config.observability.validate()?;
+    let config = (|| {
+        let mut config = builder
+            .build()
+            .map_err(map_static_config_error)?
+            .try_deserialize::<Config>()
+            .map_err(map_static_config_error)?;
+        resolve_loaded_paths(base_dir, config_path, &mut config)?;
+        Ok::<_, AsterError>(config)
+    })()?;
+    aster_forge_config::ConfigSections::validate_sections(&config)
+        .map_err(map_forge_config_error)?;
     Ok(config)
+}
+
+fn map_forge_config_error(error: aster_forge_config::ConfigCoreError) -> AsterError {
+    AsterError::config_error(error.to_string())
 }
 
 fn ensure_default_config_exists(config_path: &Path, default: &Config) -> Result<bool> {
@@ -1429,6 +1437,8 @@ burst_size = 0
                 .observability
                 .prometheus
                 .basic_auth
+                .as_ref()
+                .unwrap()
                 .password_hash,
             hash
         );
@@ -1443,7 +1453,14 @@ burst_size = 0
         .unwrap();
         assert!(!second.report.stable_defaults_added);
         assert_eq!(
-            second.config.observability.prometheus.basic_auth.username,
+            second
+                .config
+                .observability
+                .prometheus
+                .basic_auth
+                .as_ref()
+                .unwrap()
+                .username,
             "scraper"
         );
         assert_eq!(
@@ -1452,6 +1469,8 @@ burst_size = 0
                 .observability
                 .prometheus
                 .basic_auth
+                .as_ref()
+                .unwrap()
                 .password_hash,
             hash
         );
@@ -1489,6 +1508,19 @@ burst_size = 0
                     .to_string();
             assert!(!error.contains("credential-marker"), "{error}");
         }
+    }
+
+    #[test]
+    fn forge_validation_errors_remain_configuration_errors_and_redact_values() {
+        let directory = aster_forge_test::temp::TestTempDir::new("observability-error-code");
+        let path = directory.path().join(DEFAULT_CONFIG_PATH);
+        write(
+            &path,
+            b"[observability.prometheus]\nenabled = 'credential-marker'\n",
+        );
+        let error = load_from_path(directory.path(), &path, None, false).unwrap_err();
+        assert_eq!(error.code(), "E003");
+        assert!(!error.to_string().contains("credential-marker"));
     }
 
     #[test]

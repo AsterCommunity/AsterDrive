@@ -3,7 +3,6 @@
 use std::{io, path::Path};
 
 use aster_forge_audit::AuditWriter;
-use tokio::io::AsyncWriteExt;
 
 /// The owned runtime has completed cleanup before this is called. Never replay these
 /// requests automatically: an interrupted commit may already be present in the DB.
@@ -12,97 +11,8 @@ pub(super) async fn finish_audit(
     writer: &AuditWriter,
     directory: &Path,
 ) -> io::Result<()> {
-    // Also covers validation/startup failures before the owner component started.
-    let report = writer.stop(tokio::time::Instant::now()).await;
-    let remaining = report.snapshot.queued + report.snapshot.direct_pending;
-    if remaining == 0 {
-        return result;
-    }
-    match preserve_unconfirmed(writer, directory).await {
-        Ok(path) => {
-            tracing::error!(remaining, path = %path.display(),
-                "audit drain incomplete; reconcile recovery file against database before replay");
-            Err(io::Error::other(format!(
-                "{}; {remaining} unconfirmed audit records saved to {} for reconciliation",
-                result
-                    .err()
-                    .map_or_else(|| "audit drain failed".into(), |error| error.to_string()),
-                path.display(),
-            )))
-        }
-        Err(error) => {
-            tracing::error!(remaining, %error, "failed to preserve unconfirmed audit records");
-            Err(io::Error::other(format!(
-                "{}; failed to preserve {remaining} unconfirmed audit records: {error}",
-                result
-                    .err()
-                    .map_or_else(|| "audit drain failed".into(), |error| error.to_string()),
-            )))
-        }
-    }
-}
-
-async fn preserve_unconfirmed(
-    writer: &AuditWriter,
-    directory: &Path,
-) -> io::Result<std::path::PathBuf> {
-    let snapshot = writer.snapshot();
-    let records: Vec<_> = writer
-        .unconfirmed()
-        .into_iter()
-        .map(|request| {
-            serde_json::json!({
-                "user_id": request.user_id,
-                "action": request.action,
-                "entity_type": request.entity_type,
-                "entity_id": request.entity_id,
-                "entity_name": request.entity_name,
-                "details": request.details,
-                "ip_address": request.ip_address,
-                "user_agent": request.user_agent,
-                "created_at": request.created_at,
-            })
-        })
-        .collect();
-    // Raw driver errors may contain SQL values. Persist only safe classification metadata.
-    let payload = serde_json::json!({
-        "version": 1,
-        "requires_database_reconciliation": true,
-        "queued": snapshot.queued,
-        "direct_pending": snapshot.direct_pending,
-        "batch_failure_records": snapshot.batch_failure_records,
-        "batch_failure_class": snapshot.batch_failure.map(|failure| format!("{:?}", failure.class)),
-        "direct_failure_class": snapshot.direct_failure.map(|failure| format!("{:?}", failure.class)),
-        "records": records,
-    }).to_string();
-    let mut builder = tokio::fs::DirBuilder::new();
-    builder.recursive(true);
-    #[cfg(unix)]
-    builder.mode(0o700);
-    builder.create(directory).await?;
-    let id = uuid::Uuid::new_v4();
-    let temporary_path = directory.join(format!("audit-{id}.json.tmp"));
-    let path = directory.join(format!("audit-{id}.json"));
-    let mut options = tokio::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    options.mode(0o600);
-    let mut file = options.open(&temporary_path).await?;
-    let write_result = async {
-        file.write_all(payload.as_bytes()).await?;
-        file.sync_all().await
-    }
-    .await;
-    drop(file);
-    if let Err(error) = write_result {
-        let _ = tokio::fs::remove_file(&temporary_path).await;
-        return Err(error);
-    }
-    if let Err(error) = tokio::fs::rename(&temporary_path, &path).await {
-        let _ = tokio::fs::remove_file(&temporary_path).await;
-        return Err(error);
-    }
-    Ok(path)
+    aster_forge_audit::finish_audit(result, writer, directory, std::time::Duration::from_secs(5))
+        .await
 }
 
 #[cfg(test)]
@@ -138,15 +48,24 @@ mod tests {
         writer
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn failed_drain_preserves_originals_and_classification_in_private_unique_files() {
         let directory = aster_forge_test::temp::TestTempDir::new("audit-recovery");
+        let recovery_directory = directory.path().canonicalize().unwrap().join("recovery");
+        std::fs::create_dir(&recovery_directory).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&recovery_directory, std::fs::Permissions::from_mode(0o700))
+                .unwrap();
+        }
         let writer = failed_writer().await;
         for _ in 0..2 {
             let error = finish_audit(
                 Err(io::Error::other("runtime drain failed")),
                 &writer,
-                directory.path(),
+                &recovery_directory,
             )
             .await
             .unwrap_err();
@@ -154,7 +73,8 @@ mod tests {
             assert!(
                 error
                     .to_string()
-                    .contains("1 unconfirmed audit records saved")
+                    .contains("1 unconfirmed audit records saved"),
+                "unexpected audit drain error: {error}"
             );
         }
         let snapshot = writer.snapshot();
@@ -163,7 +83,7 @@ mod tests {
             snapshot.batch_failure.unwrap().class,
             WriteFailureClass::Permanent
         );
-        let files: Vec<_> = std::fs::read_dir(directory.path())
+        let files: Vec<_> = std::fs::read_dir(&recovery_directory)
             .unwrap()
             .map(|file| file.unwrap().path())
             .collect();

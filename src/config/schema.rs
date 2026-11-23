@@ -4,10 +4,10 @@ use serde::{Deserialize, Serialize};
 use std::num::{NonZeroU32, NonZeroU64};
 
 use aster_forge_cache::CacheConfig;
-use aster_forge_config::ConfigSyncConfig;
+use aster_forge_config::{ConfigCoreError, ConfigSyncConfig, ValidatableConfig};
 use aster_forge_logging::LoggingConfig;
 
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default, aster_forge_config::ValidateConfig)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default)]
@@ -34,6 +34,21 @@ pub struct Config {
     pub network_trust: NetworkTrustConfig,
     #[serde(default)]
     pub rate_limit: RateLimitConfig,
+}
+
+impl ValidatableConfig for Config {
+    fn validate(&self) -> aster_forge_config::Result<()> {
+        let issues = crate::config::deployment::static_issues(self, None);
+        if issues.is_empty() {
+            Ok(())
+        } else {
+            Err(ConfigCoreError::invalid_value(format!(
+                "invalid deployment profile '{}': {}",
+                self.deployment.profile.as_str(),
+                issues.join("; ")
+            )))
+        }
+    }
 }
 
 fn default_config_sync() -> ConfigSyncConfig {
@@ -275,6 +290,25 @@ impl AuthConfig {
     }
 }
 
+impl ValidatableConfig for ServerConfig {
+    fn validate(&self) -> aster_forge_config::Result<()> {
+        Ok(())
+    }
+}
+
+impl ValidatableConfig for DatabaseConfig {
+    fn validate(&self) -> aster_forge_config::Result<()> {
+        Ok(())
+    }
+}
+
+impl ValidatableConfig for AuthConfig {
+    fn validate(&self) -> aster_forge_config::Result<()> {
+        self.validate()
+            .map_err(|error| ConfigCoreError::invalid_value(error.message().to_string()))
+    }
+}
+
 /// WebDAV 静态配置（config.toml）
 ///
 /// 运行时配置通过 system_config 表管理：
@@ -317,6 +351,12 @@ impl WebDavConfig {
     }
 }
 
+impl ValidatableConfig for WebDavConfig {
+    fn validate(&self) -> aster_forge_config::Result<()> {
+        Ok(())
+    }
+}
+
 /// 网络信任配置（config.toml）
 ///
 /// 这组受信代理信息会影响真实客户端 IP 的判定，供限流、认证审计等模块共用。
@@ -325,6 +365,12 @@ pub struct NetworkTrustConfig {
     /// 受信任的上游代理 IP 列表（CIDR 格式或单 IP）。
     #[serde(default)]
     pub trusted_proxies: Vec<String>,
+}
+
+impl ValidatableConfig for NetworkTrustConfig {
+    fn validate(&self) -> aster_forge_config::Result<()> {
+        Ok(())
+    }
 }
 
 /// `NetworkTrustConfig` 的解析产物：App 构建时转换一次，经 `app_data` 注入，
@@ -420,6 +466,18 @@ impl RateLimitConfig {
             seconds_per_request: nonzero_u64_or_min(2),
             burst_size: nonzero_u32_or_min(10),
         }
+    }
+}
+
+impl ValidatableConfig for RateLimitConfig {
+    fn validate(&self) -> aster_forge_config::Result<()> {
+        Ok(())
+    }
+}
+
+impl ValidatableConfig for RateLimitTier {
+    fn validate(&self) -> aster_forge_config::Result<()> {
+        Ok(())
     }
 }
 

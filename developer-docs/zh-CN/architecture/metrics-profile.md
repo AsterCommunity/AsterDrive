@@ -1,6 +1,6 @@
 # Drive Aster Metrics v1
 
-本版采用 OTel Semantic Conventions 1.44.0，Resource 固定 aster.metrics.schema.version=aster-metrics/v1。Prometheus 仍为显式启用 pull，OTLP HTTP/protobuf 可独立启用；不安装全局 provider，不增加生产接线。
+本版采用 OTel Semantic Conventions 1.44.0，Resource 固定 service.namespace=com.astercosm.drive 与 aster.metrics.schema.version=astercosm-metrics/v1。Prometheus 仍为显式启用 pull，OTLP HTTP/protobuf 可独立启用；不安装全局 provider，不增加生产接线。升级后 Prometheus/Grafana/collector 查询必须同步过滤新 schema；旧 TSDB 历史不改写，也不得把新旧序列双发后相加。
 
 完整逐 instrument 合同由真实 descriptor 生成到 docs/public/metrics/asterdrive-v1.json，包含 OTel 名、Prometheus 名、类型、单位、属性和桶，测试逐项核对。生成命令：cargo run -p aster_drive_metrics --all-features --example export_catalog。
 

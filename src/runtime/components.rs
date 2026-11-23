@@ -67,7 +67,13 @@ pub fn primary_http_component(
         let app_state = state.clone();
         #[cfg(feature = "metrics")]
         let metrics_auth = web::Data::new(crate::api::middleware::metrics_auth::MetricsAuth::new(
-            state.config.observability.prometheus.basic_auth.clone(),
+            state
+                .config
+                .observability
+                .prometheus
+                .basic_auth
+                .clone()
+                .unwrap_or_default(),
         ));
         #[cfg(feature = "metrics")]
         let metrics_provider = state
@@ -154,7 +160,13 @@ pub fn follower_http_component(
         let app_state = state.clone();
         #[cfg(feature = "metrics")]
         let metrics_auth = web::Data::new(crate::api::middleware::metrics_auth::MetricsAuth::new(
-            state.config.observability.prometheus.basic_auth.clone(),
+            state
+                .config
+                .observability
+                .prometheus
+                .basic_auth
+                .clone()
+                .unwrap_or_default(),
         ));
         #[cfg(feature = "metrics")]
         let metrics_provider = state

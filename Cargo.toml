@@ -34,30 +34,30 @@ aster_drive_storage = { path = "crates/aster_drive_storage" }
 aster_forge_alloc = { version = "=0.1.0-alpha.2" }
 aster_forge_api = { version = "=0.1.0-alpha.2" }
 aster_forge_api_docs_macros = { version = "=0.1.0-alpha.1" }
-aster_forge_audit = { version = "=0.1.0-alpha.4" }
-aster_forge_auth = { version = "=0.1.0-alpha.4" }
-aster_forge_cache = { version = "=0.1.0-alpha.3" }
-aster_forge_config = { version = "=0.1.0-alpha.3" }
-aster_forge_crypto = { version = "=0.1.0-alpha.3" }
-aster_forge_db = { version = "=0.1.0-alpha.4" }
-aster_forge_db_migration = { version = "=0.1.0-alpha.2" }
-aster_forge_events = { version = "=0.1.0-alpha.3" }
-aster_forge_external_auth = { version = "=0.1.0-alpha.4" }
-aster_forge_file_classification = { version = "=0.1.0-alpha.2" }
-aster_forge_http = { version = "=0.1.0-alpha.3" }
-aster_forge_logging = { version = "=0.1.0-alpha.2" }
-aster_forge_mail = { version = "=0.1.0-alpha.3" }
-aster_forge_metrics = { version = "=0.1.0-alpha.4" }
-aster_forge_middleware = { version = "=0.1.0-alpha.4" }
-aster_forge_observability = { version = "=0.1.0-alpha.4" }
-aster_forge_panic = { version = "=0.1.0-alpha.3" }
-aster_forge_runtime = { version = "=0.1.0-alpha.3" }
-aster_forge_tasks = { version = "=0.1.0-alpha.3" }
-aster_forge_test = { version = "=0.1.0-alpha.4" }
-aster_forge_utils = { version = "=0.1.0-alpha.3" }
+aster_forge_audit = { version = "=0.1.0-alpha.5" }
+aster_forge_auth = { version = "=0.1.0-alpha.5" }
+aster_forge_cache = { version = "=0.1.0-alpha.4" }
+aster_forge_config = { version = "=0.1.0-alpha.4" }
+aster_forge_crypto = { version = "=0.1.0-alpha.4" }
+aster_forge_db = { version = "=0.1.0-alpha.5" }
+aster_forge_db_migration = { version = "=0.1.0-alpha.3" }
+aster_forge_events = { version = "=0.1.0-alpha.4" }
+aster_forge_external_auth = { version = "=0.1.0-alpha.5" }
+aster_forge_file_classification = { version = "=0.1.0-alpha.3" }
+aster_forge_http = { version = "=0.1.0-alpha.4" }
+aster_forge_logging = { version = "=0.1.0-alpha.3" }
+aster_forge_mail = { version = "=0.1.0-alpha.4" }
+aster_forge_metrics = { version = "=0.1.0-alpha.5" }
+aster_forge_middleware = { version = "=0.1.0-alpha.5" }
+aster_forge_observability = { version = "=0.1.0-alpha.5" }
+aster_forge_panic = { version = "=0.1.0-alpha.4" }
+aster_forge_runtime = { version = "=0.1.0-alpha.4" }
+aster_forge_tasks = { version = "=0.1.0-alpha.4" }
+aster_forge_test = { version = "=0.1.0-alpha.5" }
+aster_forge_utils = { version = "=0.1.0-alpha.4" }
 aster_forge_validation = { version = "=0.1.0-alpha.1" }
-aster_forge_webdav = { version = "=0.1.0-alpha.3" }
-aster_forge_xml = { version = "=0.1.0-alpha.3" }
+aster_forge_webdav = { version = "=0.1.0-alpha.4" }
+aster_forge_xml = { version = "=0.1.0-alpha.4" }
 async-trait = "0.1"
 bytes = "1"
 emojis = "0.9"
@@ -148,7 +148,7 @@ rsa = "^0.10.0-rc.18"
 russh = { version = "0.65.4", default-features = false }
 # 4.0.0 (non-UTF-8 path support, not a security fix) trips cargo min-publish-age;
 # pick it up via `cargo upgrade --incompatible` once the publish age clears.
-russh-sftp = "3.0.1"
+russh-sftp = "4.0.0"
 rust-embed = "8"
 rustix = "1"
 secrecy = "0.10"
@@ -160,7 +160,7 @@ tokio-tungstenite = "0.30"
 toml = "1.2"
 toml_edit = "0.25"
 utoipa-swagger-ui = "10.0.2"
-zip = { version = "9.8.1", default-features = false }
+zip = { version = "9.8.2", default-features = false }
 webauthn-authenticator-rs = "0.6.2"
 webauthn-rs = { version = "0.6.2", default-features = false }
 webauthn-rs-proto = "0.6.2"
@@ -246,6 +246,7 @@ operations-cli = ["server", "dep:inquire"]
 metrics = [
     "server",
     "aster_drive_metrics/prometheus",
+    "aster_forge_metrics/basic-auth",
     "dep:aster_forge_observability",
     "aster_forge_observability/prometheus",
 ]
