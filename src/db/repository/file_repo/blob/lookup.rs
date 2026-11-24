@@ -85,13 +85,7 @@ fn i64_cast_sql(backend: DbBackend, expr: &str) -> String {
     format!("CAST({expr} AS {type_name})")
 }
 
-// `find_or_create_blob()` only retries short-lived races:
-// 1. another transaction inserted the same (hash, policy_id) row but has not become visible yet;
-// 2. a cleanup worker deleted a zero-ref blob after we read it but before we bumped ref_count.
-//
-// Those windows should resolve after the competing transaction commits, so we use a small
-// exponential backoff budget instead of a fixed 1s spin loop. Total sleep is capped at
-// 5 + 10 + 20 + 40 + 80 + 80 = 235ms across 7 attempts.
+// Bound retries when another transaction publishes or retires the same blob identity.
 const FIND_OR_CREATE_BLOB_MAX_ATTEMPTS: usize = 7;
 const FIND_OR_CREATE_BLOB_INITIAL_DELAY_MS: u64 = 5;
 const FIND_OR_CREATE_BLOB_MAX_DELAY_MS: u64 = 80;
@@ -505,14 +499,8 @@ pub async fn find_or_create_blob<C: ConnectionTrait>(
 ) -> Result<FindOrCreateBlobResult> {
     validate_blob_backing(FileBlobBacking::Stored, Some(storage_path), size, hash)?;
     for attempt in 0..FIND_OR_CREATE_BLOB_MAX_ATTEMPTS {
-        if let Some(existing) = FileBlob::find()
-            .filter(file_blob::Column::Hash.eq(hash))
-            .filter(file_blob::Column::PolicyId.eq(policy_id))
-            .filter(file_blob::Column::Backing.eq(FileBlobBacking::Stored))
-            .filter(file_blob::Column::RefCount.gte(0))
-            .one(db)
-            .await
-            .map_err(AsterError::from)?
+        if let Some(existing) =
+            find_adoptable_blob(db, hash, policy_id, FileBlobBacking::Stored, attempt).await?
         {
             let blob_id = existing.id;
             existing.ref_count.checked_add(1).ok_or_else(|| {
@@ -532,7 +520,7 @@ pub async fn find_or_create_blob<C: ConnectionTrait>(
                     if attempt + 1 == FIND_OR_CREATE_BLOB_MAX_ATTEMPTS {
                         break;
                     }
-                    tokio::time::sleep(find_or_create_blob_retry_delay(attempt)).await;
+                    wait_to_retry_blob_publication(db, attempt).await;
                     continue;
                 }
                 Err(e) => return Err(e),
@@ -593,7 +581,7 @@ pub async fn find_or_create_blob<C: ConnectionTrait>(
         if attempt + 1 == FIND_OR_CREATE_BLOB_MAX_ATTEMPTS {
             break;
         }
-        tokio::time::sleep(find_or_create_blob_retry_delay(attempt)).await;
+        wait_to_retry_blob_publication(db, attempt).await;
     }
 
     Err(AsterError::internal_error(format!(
@@ -612,14 +600,8 @@ pub async fn find_or_create_virtual_empty_blob<C: ConnectionTrait>(
 ) -> Result<FindOrCreateBlobResult> {
     validate_blob_backing(FileBlobBacking::VirtualEmpty, None, 0, hash)?;
     for attempt in 0..FIND_OR_CREATE_BLOB_MAX_ATTEMPTS {
-        if let Some(existing) = FileBlob::find()
-            .filter(file_blob::Column::Hash.eq(hash))
-            .filter(file_blob::Column::PolicyId.eq(policy_id))
-            .filter(file_blob::Column::Backing.eq(FileBlobBacking::VirtualEmpty))
-            .filter(file_blob::Column::RefCount.gte(0))
-            .one(db)
-            .await
-            .map_err(AsterError::from)?
+        if let Some(existing) =
+            find_adoptable_blob(db, hash, policy_id, FileBlobBacking::VirtualEmpty, attempt).await?
         {
             existing.ref_count.checked_add(1).ok_or_else(|| {
                 AsterError::internal_error(format!(
@@ -637,7 +619,7 @@ pub async fn find_or_create_virtual_empty_blob<C: ConnectionTrait>(
                 Err(error)
                     if error.code() == "E006" && attempt + 1 < FIND_OR_CREATE_BLOB_MAX_ATTEMPTS =>
                 {
-                    tokio::time::sleep(find_or_create_blob_retry_delay(attempt)).await;
+                    wait_to_retry_blob_publication(db, attempt).await;
                 }
                 Err(error) => return Err(error),
             }
@@ -682,12 +664,45 @@ pub async fn find_or_create_virtual_empty_blob<C: ConnectionTrait>(
                     inserted: true,
                 });
             }
-            tokio::time::sleep(find_or_create_blob_retry_delay(attempt)).await;
+            if attempt + 1 == FIND_OR_CREATE_BLOB_MAX_ATTEMPTS {
+                break;
+            }
+            wait_to_retry_blob_publication(db, attempt).await;
         }
     }
     Err(AsterError::internal_error(format!(
         "find_or_create_virtual_empty_blob exceeded contention retry budget for policy_id={policy_id}"
     )))
+}
+
+async fn find_adoptable_blob<C: ConnectionTrait>(
+    db: &C,
+    hash: &str,
+    policy_id: i64,
+    backing: FileBlobBacking,
+    attempt: usize,
+) -> Result<Option<file_blob::Model>> {
+    let query = FileBlob::find()
+        .filter(file_blob::Column::Hash.eq(hash))
+        .filter(file_blob::Column::PolicyId.eq(policy_id))
+        .filter(file_blob::Column::Backing.eq(backing))
+        .filter(file_blob::Column::RefCount.gte(0));
+    // The initial MySQL lookup must not gap-lock a missing key before insertion.
+    // After a conflict, a locking read sees the winner outside the transaction's
+    // repeatable-read snapshot. Sleeping and repeating a plain SELECT cannot.
+    let query = match (attempt, db.get_database_backend()) {
+        (1.., DbBackend::MySql) => query.lock_exclusive(),
+        _ => query,
+    };
+    query.one(db).await.map_err(AsterError::from)
+}
+
+async fn wait_to_retry_blob_publication<C: ConnectionTrait>(db: &C, attempt: usize) {
+    // In MySQL the first locking read, rather than elapsed time, refreshes
+    // what the transaction sees after a conflict.
+    if attempt != 0 || db.get_database_backend() != DbBackend::MySql {
+        tokio::time::sleep(find_or_create_blob_retry_delay(attempt)).await;
+    }
 }
 
 pub(super) fn find_or_create_blob_retry_delay(attempt: usize) -> std::time::Duration {
