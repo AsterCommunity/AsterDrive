@@ -131,11 +131,14 @@ async fn doctor_warns_once_when_the_instance_crash_log_cannot_open() {
     let blocked_path = instance.join("crash.log");
     std::fs::create_dir_all(&blocked_path).unwrap();
     let config_path = instance.join("config.toml");
-    std::fs::write(
-        &config_path,
-        format!("[database]\nurl = \"{database_url}\"\n"),
-    )
-    .unwrap();
+    let database_url_value = toml::Value::String(database_url.clone()).to_string();
+    let config_content = format!("[database]\nurl = {database_url_value}\n");
+    let parsed: toml::Value = toml::from_str(&config_content).unwrap();
+    assert_eq!(
+        parsed["database"]["url"].as_str(),
+        Some(database_url.as_str())
+    );
+    std::fs::write(&config_path, config_content).unwrap();
 
     let output = run_aster_drive_with_env_in_dir(
         &[
