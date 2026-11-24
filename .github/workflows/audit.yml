@@ -8,14 +8,14 @@ on:
       - '.nvmrc'
       - '**/Cargo.toml'
       - '**/Cargo.lock'
-      - '.cargo/audit.toml'
+      - 'deny.toml'
       - '.github/workflows/audit.yml'
   pull_request:
     paths:
       - '.nvmrc'
       - '**/Cargo.toml'
       - '**/Cargo.lock'
-      - '.cargo/audit.toml'
+      - 'deny.toml'
       - '.github/workflows/audit.yml'
   schedule:
     # 每周一 09:17 UTC（北京时间 17:17）
@@ -30,17 +30,19 @@ permissions:
   contents: read
 
 jobs:
-  rust-audit:
-    name: Rust dependency audit
+  rust-deny:
+    name: Rust dependency check (cargo-deny)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny@0.22.0
 
-      - name: Run cargo audit
-        run: cargo audit -D warnings
+      - name: Run cargo deny
+        run: cargo deny check
 
   frontend-audit:
     name: Frontend dependency audit
