@@ -9,6 +9,7 @@ use std::io;
 use super::{
     commands::{config, database_migration, doctor, node},
     common::error::CliError,
+    common::output::ResolvedOutputFormat,
     common::{context::CliContext, terminal},
 };
 
@@ -18,7 +19,7 @@ use super::commands::build_info::render_build_info;
 pub(super) async fn execute(
     cli: RootCli,
     command: &mut clap::Command,
-    prepare_panic: &impl Fn(&std::path::Path),
+    prepare_panic: &impl Fn(&std::path::Path, bool),
 ) -> io::Result<CommandOutcome> {
     #[cfg(not(feature = "operations-cli"))]
     let _ = prepare_panic;
@@ -92,7 +93,10 @@ pub(super) async fn execute(
             {
                 return Ok(CommandOutcome::Exit(confirmation_error_exit(error)));
             }
-            prepare_panic(config_location.path());
+            prepare_panic(
+                config_location.path(),
+                output_format.resolve() == ResolvedOutputFormat::Human,
+            );
             let context = match CliContext::existing(&config_location, args.database_url.as_deref())
             {
                 Ok(context) => context,
@@ -119,6 +123,8 @@ pub(super) async fn execute(
         }) => {
             let result = async {
                 let context = CliContext::existing(&config_location, database_url.as_deref())?;
+                aster_forge_config::ValidatableConfig::validate(&context.config)
+                    .map_err(|error| crate::errors::AsterError::config_error(error.to_string()))?;
                 config::execute::execute_config_command(&context, &action).await
             }
             .await;
@@ -154,7 +160,10 @@ pub(super) async fn execute(
             {
                 return Ok(CommandOutcome::Exit(confirmation_error_exit(error)));
             }
-            prepare_panic(config_location.path());
+            prepare_panic(
+                config_location.path(),
+                output_format.resolve() == ResolvedOutputFormat::Human,
+            );
             match database_migration::execute::execute_database_migration(&args).await {
                 Ok(data) => {
                     println!(

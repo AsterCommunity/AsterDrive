@@ -3,20 +3,16 @@
 use crate::config::node_mode::NodeRuntimeMode;
 use crate::errors::{AsterError, Result};
 use crate::runtime::role::ServeRole;
+use aster_forge_metrics::ObservabilityConfig;
 
-pub use aster_forge_metrics::{
-    MetricsBasicAuthConfig, ObservabilityConfig, OtlpMetricsSettings as OtlpMetricsConfig,
-    PrometheusSettings as PrometheusConfig,
-};
-
-fn effective_config(mut config: ObservabilityConfig) -> ObservabilityConfig {
-    if !cfg!(feature = "metrics") {
-        config.prometheus = PrometheusConfig::default();
+fn effective_config(config: ObservabilityConfig) -> ObservabilityConfig {
+    ObservabilityConfig {
+        #[cfg(not(feature = "metrics"))]
+        prometheus: Default::default(),
+        #[cfg(not(feature = "otlp-metrics"))]
+        otlp_metrics: Default::default(),
+        ..config
     }
-    if !cfg!(feature = "otlp-metrics") {
-        config.otlp_metrics = OtlpMetricsConfig::default();
-    }
-    config
 }
 
 pub(super) fn deserialize_observability<'de, D>(
@@ -51,6 +47,7 @@ pub fn create_provider(
 mod tests {
     use super::*;
     use aster_forge_config::ValidatableConfig;
+    use aster_forge_metrics::MetricsBasicAuthConfig;
 
     #[cfg(feature = "metrics")]
     #[tokio::test]
@@ -243,6 +240,7 @@ mod tests {
         assert!(ValidatableConfig::validate(&config).is_err());
     }
 
+    #[cfg(any(not(feature = "metrics"), not(feature = "otlp-metrics")))]
     #[test]
     fn unavailable_exporters_are_ignored_without_activating_a_provider() {
         for prometheus in [true, false] {
@@ -434,6 +432,17 @@ mod tests {
             }
             config.environment = "x".repeat(128);
             ValidatableConfig::validate(&config).unwrap();
+
+            config.environment.clear();
+            let error = create_provider(
+                &config,
+                NodeRuntimeMode::Primary,
+                ServeRole::All,
+                "invalid-environment",
+            )
+            .err()
+            .expect("provider creation must validate an enabled exporter");
+            assert!(error.message().contains("environment"));
         }
         let mut disabled = ObservabilityConfig::default();
         disabled.environment.clear();

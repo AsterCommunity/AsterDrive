@@ -72,6 +72,7 @@ async fn cli_config_location_resolves_relative_database_and_service_environment_
             String::from_utf8_lossy(&output.stderr)
         );
         assert!(!cwd.join("data").exists());
+        assert!(!data.join("crash.log").exists());
         assert_eq!(
             std::fs::read_to_string(&config_path).unwrap(),
             config_content
@@ -103,6 +104,10 @@ async fn cli_config_location_resolves_relative_database_and_service_environment_
             .iter()
             .any(|check| check["name"] == "database_connection" && check["status"] == "ok")
     );
+    #[cfg(target_os = "linux")]
+    assert!(data.join("crash.log").is_file());
+    assert!(!cwd.join("data").exists());
+
     let missing_database = data.join("missing.db");
     std::fs::write(
         &config_path,
@@ -116,6 +121,109 @@ async fn cli_config_location_resolves_relative_database_and_service_environment_
     );
     assert!(!output.status.success());
     assert!(!missing_database.exists());
+}
+
+#[tokio::test]
+async fn doctor_warns_once_when_the_instance_crash_log_cannot_open() {
+    let (_database_dir, database_url) = setup_ready_database().await;
+    let root = aster_forge_test::temp::TestTempDir::new("cli-unavailable-crash-log");
+    let instance = root.path().join("instance");
+    let blocked_path = instance.join("crash.log");
+    std::fs::create_dir_all(&blocked_path).unwrap();
+    let config_path = instance.join("config.toml");
+    std::fs::write(
+        &config_path,
+        format!("[database]\nurl = \"{database_url}\"\n"),
+    )
+    .unwrap();
+
+    let output = run_aster_drive_with_env_in_dir(
+        &[
+            "--config-file",
+            config_path.to_str().unwrap(),
+            "doctor",
+            "--output-format",
+            "human",
+        ],
+        &[],
+        root.path(),
+    );
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{stderr}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let warning = "warning: private crash reports are unavailable at";
+    assert_eq!(stderr.matches(warning).count(), 1, "{stderr}");
+    assert!(
+        stderr.contains(&blocked_path.display().to_string()),
+        "{stderr}"
+    );
+    let report = String::from_utf8(output.stdout).unwrap();
+    assert!(report.contains("Database connection"), "{report}");
+    assert!(blocked_path.is_dir());
+    assert!(!root.path().join("data").exists());
+}
+
+#[tokio::test]
+async fn doctor_reports_invalid_deployment_and_checks_the_overridden_database() {
+    let (_database_dir, database_url) = setup_ready_database().await;
+    let root = aster_forge_test::temp::TestTempDir::new("cli-deployment-override");
+    let config_path = root.path().join("config.toml");
+    std::fs::write(
+        &config_path,
+        "[deployment]\nprofile = 'cluster'\n\
+         [database]\nurl = 'mysql://localhost/unused'\n\
+         [cache]\nbackend = 'redis'\nendpoint = 'redis://localhost:6379/0'\n\
+         [config_sync]\nbackend = 'redis'\nendpoint = 'redis://localhost:6379/0'\n",
+    )
+    .unwrap();
+
+    let run = |subcommand| {
+        let mut args = vec![
+            "--config-file",
+            config_path.to_str().unwrap(),
+            subcommand,
+            "--database-url",
+            &database_url,
+            "--output-format",
+            "json",
+        ];
+        if subcommand == "config" {
+            args.push("list");
+        }
+        run_aster_drive_with_env_in_dir(&args, &[], root.path())
+    };
+
+    let output = run("config");
+    assert!(!output.status.success());
+    let error: Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(error["error"]["code"], "E003");
+    assert!(
+        error["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("cluster profile requires a shared PostgreSQL or MySQL database")
+    );
+
+    let output = run("doctor");
+    assert!(!output.status.success());
+    assert!(output.stderr.is_empty());
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let checks = report["data"]["checks"].as_array().unwrap();
+    assert!(checks.iter().any(|check| {
+        check["name"] == "static_config"
+            && check["status"] == "fail"
+            && check["details"].as_array().unwrap().iter().any(|detail| {
+                detail == "cluster profile requires a shared PostgreSQL or MySQL database"
+            })
+    }));
+    assert!(
+        checks
+            .iter()
+            .any(|check| { check["name"] == "database_connection" && check["status"] == "ok" })
+    );
 }
 
 #[tokio::test]

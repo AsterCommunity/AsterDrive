@@ -1524,6 +1524,34 @@ burst_size = 0
     }
 
     #[test]
+    fn worker_section_errors_precede_cross_section_validation() {
+        let directory = aster_forge_test::temp::TestTempDir::new("config-validation-order");
+        let path = directory.path().join("config.toml");
+        let cluster = "[deployment]\nprofile = 'cluster'\n[database]\nurl = 'sqlite::memory:'\n";
+        std::fs::write(
+            &path,
+            format!(
+                "{cluster}[worker]\ndrain_timeout_secs = 86400\ncancellation_timeout_secs = 1\n"
+            ),
+        )
+        .unwrap();
+
+        let error = load_from_path(directory.path(), &path, None, false).unwrap_err();
+        assert_eq!(error.code(), "E003");
+        assert!(error.message().contains("worker shutdown budget"));
+        assert!(!error.message().contains("invalid deployment profile"));
+
+        std::fs::write(&path, cluster).unwrap();
+        let error = load_from_path(directory.path(), &path, None, false).unwrap_err();
+        assert_eq!(error.code(), "E003");
+        assert!(
+            error
+                .message()
+                .contains("invalid deployment profile 'cluster'")
+        );
+    }
+
+    #[test]
     fn strict_unknown_fields_keep_safe_keys_and_parse_errors_keep_positions_without_values() {
         for (content, field) in [
             ("legacy_unused = 'credential-marker'\n", "legacy_unused"),

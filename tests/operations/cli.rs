@@ -91,14 +91,12 @@ async fn setup_empty_database_url(prefix: &str) -> String {
     url
 }
 
-async fn setup_ready_database_url() -> String {
-    let db_path = std::env::temp_dir().join(format!(
-        "asterdrive-cli-ready-test-{}.db",
-        uuid::Uuid::new_v4()
-    ));
+async fn setup_ready_database() -> (aster_forge_test::temp::TestTempDir, String) {
+    let directory = aster_forge_test::temp::TestTempDir::new("cli-ready-database");
+    let db_path = directory.join("asterdrive-cli-ready-test.db");
     let url = format!("sqlite://{}?mode=rwc", db_path.display());
     let _state = common::setup_with_database_url(&url).await;
-    url
+    (directory, url)
 }
 
 fn run_aster_drive(args: &[&str]) -> std::process::Output {
@@ -119,7 +117,17 @@ fn run_aster_drive_with_env_in_dir(
     envs: &[(&str, &str)],
     current_dir: &std::path::Path,
 ) -> std::process::Output {
-    Command::new(aster_drive_bin())
+    let mut command = Command::new(aster_drive_bin());
+    for (key, _) in std::env::vars_os() {
+        if key
+            .to_string_lossy()
+            .to_ascii_lowercase()
+            .starts_with("aster__")
+        {
+            command.env_remove(key);
+        }
+    }
+    command
         .args(args)
         .env("ASTER_CLI_YES", "true")
         .envs(envs.iter().copied())

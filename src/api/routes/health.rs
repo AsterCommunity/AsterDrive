@@ -7,13 +7,14 @@ use crate::api::response::{HealthResponse, MemoryStatsResponse, SystemInfoRespon
 use crate::runtime::{FollowerAppState, PrimaryAppState, SharedRuntimeState};
 use crate::services::ops::health;
 use actix_web::{HttpResponse, web};
+use aster_forge_metrics::ObservabilityConfig;
 use aster_forge_runtime::HealthStatus;
 
 const READY_DB_UNAVAILABLE_MESSAGE: &str = "Database unavailable";
 const READY_CACHE_UNAVAILABLE_MESSAGE: &str = "Cache unavailable";
 const READY_STORAGE_UNAVAILABLE_MESSAGE: &str = "Storage unavailable";
 
-pub fn primary_routes(config: &crate::config::metrics::ObservabilityConfig) -> actix_web::Scope {
+pub fn primary_routes(config: &ObservabilityConfig) -> actix_web::Scope {
     let scope = web::scope("/health")
         .route("", web::get().to(health))
         .route("", web::head().to(health))
@@ -23,7 +24,7 @@ pub fn primary_routes(config: &crate::config::metrics::ObservabilityConfig) -> a
     attach_optional_routes(scope, config)
 }
 
-pub fn follower_routes(config: &crate::config::metrics::ObservabilityConfig) -> actix_web::Scope {
+pub fn follower_routes(config: &ObservabilityConfig) -> actix_web::Scope {
     let scope = web::scope("/health")
         .route("", web::get().to(health))
         .route("", web::head().to(health))
@@ -35,7 +36,7 @@ pub fn follower_routes(config: &crate::config::metrics::ObservabilityConfig) -> 
 
 fn attach_optional_routes(
     scope: actix_web::Scope,
-    config: &crate::config::metrics::ObservabilityConfig,
+    config: &ObservabilityConfig,
 ) -> actix_web::Scope {
     #[cfg(all(debug_assertions, feature = "openapi"))]
     let scope = scope.route("/memory", web::get().to(memory));
@@ -233,6 +234,7 @@ mod tests {
     use aster_drive_storage::{BlobMetadata, StorageDriver};
     use aster_forge_cache as cache;
     use aster_forge_cache::{CacheBackend, CacheConfig, CacheError};
+    use aster_forge_metrics::ObservabilityConfig;
     use async_trait::async_trait;
     use chrono::Utc;
     use sea_orm::{ActiveModelTrait, EntityTrait, IntoActiveModel, Set};
@@ -246,7 +248,7 @@ mod tests {
     async fn metrics_endpoint_requires_both_compiled_capability_and_explicit_enable() {
         use actix_web::{App, test};
         for routes in [super::primary_routes, super::follower_routes] {
-            let config = crate::config::metrics::ObservabilityConfig::default();
+            let config = ObservabilityConfig::default();
             let app = test::init_service(App::new().service(routes(&config))).await;
             assert_eq!(
                 test::call_service(

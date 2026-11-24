@@ -3,7 +3,7 @@ use super::*;
 
 #[tokio::test]
 async fn test_root_binary_doctor_defaults_to_json_output() {
-    let database_url = setup_ready_database_url().await;
+    let (_database_dir, database_url) = setup_ready_database().await;
 
     let output = run_aster_drive(&["doctor", "--database-url", &database_url]);
     assert!(
@@ -18,8 +18,10 @@ async fn test_root_binary_doctor_defaults_to_json_output() {
     let redacted_database_url = report["data"]["database_url"]
         .as_str()
         .expect("doctor database url should be a string");
-    assert!(redacted_database_url.starts_with("sqlite:///.../asterdrive-cli-ready-test-"));
-    assert!(redacted_database_url.ends_with(".db?mode=rwc"));
+    assert_eq!(
+        redacted_database_url,
+        "sqlite:///.../asterdrive-cli-ready-test.db?mode=rwc"
+    );
     assert_eq!(report["data"]["status"], "warn");
     assert_eq!(report["data"]["summary"]["fail"], 0);
     assert!(
@@ -79,7 +81,7 @@ async fn test_root_binary_doctor_human_output_redacts_database_url_query_credent
 
 #[tokio::test]
 async fn test_root_binary_doctor_human_output_is_readable() {
-    let database_url = setup_ready_database_url().await;
+    let (_database_dir, database_url) = setup_ready_database().await;
 
     let output = run_aster_drive(&[
         "doctor",
@@ -108,7 +110,7 @@ async fn test_root_binary_doctor_human_output_is_readable() {
 
 #[tokio::test]
 async fn test_root_binary_doctor_human_output_supports_forced_color() {
-    let database_url = setup_ready_database_url().await;
+    let (_database_dir, database_url) = setup_ready_database().await;
 
     let output = run_aster_drive_with_env(
         &[
@@ -134,7 +136,7 @@ async fn test_root_binary_doctor_human_output_supports_forced_color() {
 
 #[tokio::test]
 async fn test_root_binary_doctor_strict_turns_warnings_into_nonzero_exit() {
-    let database_url = setup_ready_database_url().await;
+    let (_database_dir, database_url) = setup_ready_database().await;
 
     let output = run_aster_drive(&["doctor", "--database-url", &database_url, "--strict"]);
     assert!(
@@ -158,7 +160,7 @@ async fn test_root_binary_doctor_strict_turns_warnings_into_nonzero_exit() {
 
 #[tokio::test]
 async fn test_root_binary_doctor_warns_when_public_site_url_uses_http() {
-    let database_url = setup_ready_database_url().await;
+    let (_database_dir, database_url) = setup_ready_database().await;
 
     let set_output = run_aster_drive(&[
         "config",
@@ -209,7 +211,7 @@ async fn test_root_binary_doctor_warns_when_public_site_url_uses_http() {
 
 #[tokio::test]
 async fn test_root_binary_doctor_reports_sqlite_search_acceleration_ready() {
-    let database_url = setup_ready_database_url().await;
+    let (_database_dir, database_url) = setup_ready_database().await;
 
     let output = run_aster_drive(&["doctor", "--database-url", &database_url]);
     assert!(

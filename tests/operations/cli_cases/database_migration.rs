@@ -14,21 +14,35 @@ async fn database_migration_dry_run_does_not_create_or_change_target() {
     std::fs::create_dir_all(directory.path()).unwrap();
     let path = directory.path().join("target.db");
     let target = format!("sqlite://{}?mode=rwc", path.display());
-    let run = || {
-        run_aster_drive(&[
-            "database-migrate",
-            "--source-database-url",
-            &source,
-            "--target-database-url",
-            &target,
-            "--dry-run",
-        ])
+    let run = |data_dir| {
+        run_aster_drive_with_env_in_dir(
+            &[
+                "--data-dir",
+                data_dir,
+                "database-migrate",
+                "--source-database-url",
+                &source,
+                "--target-database-url",
+                &target,
+                "--dry-run",
+                "--output-format",
+                "json",
+            ],
+            &[],
+            directory.path(),
+        )
     };
-    let missing = run();
+    let blocked_crash_log = directory.path().join("blocked-instance/crash.log");
+    std::fs::create_dir_all(&blocked_crash_log).unwrap();
+    let missing = run("blocked-instance");
     assert!(!missing.status.success());
+    let error: Value = serde_json::from_slice(&missing.stderr)
+        .expect("migration stderr should stay JSON when crash logging is unavailable");
+    assert_eq!(error["ok"], false);
+    assert!(blocked_crash_log.is_dir());
     assert!(!path.exists());
     std::fs::write(&path, []).unwrap();
-    let preview = run();
+    let preview = run("instance");
     assert!(
         preview.status.success(),
         "{}",
@@ -37,6 +51,10 @@ async fn database_migration_dry_run_does_not_create_or_change_target() {
     let json: Value = serde_json::from_slice(&preview.stdout).unwrap();
     assert_eq!(json["data"]["mode"], "dry_run");
     assert!(std::fs::read(&path).unwrap().is_empty());
+    #[cfg(target_os = "linux")]
+    assert!(directory.path().join("instance/crash.log").is_file());
+    assert!(!directory.path().join("instance/config.toml").exists());
+    assert!(!directory.path().join("data").exists());
 }
 
 #[tokio::test]

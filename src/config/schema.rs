@@ -6,6 +6,7 @@ use std::num::{NonZeroU32, NonZeroU64};
 use aster_forge_cache::CacheConfig;
 use aster_forge_config::{ConfigCoreError, ConfigSyncConfig, ValidatableConfig};
 use aster_forge_logging::LoggingConfig;
+use aster_forge_metrics::ObservabilityConfig;
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default, aster_forge_config::ValidateConfig)]
 #[serde(deny_unknown_fields)]
@@ -16,7 +17,7 @@ pub struct Config {
         default,
         deserialize_with = "crate::config::metrics::deserialize_observability"
     )]
-    pub observability: crate::config::metrics::ObservabilityConfig,
+    pub observability: ObservabilityConfig,
     #[serde(default)]
     pub deployment: crate::config::deployment::DeploymentConfig,
     #[serde(default)]
@@ -473,12 +474,6 @@ impl RateLimitConfig {
 }
 
 impl ValidatableConfig for RateLimitConfig {
-    fn validate(&self) -> aster_forge_config::Result<()> {
-        Ok(())
-    }
-}
-
-impl ValidatableConfig for RateLimitTier {
     fn validate(&self) -> aster_forge_config::Result<()> {
         Ok(())
     }
