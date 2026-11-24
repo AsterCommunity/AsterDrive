@@ -80,7 +80,6 @@ struct PasskeyRegistrationChallenge {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PasskeyAuthenticationChallenge {
-    identifier: Option<String>,
     state: DiscoverableAuthentication,
 }
 
@@ -366,28 +365,6 @@ fn ensure_login_user(user: &user::Model) -> Result<()> {
     Ok(())
 }
 
-fn normalize_login_identifier(identifier: Option<&str>) -> Option<String> {
-    identifier
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-}
-
-fn ensure_login_identifier_matches(user: &user::Model, identifier: &str) -> Result<()> {
-    let matches = if identifier.contains('@') {
-        user.email == identifier
-    } else {
-        user.username == identifier
-    };
-    if matches {
-        Ok(())
-    } else {
-        Err(AsterError::auth_invalid_credentials(
-            "passkey does not match requested identifier",
-        ))
-    }
-}
-
 fn map_unique_passkey_err(err: DbErr) -> AsterError {
     if matches!(err.sql_err(), Some(SqlErr::UniqueConstraintViolation(_))) {
         return AsterError::validation_error("passkey credential already exists");
@@ -541,7 +518,6 @@ pub async fn delete_passkey(
 
 pub async fn start_login(
     state: &impl SharedRuntimeState,
-    identifier: Option<&str>,
     conditional: bool,
 ) -> Result<PasskeyLoginStartResp> {
     ensure_passkey_login_enabled(state)?;
@@ -549,10 +525,7 @@ pub async fn start_login(
     let (mut options, auth_state) = webauthn
         .start_discoverable_authentication()
         .map_err(webauthn_error)?;
-    let challenge = PasskeyAuthenticationChallenge {
-        identifier: normalize_login_identifier(identifier),
-        state: auth_state,
-    };
+    let challenge = PasskeyAuthenticationChallenge { state: auth_state };
     if !conditional {
         options.mediation = None;
     }
@@ -602,9 +575,6 @@ pub async fn finish_login(
     .ok_or_else(|| AsterError::auth_invalid_credentials("passkey not found"))?;
 
     let user = user_repo::find_by_id(state.writer_db(), passkey.user_id).await?;
-    if let Some(identifier) = challenge.identifier.as_deref() {
-        ensure_login_identifier_matches(&user, identifier)?;
-    }
     ensure_login_user(&user)?;
     let mut stored = passkey_from_json(&passkey.credential)?;
     let result = webauthn

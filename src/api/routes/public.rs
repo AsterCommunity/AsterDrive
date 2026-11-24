@@ -9,9 +9,9 @@ use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{auth::local, ops::audit, ops::config, remote::enrollment};
-use actix_governor::Governor;
 use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, http::header, web};
+use aster_forge_middleware::actix::rate_limit::RateLimit;
 use serde::Deserialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
@@ -38,7 +38,8 @@ pub fn routes(
     // Enrollment exchange returns long-lived node credentials, so unlike the
     // read-only config endpoints it shares the public rate-limit tier even
     // though the enrollment token itself is single-use and high-entropy.
-    let enrollment_limiter = rate_limit::build_governor(&rl.public, &network_trust.trusted_proxies);
+    let enrollment_limiter =
+        rate_limit::build_rate_limit(&rl.public, &network_trust.trusted_proxies);
 
     web::scope("/public")
         .route("/frontend-config", web::get().to(get_frontend_config))
@@ -50,7 +51,7 @@ pub fn routes(
             web::scope("")
                 .wrap(Condition::new(
                     rl.enabled,
-                    Governor::new(&enrollment_limiter),
+                    RateLimit::new(&enrollment_limiter),
                 ))
                 .route(
                     "/remote-enrollment/redeem",

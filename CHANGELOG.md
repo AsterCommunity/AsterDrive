@@ -15,7 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **AsterForge runtime and observability contract** — Upgrade the published Forge crate batch, migrate configuration validation and metrics provider assembly to Forge, publish the `com.astercosm.drive` / `astercosm-metrics/v1` metrics identity, update Grafana/catalog filters, and preserve audit recovery reconciliation without automatic replay. Uncompiled exporters are ignored; compiled exporters run only when explicitly enabled. Service startup, `doctor`, and `database-migrate` prepare private crash reporting in the selected instance configuration directory. Service startup and human-readable CLI output warn if `crash.log` is unavailable.
 
+- **HTTP rate limiting** — Replace `actix-governor` with the governor-backed Forge middleware without permitting GPL dependencies. Existing quota settings and HTTP 429 error envelopes remain unchanged; `Retry-After` and `X-RateLimit-After` report the same retry delay. (#766)
+
 ### Fixed
+
+- **Passkey sign-in** — The verified passkey selects the account even when the login form contains a different username or email. The passkey challenge endpoint no longer takes `identifier`. (#754)
 
 - **Follower readiness** — An unconfigured follower returns `200 + needs_binding`. Enabled bindings require recent successful master control-plane communication; missing or expired evidence returns 503 and clears runtime readiness. `server.follower.master_readiness_timeout_secs` defaults to 90 seconds and must exceed the 60-second control-plane cycle; disabled bindings are intentionally offline. (#755)
 

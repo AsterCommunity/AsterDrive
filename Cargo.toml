@@ -48,7 +48,7 @@ aster_forge_http = { version = "=0.1.0-alpha.4" }
 aster_forge_logging = { version = "=0.1.0-alpha.3" }
 aster_forge_mail = { version = "=0.1.0-alpha.4" }
 aster_forge_metrics = { version = "=0.1.0-alpha.5" }
-aster_forge_middleware = { version = "=0.1.0-alpha.5" }
+aster_forge_middleware = { version = "=0.1.0-alpha.6" }
 aster_forge_observability = { version = "=0.1.0-alpha.5" }
 aster_forge_panic = { version = "=0.1.0-alpha.4" }
 aster_forge_runtime = { version = "=0.1.0-alpha.4" }
@@ -93,7 +93,6 @@ uuid = "1"
 # Root package and members share version pins below; members add only their
 # required features. `default-features = false` lives here because dependency
 # entries with `workspace = true` cannot override it.
-actix-governor = "0.10"
 actix-http = "3.22.0"
 actix-multipart = "0.8"
 actix-web = "4.20.0"
@@ -106,7 +105,7 @@ aws-sdk-s3 = { version = "1.161.0", default-features = false }
 aws-smithy-http = "0.64"
 aws-smithy-http-client = "1.5.3"
 aws-smithy-runtime-api = "1.22.0"
-aws-smithy-types = "1.9.4"
+aws-smithy-types = "1.9.5"
 azure_core = { version = "1.1.0", default-features = false }
 azure_storage_blob = { version = "1.1.0", default-features = false }
 base64 = { version = "0.23", default-features = false }
@@ -278,7 +277,6 @@ multi-primary-e2e = []
 
 [dependencies]
 aster_forge_auth = { workspace = true, features = ["password"] }
-actix-governor = { workspace = true }
 actix-http = { workspace = true }
 actix-multipart = { workspace = true }
 actix-web = { workspace = true, features = ["compress-brotli", "compress-gzip"] }

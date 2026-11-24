@@ -164,10 +164,7 @@ mod tests {
                 .build()
                 .unwrap();
         let (_, challenge) = webauthn.start_discoverable_authentication().unwrap();
-        let challenge = PasskeyAuthenticationChallenge {
-            identifier: Some("alice".into()),
-            state: challenge,
-        };
+        let challenge = PasskeyAuthenticationChallenge { state: challenge };
         store_login_challenge(state.get_ref(), "login", &challenge)
             .await
             .unwrap();
@@ -181,14 +178,11 @@ mod tests {
                 .await
                 .is_err()
         );
-        assert_eq!(
-            take_login_challenge(state.get_ref(), "login")
-                .await
-                .unwrap()
-                .identifier
-                .as_deref(),
-            Some("alice")
-        );
+        let expected = serde_json::to_value(&challenge).unwrap();
+        let consumed = take_login_challenge(state.get_ref(), "login")
+            .await
+            .unwrap();
+        assert_eq!(serde_json::to_value(consumed).unwrap(), expected);
         assert!(
             take_login_challenge(state.get_ref(), "login")
                 .await
@@ -205,10 +199,7 @@ mod tests {
                 .build()
                 .unwrap();
         let (_, challenge) = webauthn.start_discoverable_authentication().unwrap();
-        let challenge = PasskeyAuthenticationChallenge {
-            identifier: None,
-            state: challenge,
-        };
+        let challenge = PasskeyAuthenticationChallenge { state: challenge };
         store_login_challenge(state.get_ref(), "recovery", &challenge)
             .await
             .unwrap();

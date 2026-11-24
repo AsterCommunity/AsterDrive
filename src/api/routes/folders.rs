@@ -16,20 +16,20 @@ use crate::services::{
     auth::local::Claims, files::folder, ops::audit::AuditContext,
     workspace::storage::WorkspaceStorageScope,
 };
-use actix_governor::Governor;
 use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};
 use aster_forge_api::NullablePatch;
+use aster_forge_middleware::actix::rate_limit::RateLimit;
 
 pub fn routes(
     rl: &RateLimitConfig,
     network_trust: &NetworkTrustConfig,
 ) -> impl actix_web::dev::HttpServiceFactory + use<> {
-    let limiter = rate_limit::build_governor(&rl.api, &network_trust.trusted_proxies);
+    let limiter = rate_limit::build_rate_limit(&rl.api, &network_trust.trusted_proxies);
 
     web::scope("/folders")
         .wrap(JwtAuth)
-        .wrap(Condition::new(rl.enabled, Governor::new(&limiter)))
+        .wrap(Condition::new(rl.enabled, RateLimit::new(&limiter)))
         .route("", web::get().to(list_root))
         .route("", web::post().to(create_folder))
         .route("/{id}", web::get().to(list_folder))

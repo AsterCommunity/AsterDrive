@@ -256,8 +256,8 @@ Passkey 使用 WebAuthn 两段式流程。所有 challenge 响应和 credential 
 
 登录流程：
 
-- `POST /auth/passkeys/login/start`：请求体可传 `{ "identifier": "alice", "conditional": false }`；`identifier` 可省略，用于 conditional UI / discoverable credential 场景
-- `POST /auth/passkeys/login/finish`：请求体是 `{ "flow_id": "...", "credential": { ... } }`；成功后和密码登录一样写入 `aster_access`、`aster_refresh` 和 CSRF Cookie
+- `POST /auth/passkeys/login/start`：显式登录发送 `{}`，自动填充界面发送 `{ "conditional": true }`。两者均使用可发现凭证。
+- `POST /auth/passkeys/login/finish`：请求体是 `{ "flow_id": "...", "credential": { ... } }`；账号由验证通过的 Passkey 决定。成功后和密码登录一样写入 `aster_access`、`aster_refresh` 和 CSRF Cookie。
 
 注册和管理流程需要已登录：
 

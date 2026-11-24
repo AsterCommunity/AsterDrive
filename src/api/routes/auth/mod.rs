@@ -15,10 +15,10 @@ use crate::config::RateLimitConfig;
 use crate::config::site_url;
 use crate::runtime::PrimaryAppState;
 use crate::services::{auth::local, events::storage_change};
-use actix_governor::Governor;
 use actix_web::http::header;
 use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};
+use aster_forge_middleware::actix::rate_limit::RateLimit;
 use bytes::Bytes;
 use rand::RngExt;
 
@@ -83,62 +83,62 @@ pub fn routes(
     web::scope("/auth")
         .service(
             web::resource("/check")
-                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
+                .wrap(Condition::new(rl.enabled, RateLimit::new(&auth_limiter)))
                 .route(web::post().to(check)),
         )
         .service(
             web::scope("/register")
-                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
+                .wrap(Condition::new(rl.enabled, RateLimit::new(&auth_limiter)))
                 .route("", web::post().to(register))
                 .route("/resend", web::post().to(resend_register_activation)),
         )
         .service(
             web::scope("/invitations")
-                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
+                .wrap(Condition::new(rl.enabled, RateLimit::new(&auth_limiter)))
                 .route("/{token}", web::get().to(verify_user_invitation))
                 .route("/{token}/accept", web::post().to(accept_user_invitation)),
         )
         .service(
             web::resource("/setup")
-                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
+                .wrap(Condition::new(rl.enabled, RateLimit::new(&auth_limiter)))
                 .route(web::post().to(setup)),
         )
         .service(
             web::resource("/contact-verification/confirm")
-                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
+                .wrap(Condition::new(rl.enabled, RateLimit::new(&auth_limiter)))
                 .route(web::get().to(confirm_contact_verification)),
         )
         .service(
             web::scope("/password/reset")
-                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
+                .wrap(Condition::new(rl.enabled, RateLimit::new(&auth_limiter)))
                 .route("/request", web::post().to(request_password_reset))
                 .route("/confirm", web::post().to(confirm_password_reset)),
         )
         .service(
             web::resource("/login")
-                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
+                .wrap(Condition::new(rl.enabled, RateLimit::new(&auth_limiter)))
                 .route(web::post().to(login)),
         )
         .service(
             web::scope("/mfa/challenge")
-                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
+                .wrap(Condition::new(rl.enabled, RateLimit::new(&auth_limiter)))
                 .route("/verify", web::post().to(verify_mfa_challenge))
                 .route("/email-code/send", web::post().to(send_mfa_email_code)),
         )
         .service(
             web::scope("/passkeys/login")
-                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
+                .wrap(Condition::new(rl.enabled, RateLimit::new(&auth_limiter)))
                 .route("/start", web::post().to(start_passkey_login))
                 .route("/finish", web::post().to(finish_passkey_login)),
         )
         .service(
             web::resource("/external-auth/providers")
-                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
+                .wrap(Condition::new(rl.enabled, RateLimit::new(&auth_limiter)))
                 .route(web::get().to(list_external_auth_providers)),
         )
         .service(
             web::scope("/external-auth/email-verification")
-                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
+                .wrap(Condition::new(rl.enabled, RateLimit::new(&auth_limiter)))
                 .route(
                     "/start",
                     web::post().to(start_external_auth_email_verification),
@@ -150,24 +150,24 @@ pub fn routes(
         )
         .service(
             web::resource("/external-auth/password-link")
-                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
+                .wrap(Condition::new(rl.enabled, RateLimit::new(&auth_limiter)))
                 .route(web::post().to(link_external_auth_with_password)),
         )
         .service(
             web::scope("/external-auth/links")
                 .wrap(JwtAuth)
-                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
+                .wrap(Condition::new(rl.enabled, RateLimit::new(&api_limiter)))
                 .route("", web::get().to(list_external_auth_links))
                 .route("/{id}", web::delete().to(delete_external_auth_link)),
         )
         .service(
             web::resource("/external-auth/callback")
-                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
+                .wrap(Condition::new(rl.enabled, RateLimit::new(&auth_limiter)))
                 .route(web::get().to(finish_external_auth_login)),
         )
         .service(
             web::scope("/external-auth/{kind}/{provider}")
-                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
+                .wrap(Condition::new(rl.enabled, RateLimit::new(&auth_limiter)))
                 .route("/start", web::post().to(start_external_auth_login))
                 .route(
                     "/callback",
@@ -176,24 +176,24 @@ pub fn routes(
         )
         .service(
             web::resource("/refresh")
-                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
+                .wrap(Condition::new(rl.enabled, RateLimit::new(&auth_limiter)))
                 .route(web::post().to(refresh)),
         )
         .service(
             web::resource("/logout")
-                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
+                .wrap(Condition::new(rl.enabled, RateLimit::new(&auth_limiter)))
                 .route(web::post().to(logout)),
         )
         .service(
             web::resource("/me")
                 .wrap(JwtAuth)
-                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
+                .wrap(Condition::new(rl.enabled, RateLimit::new(&api_limiter)))
                 .route(web::get().to(me)),
         )
         .service(
             web::scope("/sessions")
                 .wrap(JwtAuth)
-                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
+                .wrap(Condition::new(rl.enabled, RateLimit::new(&api_limiter)))
                 .route("", web::get().to(list_sessions))
                 .route("/others", web::delete().to(delete_other_sessions))
                 .route("/{id}", web::delete().to(delete_session)),
@@ -201,13 +201,13 @@ pub fn routes(
         .service(
             web::resource("/password")
                 .wrap(JwtAuth)
-                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
+                .wrap(Condition::new(rl.enabled, RateLimit::new(&api_limiter)))
                 .route(web::put().to(put_password)),
         )
         .service(
             web::scope("/mfa")
                 .wrap(JwtAuth)
-                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
+                .wrap(Condition::new(rl.enabled, RateLimit::new(&api_limiter)))
                 .route("", web::get().to(mfa_status))
                 .route("/totp/setup/start", web::post().to(start_totp_setup))
                 .route("/totp/setup/finish", web::post().to(finish_totp_setup))
@@ -220,7 +220,7 @@ pub fn routes(
         .service(
             web::scope("/passkeys")
                 .wrap(JwtAuth)
-                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
+                .wrap(Condition::new(rl.enabled, RateLimit::new(&api_limiter)))
                 .route("", web::get().to(list_passkeys))
                 .route(
                     "/register/start",
@@ -236,20 +236,20 @@ pub fn routes(
         .service(
             web::scope("/email/change")
                 .wrap(JwtAuth)
-                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
+                .wrap(Condition::new(rl.enabled, RateLimit::new(&api_limiter)))
                 .route("", web::post().to(request_email_change))
                 .route("/resend", web::post().to(resend_email_change)),
         )
         .service(
             web::resource("/preferences")
                 .wrap(JwtAuth)
-                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
+                .wrap(Condition::new(rl.enabled, RateLimit::new(&api_limiter)))
                 .route(web::patch().to(patch_preferences)),
         )
         .service(
             web::scope("/profile")
                 .wrap(JwtAuth)
-                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
+                .wrap(Condition::new(rl.enabled, RateLimit::new(&api_limiter)))
                 .route("", web::patch().to(patch_profile))
                 .route("/avatar/upload", web::post().to(upload_avatar))
                 .route("/avatar/source", web::put().to(put_avatar_source))
@@ -258,7 +258,7 @@ pub fn routes(
         .service(
             web::resource("/events/storage")
                 .wrap(JwtAuth)
-                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
+                .wrap(Condition::new(rl.enabled, RateLimit::new(&api_limiter)))
                 .route(web::get().to(get_storage_events)),
         )
 }

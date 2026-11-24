@@ -90,6 +90,8 @@ follower 对所有 master binding 周期性请求 primary 的 `/api/v1/internal/
 
 运行时 CORS 使用 Forge 的显式 `rejection_response`，将来源、preflight 方法和请求头拒绝映射到 Drive 的 HTTP 403 / `forbidden` envelope，不依赖响应状态或 body 大小推断。非法请求仍交给 validation，响应头构造失败仍交给 internal error；拒绝响应不包含 CORS 放行头，并合并必要的 `Vary`。允许、同源、无 Origin、静态豁免和 inactive 请求透传，handler 自身的空 403 保持原样。浏览器扩展来源、凭据策略与热更新继续由运行时配置决定；Follower 的内部存储 CORS 使用独立契约。
 
+HTTP 路由使用 Forge 基于 governor 的 Actix 限流中间件。Drive 负责选择配置中的配额层级及返回 `rate_limited` JSON；HTTP 429 的 `Retry-After` 和 `X-RateLimit-After` 报告同一等待时间。认证限流计数由同进程的 HTTP worker 共享，不跨进程。
+
 例外要记住：
 
 - `/d/...`、`/pv/...`、文件下载、缩略图、分享下载不走统一 JSON 包装

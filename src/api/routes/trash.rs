@@ -14,20 +14,20 @@ use crate::services::{
     auth::local::Claims, files::file, files::folder, files::trash, ops::audit, task,
     workspace::storage::WorkspaceStorageScope,
 };
-use actix_governor::Governor;
 use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};
 use aster_drive_model::types::EntityType;
+use aster_forge_middleware::actix::rate_limit::RateLimit;
 
 pub fn routes(
     rl: &RateLimitConfig,
     network_trust: &NetworkTrustConfig,
 ) -> impl actix_web::dev::HttpServiceFactory + use<> {
-    let limiter = rate_limit::build_governor(&rl.api, &network_trust.trusted_proxies);
+    let limiter = rate_limit::build_rate_limit(&rl.api, &network_trust.trusted_proxies);
 
     web::scope("/trash")
         .wrap(JwtAuth)
-        .wrap(Condition::new(rl.enabled, Governor::new(&limiter)))
+        .wrap(Condition::new(rl.enabled, RateLimit::new(&limiter)))
         .route("", web::get().to(list_trash))
         .route("", web::delete().to(purge_all))
         .route("/{entity_type}/{id}/restore", web::post().to(restore))

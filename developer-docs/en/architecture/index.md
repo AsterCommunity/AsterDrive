@@ -90,6 +90,8 @@ The follower periodically calls the primary's `/api/v1/internal/remote-node-cont
 
 Runtime CORS uses Forge's explicit `rejection_response` to map origin and preflight method/header denials to Drive's HTTP 403 / `forbidden` envelope, without inferring rejection from response status or body size. Malformed requests remain validation errors and response-header construction failures remain internal errors. Denials omit CORS grant headers and merge the required `Vary` fields. Allowed, same-origin, no-Origin, static-exempt and inactive requests pass through; a handler's own empty 403 stays unchanged. Extension origins, credentials and hot reload remain runtime configuration policy; follower internal-storage CORS retains its separate contract.
 
+HTTP route limits use Forge's governor-backed Actix middleware. Drive selects the configured quota tier and owns the JSON `rate_limited` response; its HTTP 429 includes `Retry-After` and `X-RateLimit-After` with the same delay. Authentication limiter counters are shared across HTTP workers, not across server processes.
+
 Things to remember:
 
 - `/d/...`, `/pv/...`, file downloads, thumbnails, and share downloads do not use the unified JSON wrapper

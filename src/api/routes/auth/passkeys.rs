@@ -217,12 +217,7 @@ pub async fn start_login(
         &site_url::public_site_urls(state.get_ref().runtime_config()),
         RequestSourceMode::Required,
     )?;
-    let resp = passkey::start_login(
-        state.get_ref(),
-        body.identifier.as_deref(),
-        body.conditional.unwrap_or(false),
-    )
-    .await?;
+    let resp = passkey::start_login(state.get_ref(), body.conditional.unwrap_or(false)).await?;
     Ok(HttpResponse::Ok().json(crate::api::response::success(resp)))
 }
 

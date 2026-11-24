@@ -392,10 +392,7 @@ where
     (softpasskey, passkey_body["data"].clone())
 }
 
-async fn passkey_login_start<S, B, E>(
-    app: &S,
-    identifier: Option<&str>,
-) -> (String, RequestChallengeResponse)
+async fn passkey_login_start<S, B, E>(app: &S, payload: Value) -> (String, RequestChallengeResponse)
 where
     S: actix_web::dev::Service<
             actix_http::Request,
@@ -405,10 +402,6 @@ where
     B: MessageBody,
     E: std::fmt::Debug,
 {
-    let payload = match identifier {
-        Some(identifier) => serde_json::json!({ "identifier": identifier }),
-        None => serde_json::json!({}),
-    };
     let req = test::TestRequest::post()
         .uri("/api/v1/auth/passkeys/login/start")
         .insert_header(("Origin", TEST_BROWSER_ORIGIN))
@@ -423,33 +416,6 @@ where
         start_body["data"]["public_key"].clone(),
     )
     .expect("login challenge should deserialize");
-    (flow_id, challenge)
-}
-
-async fn conditional_passkey_login_start<S, B, E>(app: &S) -> (String, RequestChallengeResponse)
-where
-    S: actix_web::dev::Service<
-            actix_http::Request,
-            Response = actix_web::dev::ServiceResponse<B>,
-            Error = E,
-        >,
-    B: MessageBody,
-    E: std::fmt::Debug,
-{
-    let req = test::TestRequest::post()
-        .uri("/api/v1/auth/passkeys/login/start")
-        .insert_header(("Origin", TEST_BROWSER_ORIGIN))
-        .peer_addr("127.0.0.1:12345".parse().unwrap())
-        .set_json(serde_json::json!({ "conditional": true }))
-        .to_request();
-    let resp = test::call_service(app, req).await;
-    assert_eq!(resp.status(), 200);
-    let start_body: Value = test::read_body_json(resp).await;
-    let flow_id = start_body["data"]["flow_id"].as_str().unwrap().to_string();
-    let challenge = serde_json::from_value::<RequestChallengeResponse>(
-        start_body["data"]["public_key"].clone(),
-    )
-    .expect("conditional login challenge should deserialize");
     (flow_id, challenge)
 }
 
@@ -2100,7 +2066,7 @@ async fn test_passkey_login_start_rejects_missing_public_site_url_with_config_er
     let req = test::TestRequest::post()
         .uri("/api/v1/auth/passkeys/login/start")
         .insert_header(("Origin", TEST_BROWSER_ORIGIN))
-        .set_json(serde_json::json!({ "identifier": "testuser" }))
+        .set_json(serde_json::json!({}))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 400);
@@ -2127,7 +2093,7 @@ async fn test_passkey_login_start_rejects_insecure_public_site_url_with_config_e
     let req = test::TestRequest::post()
         .uri("/api/v1/auth/passkeys/login/start")
         .insert_header(("Origin", TEST_BROWSER_ORIGIN))
-        .set_json(serde_json::json!({ "identifier": "testuser" }))
+        .set_json(serde_json::json!({}))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 400);
@@ -2154,7 +2120,7 @@ async fn test_passkey_login_start_rejects_localhost_prefix_spoofing() {
     let req = test::TestRequest::post()
         .uri("/api/v1/auth/passkeys/login/start")
         .insert_header(("Origin", TEST_BROWSER_ORIGIN))
-        .set_json(serde_json::json!({ "identifier": "testuser" }))
+        .set_json(serde_json::json!({}))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 400);
@@ -6348,7 +6314,7 @@ async fn test_passkey_register_login_and_replay_protection() {
     assert_eq!(body["data"].as_array().unwrap().len(), 1);
     assert_eq!(body["data"][0]["name"], "Laptop");
 
-    let (flow_id, challenge) = passkey_login_start(&app, Some("testuser")).await;
+    let (flow_id, challenge) = passkey_login_start(&app, serde_json::json!({})).await;
     assert!(challenge.public_key.allow_credentials.is_empty());
     let (challenge, user_handle) = allow_test_passkey_credential(challenge, &stored_passkey);
     let mut credential = softpasskey
@@ -6399,7 +6365,7 @@ async fn test_passkey_login_rejects_invalid_assertions_without_updating_credenti
         .unwrap();
 
     for corrupt_signature in [true, false] {
-        let (flow_id, challenge) = passkey_login_start(&app, None).await;
+        let (flow_id, challenge) = passkey_login_start(&app, serde_json::json!({})).await;
         let (challenge, user_handle) = allow_test_passkey_credential(challenge, &stored);
         let mut credential = softpasskey
             .do_authentication(Url::parse(TEST_BROWSER_ORIGIN).unwrap(), challenge)
@@ -6412,7 +6378,7 @@ async fn test_passkey_login_rejects_invalid_assertions_without_updating_credenti
             flow_id
         } else {
             // The assertion belongs to an earlier, distinct challenge.
-            passkey_login_start(&app, None).await.0
+            passkey_login_start(&app, serde_json::json!({})).await.0
         };
         let response = passkey_login_finish(&app, &submitted_flow, invalid_credential).await;
         assert_eq!(response.status(), 401);
@@ -6456,7 +6422,7 @@ async fn test_passkey_login_without_identifier() {
         .unwrap();
     let user_handle = uuid::Uuid::parse_str(&stored_passkey.user_handle).unwrap();
 
-    let (flow_id, mut challenge) = passkey_login_start(&app, None).await;
+    let (flow_id, mut challenge) = passkey_login_start(&app, serde_json::json!({})).await;
     assert!(challenge.public_key.allow_credentials.is_empty());
     assert!(challenge.mediation.is_none());
     challenge.public_key.allow_credentials = vec![AllowCredentials {
@@ -6492,7 +6458,7 @@ async fn test_passkey_login_policy_disables_start_and_finish_without_deleting_cr
         .unwrap()
         .expect("registered passkey should remain stored");
 
-    let (flow_id, challenge) = passkey_login_start(&app, Some("testuser")).await;
+    let (flow_id, challenge) = passkey_login_start(&app, serde_json::json!({})).await;
     let (challenge, user_handle) = allow_test_passkey_credential(challenge, &stored_passkey);
     let mut credential = softpasskey
         .do_authentication(Url::parse(TEST_BROWSER_ORIGIN).unwrap(), challenge)
@@ -6509,7 +6475,7 @@ async fn test_passkey_login_policy_disables_start_and_finish_without_deleting_cr
         .uri("/api/v1/auth/passkeys/login/start")
         .insert_header(("Origin", TEST_BROWSER_ORIGIN))
         .peer_addr("127.0.0.1:12345".parse().unwrap())
-        .set_json(serde_json::json!({ "identifier": "testuser" }))
+        .set_json(serde_json::json!({}))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 403);
@@ -6570,7 +6536,7 @@ async fn test_passkey_login_policy_hot_update_reenables_login() {
         aster_drive::config::auth_runtime::AUTH_PASSKEY_LOGIN_ENABLED_KEY,
         "true",
     ));
-    let (flow_id, challenge) = passkey_login_start(&app, Some("testuser")).await;
+    let (flow_id, challenge) = passkey_login_start(&app, serde_json::json!({})).await;
     let (challenge, user_handle) = allow_test_passkey_credential(challenge, &stored_passkey);
     let mut credential = softpasskey
         .do_authentication(Url::parse(TEST_BROWSER_ORIGIN).unwrap(), challenge)
@@ -6598,7 +6564,8 @@ async fn test_passkey_conditional_login_preserves_mediation() {
         .unwrap()
         .unwrap();
 
-    let (flow_id, challenge) = conditional_passkey_login_start(&app).await;
+    let (flow_id, challenge) =
+        passkey_login_start(&app, serde_json::json!({ "conditional": true })).await;
     assert!(challenge.public_key.allow_credentials.is_empty());
     assert!(matches!(challenge.mediation, Some(Mediation::Conditional)));
 
@@ -6617,18 +6584,7 @@ async fn test_passkey_conditional_login_preserves_mediation() {
 }
 
 #[actix_web::test]
-async fn test_passkey_login_start_does_not_reveal_unknown_identifier() {
-    let state = common::setup_with_memory_cache().await;
-    configure_passkey_public_site_url(&state);
-    let app = create_test_app!(state.clone());
-
-    let (_flow_id, challenge) = passkey_login_start(&app, Some("missing-user")).await;
-    assert!(challenge.public_key.allow_credentials.is_empty());
-    assert!(challenge.mediation.is_none());
-}
-
-#[actix_web::test]
-async fn test_passkey_login_rejects_identifier_mismatch() {
+async fn test_passkey_login_uses_credential_account_even_with_a_stale_identifier() {
     let state = common::setup_with_memory_cache().await;
     configure_passkey_public_site_url(&state);
     let app = create_test_app!(state.clone());
@@ -6642,7 +6598,8 @@ async fn test_passkey_login_rejects_identifier_mismatch() {
         .unwrap()
         .unwrap();
 
-    let (flow_id, challenge) = passkey_login_start(&app, Some("otheruser")).await;
+    let (flow_id, challenge) =
+        passkey_login_start(&app, serde_json::json!({ "identifier": "otheruser" })).await;
     assert!(challenge.public_key.allow_credentials.is_empty());
     let (challenge, user_handle) = allow_test_passkey_credential(challenge, &stored_passkey);
     let mut credential = softpasskey
@@ -6652,8 +6609,16 @@ async fn test_passkey_login_rejects_identifier_mismatch() {
     let credential = serde_json::to_value(credential).expect("credential should serialize");
 
     let resp = passkey_login_finish(&app, &flow_id, credential).await;
-    assert_eq!(resp.status(), 401);
-    assert!(common::extract_cookie(&resp, "aster_access").is_none());
+    assert_eq!(resp.status(), 200);
+    let access = common::extract_cookie(&resp, "aster_access").unwrap();
+    let req = test::TestRequest::get()
+        .uri("/api/v1/auth/me")
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["id"], user_id);
 }
 
 #[actix_web::test]
@@ -6763,7 +6728,7 @@ async fn test_passkey_delete_prevents_future_login() {
     let req = test::TestRequest::post()
         .uri("/api/v1/auth/passkeys/login/start")
         .insert_header(("Origin", TEST_BROWSER_ORIGIN))
-        .set_json(serde_json::json!({ "identifier": "testuser" }))
+        .set_json(serde_json::json!({}))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
@@ -6812,7 +6777,7 @@ async fn test_passkey_disabled_user_cannot_login() {
     let req = test::TestRequest::post()
         .uri("/api/v1/auth/passkeys/login/start")
         .insert_header(("Origin", TEST_BROWSER_ORIGIN))
-        .set_json(serde_json::json!({ "identifier": "testuser" }))
+        .set_json(serde_json::json!({}))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);

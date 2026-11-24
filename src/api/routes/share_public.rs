@@ -27,12 +27,12 @@ use crate::services::{
     task,
     user::profile,
 };
-use actix_governor::Governor;
 use actix_web::FromRequest;
 use actix_web::dev::Payload;
 use actix_web::http::header;
 use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};
+use aster_forge_middleware::actix::rate_limit::RateLimit;
 use futures::future::LocalBoxFuture;
 
 const SHARE_COOKIE_PREFIX: &str = "aster_share_";
@@ -179,15 +179,15 @@ pub fn routes(
     rl: &RateLimitConfig,
     network_trust: &NetworkTrustConfig,
 ) -> impl actix_web::dev::HttpServiceFactory + use<> {
-    let limiter = rate_limit::build_governor(&rl.public, &network_trust.trusted_proxies);
-    let verify_limiter = rate_limit::build_governor(&rl.auth, &network_trust.trusted_proxies);
+    let limiter = rate_limit::build_rate_limit(&rl.public, &network_trust.trusted_proxies);
+    let verify_limiter = rate_limit::build_rate_limit(&rl.auth, &network_trust.trusted_proxies);
 
     web::scope("/s")
-        .wrap(Condition::new(rl.enabled, Governor::new(&limiter)))
+        .wrap(Condition::new(rl.enabled, RateLimit::new(&limiter)))
         .route("/{token}", web::get().to(get_share_info))
         .service(
             web::resource("/{token}/verify")
-                .wrap(Condition::new(rl.enabled, Governor::new(&verify_limiter)))
+                .wrap(Condition::new(rl.enabled, RateLimit::new(&verify_limiter)))
                 .route(web::post().to(verify_password)),
         )
         .route("/{token}/preview-link", web::post().to(create_preview_link))
@@ -262,14 +262,14 @@ pub fn direct_routes(
     rl: &RateLimitConfig,
     network_trust: &NetworkTrustConfig,
 ) -> impl actix_web::dev::HttpServiceFactory + use<> {
-    let limiter = rate_limit::build_governor(&rl.public, &network_trust.trusted_proxies);
+    let limiter = rate_limit::build_rate_limit(&rl.public, &network_trust.trusted_proxies);
 
     (
         web::resource("/d/{token}/{filename}")
-            .wrap(Condition::new(rl.enabled, Governor::new(&limiter)))
+            .wrap(Condition::new(rl.enabled, RateLimit::new(&limiter)))
             .route(web::get().to(download_direct)),
         web::resource("/pv/{token}/{filename}")
-            .wrap(Condition::new(rl.enabled, Governor::new(&limiter)))
+            .wrap(Condition::new(rl.enabled, RateLimit::new(&limiter)))
             .route(web::get().to(download_preview)),
     )
 }

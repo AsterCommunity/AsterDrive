@@ -850,10 +850,7 @@ function useLoginPageController() {
 			conditionalPasskeyAbortRef.current?.abort();
 			conditionalPasskeyAbortRef.current = null;
 			setPasskeySubmitting(true);
-			const trimmedIdentifier = identifier.trim();
-			const start = await authService.startPasskeyLogin(
-				trimmedIdentifier.length > 0 ? { identifier: trimmedIdentifier } : {},
-			);
+			const start = await authService.startPasskeyLogin();
 			const credential = await getPasskeyCredential(start.public_key);
 			await finishPasskeyLogin(start.flow_id, credential);
 		} catch (error) {
