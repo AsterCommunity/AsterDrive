@@ -147,6 +147,8 @@ async fn service_roles_start_and_worker_does_not_expose_product_routes() {
             role == "worker"
         );
         assert!(process.runtime_dir().join("instance/config.toml").is_file());
+        #[cfg(target_os = "linux")]
+        assert!(process.runtime_dir().join("instance/crash.log").is_file());
         assert!(
             process
                 .runtime_dir()

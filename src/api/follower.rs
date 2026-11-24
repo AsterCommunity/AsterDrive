@@ -1,11 +1,9 @@
 use super::common::api_not_found;
 use super::routes;
 use actix_web::web;
+use aster_forge_metrics::ObservabilityConfig;
 
-pub fn configure_follower(
-    cfg: &mut web::ServiceConfig,
-    observability: &crate::config::metrics::ObservabilityConfig,
-) {
+pub fn configure_follower(cfg: &mut web::ServiceConfig, observability: &ObservabilityConfig) {
     // follower 侧同样以 app data 提供可信网络，internal 端点的审计语义与 primary 一致。
     let network_trust = crate::config::try_get_config()
         .map(|config| config.network_trust.clone())

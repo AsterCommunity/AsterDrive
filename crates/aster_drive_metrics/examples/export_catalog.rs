@@ -11,7 +11,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     )?;
     let provider = provider
-        .with_profile("aster", "aster-metrics/v1")?
+        .with_profile(
+            "com.astercosm.drive",
+            aster_forge_metrics::METRICS_PROFILE_VERSION,
+        )?
         .with_prometheus()?
         .build()?;
     let _recorder = aster_drive_metrics::create_metrics_recorder(provider.clone())?;
@@ -28,7 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "{}",
         serde_json::to_string_pretty(
-            &serde_json::json!({"schema":"aster-metrics/v1","semantic_conventions":"1.44.0","instruments":instruments})
+            &serde_json::json!({"schema":aster_forge_metrics::METRICS_PROFILE_VERSION,"semantic_conventions":"1.44.0","instruments":instruments})
         )?
     );
     Ok(())

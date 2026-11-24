@@ -11,18 +11,20 @@ impl CliContext {
     pub fn existing(location: &ConfigLocation, database_url: Option<&str>) -> Result<Self> {
         let require_existing =
             database_url.is_none() && std::env::var_os("ASTER__DATABASE__URL").is_none();
-        let config = location.load_read_only(require_existing)?;
-        let mut database = config.database.clone();
+        let mut config = location.load_read_only(require_existing)?;
         if let Some(url) = database_url {
             if url.trim().is_empty() {
                 return Err(AsterError::validation_error(
                     "--database-url must not be empty",
                 ));
             }
-            database.url = url.into();
+            config.database.url = url.into();
         }
-        database.pool_size = 1;
-        database.retry_count = 0;
+        let database = DatabaseConfig {
+            pool_size: 1,
+            retry_count: 0,
+            ..config.database.clone()
+        };
         Ok(Self { config, database })
     }
 }

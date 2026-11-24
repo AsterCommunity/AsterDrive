@@ -73,6 +73,12 @@ impl DeploymentConfig {
     }
 }
 
+impl aster_forge_config::ValidatableConfig for DeploymentConfig {
+    fn validate(&self) -> aster_forge_config::Result<()> {
+        Ok(())
+    }
+}
+
 pub fn static_issues(config: &Config, database_url_override: Option<&str>) -> Vec<String> {
     if !config.deployment.requires_shared_runtime() {
         return Vec::new();

@@ -141,7 +141,7 @@ Grafana 示例账号是 `admin` / `admin`。生产环境应改成独立强密码
 
 ## Grafana dashboard
 
-本版使用 **Aster Metrics v1**，旧指标不再导出。应用与 Grafana JSON 一起升级，自定义告警/recording rules 按[生成指标目录](/metrics/asterdrive-v1.json)迁移，不能把新旧 schema 相加。CPU 是秒累计 Counter，速率不再除以 1000。HTTP 请求量来自 duration count，状态标签为 http_response_status_code；DB 错误用 error_type 非空。HTTP duration 到响应体结束，长下载与旧 header 完成口径不可直接比较。
+本版使用 **Aster Metrics v1**，profile namespace 为 `com.astercosm.drive`，schema token 为 `astercosm-metrics/v1`。旧指标不再导出。应用、Grafana JSON、collector 过滤器和自定义告警/recording rules 一起升级，按[生成指标目录](/metrics/asterdrive-v1.json)迁移，不能把新旧 schema 相加，也不改写旧 TSDB 历史。CPU 是秒累计 Counter，速率不再除以 1000。HTTP 请求量来自 duration count，状态标签为 http_response_status_code；DB 错误用 error_type 非空。HTTP duration 到响应体结束，长下载与旧 header 完成口径不可直接比较。
 
 AsterDrive 文档站提供可直接导入的 Grafana dashboard JSON。官方文档站和自托管文档站都会在站点根路径下分发这个文件：
 
@@ -288,7 +288,7 @@ OTLP resource 包含 service/version/environment/role，以及每次启动生成
 | `otlp-metrics` | otlp_metrics=true | 不存在 |
 | 两个 feature | 分别开启 | 只有 prometheus=true 才存在 |
 
-未编译的 exporter 即使配置启用也会跳过，不校验其专属设置、不启动采样/推送，也不阻断服务启动。只有已编译且显式启用的 exporter 才参与运行；全部 exporter 不生效时为 Noop。新增 blob 待清理起始时间作为持久状态始终随引用计数维护，保证以后开启观测时年龄正确，不受 metrics feature 影响；没有因此增加业务 DB 往返。
+未编译的 exporter 及其专属设置视为省略。只有已编译且显式启用的 exporter 才参与运行；没有生效的 exporter 时为 Noop。CLI 运维命令不启动 exporter。新增 blob 待清理起始时间作为持久状态始终随引用计数维护，保证以后开启观测时年龄正确，不受 metrics feature 影响；没有因此增加业务 DB 往返。
 
 
 本地冒烟验证可将 metrics endpoint 指向 `http://127.0.0.1:4318/v1/metrics`，并用以下配置启动 OpenTelemetry Collector。只接收 metrics 并打印诊断，不启用 traces，也不提供持久化；本次文档更新未实际运行 Collector。

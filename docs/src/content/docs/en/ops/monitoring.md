@@ -141,7 +141,7 @@ The sample Grafana account is `admin` / `admin`. In production, change it to an 
 
 ## Grafana Dashboard
 
-This version uses **Aster Metrics v1**. Upgrade the application and Grafana JSON together; migrate custom rules using the [generated catalog](/metrics/asterdrive-v1.json), and never sum old and new schemas. CPU is a seconds-based Counter; do not divide its rate by 1000. HTTP volume comes from duration count with http_response_status_code; DB errors have a nonempty error_type. HTTP duration includes response-body completion, changing long-download comparisons with the former header-only boundary.
+This version uses **Aster Metrics v1**, with profile namespace `com.astercosm.drive` and schema token `astercosm-metrics/v1`. Upgrade the application, Grafana JSON, collector filters, and custom rules together using the [generated catalog](/metrics/asterdrive-v1.json); never sum old and new schemas, and do not rewrite old TSDB history. CPU is a seconds-based Counter; do not divide its rate by 1000. HTTP volume comes from duration count with http_response_status_code; DB errors have a nonempty error_type. HTTP duration includes response-body completion, changing long-download comparisons with the former header-only boundary.
 
 The AsterDrive docs site provides a Grafana dashboard JSON that can be imported directly. Both the official docs site and self-hosted docs sites distribute this file from the site root:
 
@@ -286,7 +286,7 @@ OTLP resource identity includes service/version/environment/role and the automat
 | `otlp-metrics` | otlp_metrics=true | Absent |
 | Both features | independent enablement | Present only with prometheus=true |
 
-An exporter absent from the build is skipped even when enabled in configuration: its specific settings are ignored, it starts no sampling/push workers, and it does not block startup. Only compiled and explicitly enabled exporters run; when none are active, the provider is Noop. Persistent blob cleanup timestamps are maintained with reference-count writes in every build, so enabling metrics later retains useful ages; this adds no business DB round trips.
+Exporters absent from the build are treated as omitted, including their exporter-specific settings. Only compiled and explicitly enabled exporters run; when none are active, the provider is Noop. Operational CLI commands do not start exporters. Persistent blob cleanup timestamps are maintained with reference-count writes in every build, so enabling metrics later retains useful ages; this adds no business DB round trips.
 
 
 For a local smoke test, point the metrics endpoint at `http://127.0.0.1:4318/v1/metrics` and run an OpenTelemetry Collector with the following configuration. This accepts metrics only and prints diagnostics; it does not enable traces or persistent storage. No Collector instance was run for this documentation update.

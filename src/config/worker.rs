@@ -40,6 +40,14 @@ impl WorkerConfig {
     }
 }
 
+impl aster_forge_config::ValidatableConfig for WorkerConfig {
+    fn validate(&self) -> aster_forge_config::Result<()> {
+        Self::validate(self).map_err(|error| {
+            aster_forge_config::ConfigCoreError::invalid_value(error.message().to_string())
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

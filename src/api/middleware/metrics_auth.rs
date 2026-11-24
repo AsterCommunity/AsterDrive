@@ -1,10 +1,9 @@
 //! Authentication policy for the Forge exposition handler only.
 
 use actix_web::{HttpRequest, HttpResponse, http::header};
-use base64::{Engine, prelude::BASE64_STANDARD};
-
-use crate::config::metrics::MetricsBasicAuthConfig;
 use aster_forge_auth::PasswordHashRuntime;
+use aster_forge_metrics::MetricsBasicAuthConfig;
+use base64::{Engine, prelude::BASE64_STANDARD};
 
 /// One limiter per process, shared by HTTP workers and independent of login.
 /// A permit remains owned by the blocking job even if the HTTP future is dropped.
@@ -101,9 +100,10 @@ mod tests {
         PasswordHashPolicy, PasswordHashVerificationLimits, PasswordHashWorkFactor,
         hash_password_with_policy,
     };
+    use aster_forge_metrics::ObservabilityConfig;
 
-    fn enabled_config() -> crate::config::metrics::ObservabilityConfig {
-        let mut config = crate::config::metrics::ObservabilityConfig::default();
+    fn enabled_config() -> ObservabilityConfig {
+        let mut config = ObservabilityConfig::default();
         config.prometheus.enabled = true;
         config
     }

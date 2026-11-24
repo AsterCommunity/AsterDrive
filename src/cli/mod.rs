@@ -14,10 +14,12 @@ pub enum CommandOutcome {
 }
 
 /// Parses arguments and runs an operational command or selects server startup.
-pub async fn run() -> std::io::Result<CommandOutcome> {
+pub async fn run(
+    prepare_panic: &impl Fn(&std::path::Path, bool),
+) -> std::io::Result<CommandOutcome> {
     use clap::FromArgMatches;
     let mut command = app::command();
     let cli = app::RootCli::from_arg_matches(&command.clone().get_matches())
         .unwrap_or_else(|error| error.exit());
-    dispatch::execute(cli, &mut command).await
+    dispatch::execute(cli, &mut command, prepare_panic).await
 }
