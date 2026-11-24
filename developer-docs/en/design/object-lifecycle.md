@@ -8,6 +8,8 @@ A warm deduplication hit locks and validates the current blob in the file/quota 
 
 Both streaming and multipart migrations verify the candidate's full length and digest before publishing metadata. A competing deduplication winner is verified and merged rather than overwritten or deleted.
 
+After a MySQL blob publication conflict, the retry reads the committed winner with a locking read. This applies to stored blobs and virtual empty blobs when the publishing transaction already has a repeatable-read snapshot.
+
 Cleanup atomically claims `ref_count = 0 -> -1`. Repair and failed deletion never reopen that generation for adoption. Expired claims retry the same physical generation after a locked recount, using the existing ten-minute window and renewing the attempt timestamp. Metadata retirement compares the row ID, cleanup state and persisted physical path.
 
 Historical policies can share one local object. Cleanup uses the writer's `idx_file_blobs_storage_path` lookup and resolved local paths to find other owners, including zero-reference and cleanup-claimed rows. It retires only its own metadata while another owner remains. More than 128 candidates, or ambiguous non-local identity, conservatively retain bytes with bounded allocation. Concurrent retirement can leave an orphan; `retained_shared` does not report physical bytes freed.

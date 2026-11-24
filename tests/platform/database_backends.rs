@@ -1536,6 +1536,79 @@ async fn test_mysql_smoke_search_and_admin_overview() {
     exercise_backend_smoke(&database_url, DbBackend::MySql).await;
 }
 
+#[actix_web::test]
+async fn test_mysql_blob_publication_adopts_winner_after_snapshot_is_opened() {
+    use aster_drive::db::repository::{file_repo, policy_repo};
+    use sea_orm::{IsolationLevel, TransactionTrait};
+
+    let database_url = common::mysql_test_database_url().await;
+    let state = common::setup_with_database_url(&database_url).await;
+    let db = state.writer_db();
+    let policy = policy_repo::find_default(db).await.unwrap().unwrap();
+    let config = aster_drive::config::DatabaseConfig {
+        url: database_url.into(),
+        pool_size: 1,
+        retry_count: 0,
+    };
+    let competitor =
+        aster_drive::db::connect_with_metrics(&config, aster_drive_metrics::NoopMetrics::arc())
+            .await
+            .unwrap();
+
+    for (hash, backing) in [
+        ("shared-content", FileBlobBacking::Stored),
+        (
+            file_blob::Model::EMPTY_SHA256,
+            FileBlobBacking::VirtualEmpty,
+        ),
+    ] {
+        let losing_txn = db
+            .begin_with_config(Some(IsolationLevel::RepeatableRead), None)
+            .await
+            .unwrap();
+        assert_eq!(
+            file_blob::Entity::find().count(&losing_txn).await.unwrap(),
+            0
+        );
+
+        let winner = match backing {
+            FileBlobBacking::Stored => {
+                file_repo::find_or_create_blob(&competitor, hash, 1, policy.id, "objects/winner")
+                    .await
+            }
+            FileBlobBacking::VirtualEmpty => {
+                file_repo::find_or_create_virtual_empty_blob(&competitor, hash, policy.id).await
+            }
+        }
+        .unwrap();
+        assert!(winner.inserted);
+
+        let adopted = match backing {
+            FileBlobBacking::Stored => {
+                file_repo::find_or_create_blob(&losing_txn, hash, 1, policy.id, "objects/loser")
+                    .await
+            }
+            FileBlobBacking::VirtualEmpty => {
+                file_repo::find_or_create_virtual_empty_blob(&losing_txn, hash, policy.id).await
+            }
+        }
+        .unwrap();
+        assert!(!adopted.inserted);
+        assert_eq!(adopted.model.id, winner.model.id);
+        assert_eq!(adopted.model.storage_path, winner.model.storage_path);
+        assert_eq!(adopted.model.ref_count, 2);
+        losing_txn.commit().await.unwrap();
+        assert_eq!(
+            file_repo::find_blob_by_id(db, winner.model.id)
+                .await
+                .unwrap()
+                .ref_count,
+            2
+        );
+        file_repo::delete_blob(db, winner.model.id).await.unwrap();
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_mysql_concurrent_fresh_database_migrations_are_serialized() {
     let database_url = common::mysql_test_database_url().await;
