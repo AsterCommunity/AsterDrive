@@ -20,19 +20,19 @@ use crate::services::{
     task,
     workspace::storage::WorkspaceStorageScope,
 };
-use actix_governor::Governor;
 use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};
+use aster_forge_middleware::actix::rate_limit::RateLimit;
 
 pub fn routes(
     rl: &RateLimitConfig,
     network_trust: &NetworkTrustConfig,
 ) -> impl actix_web::dev::HttpServiceFactory + use<> {
-    let limiter = rate_limit::build_governor(&rl.write, &network_trust.trusted_proxies);
+    let limiter = rate_limit::build_rate_limit(&rl.write, &network_trust.trusted_proxies);
 
     web::scope("/batch")
         .wrap(JwtAuth)
-        .wrap(Condition::new(rl.enabled, Governor::new(&limiter)))
+        .wrap(Condition::new(rl.enabled, RateLimit::new(&limiter)))
         .route("/delete", web::post().to(batch_delete))
         .route("/move", web::post().to(batch_move))
         .route("/copy", web::post().to(batch_copy))

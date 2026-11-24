@@ -13,19 +13,19 @@ use crate::services::{
     auth::local::Claims, files::batch, ops::audit::AuditContext,
     workspace::storage::WorkspaceStorageScope,
 };
-use actix_governor::Governor;
 use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};
+use aster_forge_middleware::actix::rate_limit::RateLimit;
 
 pub fn routes(
     rl: &RateLimitConfig,
     network_trust: &NetworkTrustConfig,
 ) -> impl actix_web::dev::HttpServiceFactory + use<> {
-    let limiter = rate_limit::build_governor(&rl.write, &network_trust.trusted_proxies);
+    let limiter = rate_limit::build_rate_limit(&rl.write, &network_trust.trusted_proxies);
 
     web::scope("/workspace-transfer")
         .wrap(JwtAuth)
-        .wrap(Condition::new(rl.enabled, Governor::new(&limiter)))
+        .wrap(Condition::new(rl.enabled, RateLimit::new(&limiter)))
         .route("/copy", web::post().to(copy_to_workspace))
         .route("/move", web::post().to(move_to_workspace))
 }

@@ -3,9 +3,9 @@
 use crate::api::middleware::auth::JwtAuth;
 use crate::api::middleware::rate_limit;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
-use actix_governor::Governor;
 use actix_web::middleware::Condition;
 use actix_web::web;
+use aster_forge_middleware::actix::rate_limit::RateLimit;
 
 pub mod access;
 pub mod mutations;
@@ -51,11 +51,11 @@ pub fn routes(
     rl: &RateLimitConfig,
     network_trust: &NetworkTrustConfig,
 ) -> impl actix_web::dev::HttpServiceFactory + use<> {
-    let limiter = rate_limit::build_governor(&rl.api, &network_trust.trusted_proxies);
+    let limiter = rate_limit::build_rate_limit(&rl.api, &network_trust.trusted_proxies);
 
     web::scope("/files")
         .wrap(JwtAuth)
-        .wrap(Condition::new(rl.enabled, Governor::new(&limiter)))
+        .wrap(Condition::new(rl.enabled, RateLimit::new(&limiter)))
         // Web app "new file" action for empty text/document placeholders.
         .route("/new", web::post().to(create_empty))
         // Web app resumable upload bootstrap; placed before /{id} to avoid conflicts.

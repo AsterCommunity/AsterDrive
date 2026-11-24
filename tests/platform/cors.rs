@@ -215,12 +215,12 @@ impl aster_forge_metrics::MetricsRecorder for CorsMetricsProbe {
 
 #[actix_web::test]
 async fn test_runtime_cors_rejection_and_rate_limit_keep_outer_response_middleware() {
-    use actix_governor::Governor;
+    use aster_forge_middleware::actix::rate_limit::RateLimit;
     use std::num::{NonZeroU32, NonZeroU64};
     let state = configured_cors_state().await;
     let metrics = Arc::new(CorsMetricsProbe::default());
     let recorder: aster_forge_metrics::SharedMetricsRecorder = metrics.clone();
-    let governor = aster_drive::api::middleware::rate_limit::build_governor(
+    let limiter = aster_drive::api::middleware::rate_limit::build_rate_limit(
         &aster_drive::config::RateLimitTier {
             seconds_per_request: NonZeroU64::new(3600).unwrap(),
             burst_size: NonZeroU32::new(1).unwrap(),
@@ -239,7 +239,7 @@ async fn test_runtime_cors_rejection_and_rate_limit_keep_outer_response_middlewa
             .app_data(web::Data::new(recorder))
             .service(
                 web::resource("/probe")
-                    .wrap(Governor::new(&governor))
+                    .wrap(RateLimit::new(&limiter))
                     .to(move || {
                         handler_calls.fetch_add(1, Ordering::SeqCst);
                         async { actix_web::HttpResponse::Ok().finish() }
@@ -278,7 +278,11 @@ async fn test_runtime_cors_rejection_and_rate_limit_keep_outer_response_middlewa
             "nosniff"
         );
         if expected_status == 429 {
-            assert!(response.headers().contains_key("Retry-After"));
+            let retry_after = response.headers().get("Retry-After").unwrap();
+            assert_eq!(
+                response.headers().get("X-RateLimit-After"),
+                Some(retry_after)
+            );
             assert_eq!(
                 response
                     .headers()

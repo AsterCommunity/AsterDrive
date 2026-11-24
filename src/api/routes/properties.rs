@@ -12,19 +12,19 @@ use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{auth::local::Claims, content::property, ops::audit};
-use actix_governor::Governor;
 use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};
+use aster_forge_middleware::actix::rate_limit::RateLimit;
 
 pub fn routes(
     rl: &RateLimitConfig,
     network_trust: &NetworkTrustConfig,
 ) -> impl actix_web::dev::HttpServiceFactory + use<> {
-    let limiter = rate_limit::build_governor(&rl.api, &network_trust.trusted_proxies);
+    let limiter = rate_limit::build_rate_limit(&rl.api, &network_trust.trusted_proxies);
 
     web::scope("/properties")
         .wrap(JwtAuth)
-        .wrap(Condition::new(rl.enabled, Governor::new(&limiter)))
+        .wrap(Condition::new(rl.enabled, RateLimit::new(&limiter)))
         .route("/{entity_type}/{entity_id}", web::get().to(list_props))
         .route("/{entity_type}/{entity_id}", web::put().to(set_prop))
         .route(

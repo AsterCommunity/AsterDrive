@@ -14,22 +14,22 @@ use crate::services::{
     task,
     workspace::storage::WorkspaceStorageScope,
 };
-use actix_governor::Governor;
 use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};
 use aster_forge_api::LimitOffsetQuery;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use aster_forge_api::OffsetPage;
+use aster_forge_middleware::actix::rate_limit::RateLimit;
 
 pub fn routes(
     rl: &RateLimitConfig,
     network_trust: &NetworkTrustConfig,
 ) -> impl actix_web::dev::HttpServiceFactory + use<> {
-    let limiter = rate_limit::build_governor(&rl.api, &network_trust.trusted_proxies);
+    let limiter = rate_limit::build_rate_limit(&rl.api, &network_trust.trusted_proxies);
 
     web::scope("/tasks")
         .wrap(JwtAuth)
-        .wrap(Condition::new(rl.enabled, Governor::new(&limiter)))
+        .wrap(Condition::new(rl.enabled, RateLimit::new(&limiter)))
         .route("", web::get().to(list_tasks))
         .route("/offline-download", web::post().to(create_offline_download))
         .route("/{id}", web::get().to(get_task))
