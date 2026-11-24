@@ -220,7 +220,6 @@ pub struct PatchPasskeyReq {
 #[derive(Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PasskeyLoginStartReq {
-    pub identifier: Option<String>,
     pub conditional: Option<bool>,
 }
 

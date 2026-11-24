@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Passkey sign-in** — The verified passkey selects the account even when the login form contains a different username or email. The passkey challenge endpoint no longer takes `identifier`. (#754)
+
 - **Follower readiness** — An unconfigured follower returns `200 + needs_binding`. Enabled bindings require recent successful master control-plane communication; missing or expired evidence returns 503 and clears runtime readiness. `server.follower.master_readiness_timeout_secs` defaults to 90 seconds and must exceed the 60-second control-plane cycle; disabled bindings are intentionally offline. (#755)
 
 ## [v0.7.2] - 2026-11-08

@@ -7787,7 +7787,6 @@ export interface components {
         /** @description Start a passkey login challenge. */
         PasskeyLoginStartReq: {
             conditional?: boolean | null;
-            identifier?: string | null;
         };
         /** @description Finish registering a passkey for the authenticated user. */
         PasskeyRegisterFinishReq: {

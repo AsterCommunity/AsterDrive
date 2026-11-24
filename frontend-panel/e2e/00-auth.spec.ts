@@ -268,7 +268,7 @@ test.describe
 			});
 		});
 
-		test("passes the typed identifier to explicit passkey login", async ({
+		test("ignores a different typed identifier during explicit passkey login", async ({
 			page,
 			request,
 		}) => {
@@ -280,8 +280,7 @@ test.describe
 			await capturePasskeyGetCalls(page);
 			await installPasskeyBrowserMock(page, { conditionalAvailable: false });
 			const passkeyRequests = await mockPasskeyLoginEndpoints(page, {
-				expectStartPayload: (payload) =>
-					expect(payload).toEqual({ identifier: "admin@example.com" }),
+				expectStartPayload: (payload) => expect(payload).toEqual({}),
 			});
 			await page.route("**/api/v1/auth/me", async (route) => {
 				await route.fulfill({
@@ -305,13 +304,11 @@ test.describe
 			});
 
 			await page.goto("/login");
-			await page.getByLabel("Email or username").fill("admin@example.com");
+			await page.getByLabel("Email or username").fill("other@example.com");
 			await page.getByRole("button", { name: "Sign in with passkey" }).click();
 			await expect(page).toHaveURL(/\/$/);
 
-			expect(passkeyRequests.startPayloads).toEqual([
-				{ identifier: "admin@example.com" },
-			]);
+			expect(passkeyRequests.startPayloads).toEqual([{}]);
 			expect(passkeyRequests.finishPayloads).toHaveLength(1);
 			const calls = await readPasskeyGetCalls(page);
 			expect(calls).toContainEqual({

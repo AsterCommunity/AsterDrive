@@ -230,8 +230,8 @@ Passkey uses a two-step WebAuthn flow. Challenge responses and credential reques
 
 Login:
 
-- `POST /auth/passkeys/login/start`: body may include `{ "identifier": "alice", "conditional": false }`; `identifier` may be omitted for conditional UI / discoverable credentials
-- `POST /auth/passkeys/login/finish`: body is `{ "flow_id": "...", "credential": { ... } }`; success writes the same cookies as password login
+- `POST /auth/passkeys/login/start`: send `{}` for explicit login or `{ "conditional": true }` for conditional UI. Both use discoverable credentials.
+- `POST /auth/passkeys/login/finish`: body is `{ "flow_id": "...", "credential": { ... } }`; the verified passkey determines the account. Success writes the same cookies as password login.
 
 Registration and management require login:
 

@@ -159,7 +159,7 @@ describe("authService", () => {
 		await expect(authService.refreshToken()).resolves.toEqual({
 			expiresIn: 900,
 		});
-		authService.startPasskeyLogin({ identifier: "alice@example.com" });
+		authService.startPasskeyLogin();
 		await expect(
 			authService.finishPasskeyLogin("login-flow", { id: "cred" }),
 		).resolves.toEqual({ status: "authenticated", expiresIn: 900 });
@@ -229,9 +229,7 @@ describe("authService", () => {
 		expect(mockState.post).toHaveBeenNthCalledWith(
 			10,
 			"/auth/passkeys/login/start",
-			{
-				identifier: "alice@example.com",
-			},
+			{},
 		);
 		expect(mockState.post).toHaveBeenNthCalledWith(
 			11,

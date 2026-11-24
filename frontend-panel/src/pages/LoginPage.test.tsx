@@ -1570,7 +1570,7 @@ describe("LoginPage", () => {
 		);
 
 		await waitFor(() => {
-			expect(mockState.startPasskeyLogin).toHaveBeenCalledWith({});
+			expect(mockState.startPasskeyLogin).toHaveBeenCalledWith();
 		});
 		await waitFor(() => {
 			expect(mockState.getPasskeyCredential).toHaveBeenCalledWith({
@@ -1617,7 +1617,7 @@ describe("LoginPage", () => {
 		expect(mockState.toastSuccess).not.toHaveBeenCalledWith("login_success");
 	});
 
-	it("passes a trimmed identifier into explicit passkey login", async () => {
+	it("signs in with the selected passkey regardless of the typed identifier", async () => {
 		mockState.webAuthnSupported = true;
 
 		render(<LoginPage />);
@@ -1628,9 +1628,11 @@ describe("LoginPage", () => {
 		fireEvent.click(screen.getByRole("button", { name: /passkey_sign_in/ }));
 
 		await waitFor(() => {
-			expect(mockState.startPasskeyLogin).toHaveBeenCalledWith({
-				identifier: "user@example.com",
+			expect(mockState.startPasskeyLogin).toHaveBeenCalledWith();
+			expect(mockState.finishPasskeyLogin).toHaveBeenCalledWith("flow-1", {
+				id: "credential-1",
 			});
+			expect(mockState.navigate).toHaveBeenCalledWith("/", { replace: true });
 		});
 	});
 
