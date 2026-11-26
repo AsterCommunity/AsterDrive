@@ -1,3 +1,6 @@
+//! 运行时系统配置动作服务：执行设置界面触发的内建动作（SMTP 测试、CLI 探测、
+//! WOPI discovery 导入、aria2 RPC 探测）并统一记录审计。
+
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::{media_processing, operations};
 use crate::db::repository::user_repo;
@@ -20,22 +23,31 @@ use utoipa::ToSchema;
 
 use super::system::set;
 
+/// Action target key identifying the mail configuration subsystem.
 pub const MAIL_CONFIG_ACTION_KEY: &str = "mail";
 const PREVIEW_APP_DISCOVERY_GENERATED_SEGMENT: &str = "__wopi_discovery__";
 
+/// A built-in action that can be invoked on a config target from the settings UI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum ConfigActionType {
+    /// Rebuild the WOPI preview app registry from a discovery URL.
     BuildWopiDiscoveryPreviewConfig,
+    /// Send a test email through the configured SMTP settings.
     SendTestEmail,
+    /// Probe the configured `vips` CLI command.
     TestVipsCli,
+    /// Probe the configured `ffmpeg` CLI command.
     TestFfmpegCli,
+    /// Probe the configured `ffprobe` CLI command.
     TestFfprobeCli,
+    /// Probe the configured aria2 RPC endpoint.
     TestAria2Rpc,
 }
 
 impl ConfigActionType {
+    /// Returns the canonical snake_case action identifier used in audit details.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::BuildWopiDiscoveryPreviewConfig => "build_wopi_discovery_preview_config",
@@ -48,24 +60,37 @@ impl ConfigActionType {
     }
 }
 
+/// Outcome of a successful config action, presented back to the admin UI.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigActionResult {
+    /// Human-readable result message, already localized for display.
     pub message: String,
+    /// Recipient address for mail actions; empty for other action kinds.
     pub target_email: Option<String>,
+    /// Computed payload (e.g. the rebuilt preview apps JSON) when the action produces one.
     pub value: Option<String>,
 }
 
+/// Inputs for executing one config action against a config target key.
 #[derive(Debug, Clone, Copy)]
 pub struct ExecuteConfigActionInput<'a> {
+    /// Config key identifying the action target (e.g. [`MAIL_CONFIG_ACTION_KEY`]).
     pub key: &'a str,
+    /// Action to perform; must be supported by the target key.
     pub action: ConfigActionType,
+    /// ID of the authenticated user triggering the action, for audit logging.
     pub actor_user_id: i64,
+    /// Unsaved editor values; preferred over stored runtime config values.
     pub draft_values: Option<&'a BTreeMap<String, String>>,
+    /// Optional recipient overriding the actor's own email for the test email action.
     pub target_email: Option<&'a str>,
+    /// Optional config value override for the target key, replacing the stored value.
     pub value: Option<&'a str>,
+    /// WOPI discovery document URL for the discovery import action.
     pub discovery_url: Option<&'a str>,
 }
 
+/// Executes the action selected by `input.key` and records a config action audit entry.
 pub async fn execute_action_with_audit(
     state: &impl MailRuntimeState,
     input: ExecuteConfigActionInput<'_>,

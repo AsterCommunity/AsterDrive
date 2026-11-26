@@ -5,6 +5,7 @@ use aster_drive_storage::{MapStorageErr, Result, StorageErrorKind, storage_drive
 
 use super::DEFAULT_LOCAL_STORAGE_PATH;
 
+/// 返回生效的本地存储根目录；配置为空时回退到默认上传目录。
 pub fn effective_base_path(base_path: &str) -> PathBuf {
     if base_path.is_empty() {
         PathBuf::from(DEFAULT_LOCAL_STORAGE_PATH)
@@ -110,6 +111,8 @@ pub(super) fn resolve_path_within_root(
     }
 }
 
+/// 解析并 canonicalize 本地存储根目录；不存在的祖先段按缺失路径补回，
+/// 避免根目录尚未创建时解析失败。
 pub fn resolved_base_path(base_path: &str) -> Result<PathBuf> {
     resolve_existing_path(&effective_base_path(base_path))
 }
@@ -135,6 +138,7 @@ pub(super) fn sanitize_relative_path(path: &str) -> Result<PathBuf> {
     Ok(safe)
 }
 
+/// 解析上传暂存路径，并确保解析结果仍落在存储根目录内。
 pub fn upload_staging_path(base_path: &str, name: &str) -> Result<PathBuf> {
     let root = resolved_base_path(base_path)?;
     let relative = aster_drive_storage::object_path::local_upload_staging_path(name)?;

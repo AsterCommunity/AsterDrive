@@ -17,15 +17,20 @@ use crate::storage::remote_protocol::RemoteStorageTargetRuntimeCapabilities;
 use aster_drive_model::entities::managed_follower;
 use aster_drive_storage::object_key;
 
+/// 远端节点存储驱动配置。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteDriverConfig {
+    /// 拼接在每条 driver 相对路径之前的对象 key 前缀。
     pub base_path: String,
+    /// follower 上标识远端存储策略的 storage target key。
     pub remote_storage_target_key: String,
+    /// 下发给远端节点策略校验的单文件大小上限（字节）。
     pub max_file_size: i64,
     /// Maximum time spent acquiring a probe slot and querying remote-node capacity.
     pub capacity_probe_timeout: std::time::Duration,
 }
 
+/// 通过远端存储协议把对象 I/O 委托给 managed 远端节点执行的驱动。
 pub struct RemoteDriver {
     client: RemoteStorageClient,
     base_path: String,
@@ -40,6 +45,7 @@ pub struct RemoteDriver {
 }
 
 impl RemoteDriver {
+    /// 从 follower 记录构建驱动：校验协议兼容性并采纳其上报的 compose/multipart 限制。
     pub fn new(config: &RemoteDriverConfig, follower: &managed_follower::Model) -> Result<Self> {
         Self::from_client(
             config,

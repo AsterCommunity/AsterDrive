@@ -53,12 +53,20 @@ fn redact_sensitive_details(value: &mut Value) {
     }
 }
 
+/// Deserializes stored audit details and removes sensitive keys recursively.
+///
+/// Returns `None` when `raw` is absent or not valid JSON; the caller keeps
+/// the rest of the entry readable instead of failing the query.
 pub fn sanitize_details(raw: Option<&str>) -> Option<String> {
     let mut details = serde_json::from_str::<Value>(raw?).ok()?;
     redact_sensitive_details(&mut details);
     Some(details.to_string())
 }
 
+/// Returns the entity display name with share tokens stripped out.
+///
+/// Share entities are keyed by their share token, so their names are dropped
+/// entirely rather than persisted or echoed back to clients.
 pub fn sanitize_entity_name(entity_type: &str, value: Option<String>) -> Option<String> {
     if entity_type == "share" {
         return None;

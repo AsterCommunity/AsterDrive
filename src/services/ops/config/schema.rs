@@ -1,3 +1,6 @@
+//! 设置界面的系统配置 schema：把内建配置注册表投影成带标签、选项、动作和
+//! 失效目标的描述条目，供前端渲染配置编辑器。
+
 use crate::config::definitions::{
     ALL_CONFIGS, AUDIT_LOG_RECORDED_ACTIONS_KEY, AUTH_ALLOW_USER_REGISTRATION_KEY,
     AUTH_PASSKEY_LOGIN_ENABLED_KEY, AUTH_PASSWORD_LOGIN_ENABLED_KEY, BRANDING_DESCRIPTION_KEY,
@@ -20,64 +23,98 @@ use utoipa::ToSchema;
 
 use super::actions::{ConfigActionType, MAIL_CONFIG_ACTION_KEY};
 
+/// One configuration entry as rendered by the settings UI.
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ConfigSchemaItem {
+    /// Unique config key, e.g. `site.public_url`.
     pub key: String,
+    /// i18n key resolving the display label for this entry.
     pub label_i18n_key: String,
+    /// i18n key resolving the longer description for this entry.
     pub description_i18n_key: String,
+    /// Storage/validation type of the config value.
     pub value_type: ConfigValueType,
+    /// Settings page category this entry is grouped under.
     pub category: String,
+    /// Plain-text description shown alongside the entry.
     pub description: String,
+    /// Whether a value change requires a process restart to take effect.
     pub requires_restart: bool,
+    /// Whether the value is a credential that must be redacted in listings and audit logs.
     pub is_sensitive: bool,
+    /// Allowed enum options; empty for free-form entries.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub options: Vec<ConfigSchemaOption>,
+    /// Built-in actions invocable from this entry; empty when none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub actions: Vec<ConfigActionDescriptor>,
+    /// Public config payloads invalidated when this entry changes; empty when none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub invalidates: Vec<ConfigInvalidationTarget>,
 }
 
+/// One selectable value of an enum-set config entry.
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ConfigSchemaOption {
+    /// Canonical value string stored in the config.
     pub value: String,
+    /// i18n key resolving the display label for this option.
     pub label_i18n_key: String,
+    /// Group label used to cluster related options in the UI.
     pub group: String,
 }
 
+/// A built-in action attached to a config entry.
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ConfigActionDescriptor {
+    /// Which action the backend should execute.
     pub action: ConfigActionType,
+    /// Action target key that owns the handler, e.g. `mail`.
     pub target_key: String,
+    /// i18n key resolving the action button label.
     pub label_i18n_key: String,
+    /// Placement of the action within the settings UI.
     pub presentation: ConfigActionPresentation,
+    /// Config keys read from the unsaved editor draft when the action runs.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub draft_value_keys: Vec<String>,
+    /// Config key whose stored value feeds the action when no draft value exists.
     pub value_source_key: Option<String>,
 }
 
+/// UI placement metadata for a config action.
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ConfigActionPresentation {
+    /// Top-level settings section the action is rendered in.
     pub category: String,
+    /// Optional sub-section within `category`.
     pub subcategory: Option<String>,
+    /// Control group inside the section, e.g. `test` or `editor`.
     pub group: String,
+    /// Sort order within the group; lower values render first.
     pub order: i32,
 }
 
+/// Public config payload that must be refreshed after a config change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum ConfigInvalidationTarget {
+    /// The versioned public frontend config bundle.
     FrontendConfig,
+    /// The public preview app registry.
     PreviewApps,
+    /// The aggregated public thumbnail support payload.
     ThumbnailSupport,
+    /// The aggregated public media metadata support payload.
     MediaDataSupport,
 }
 
+/// Builds the schema for every registered system config entry.
 pub fn get_schema() -> Vec<ConfigSchemaItem> {
     ALL_CONFIGS
         .iter()

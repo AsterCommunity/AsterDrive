@@ -11,42 +11,76 @@ use crate::types::external_auth_provider::{
 };
 use aster_forge_external_auth::{ExternalAuthProtocol, ExternalAuthProviderKind};
 
+/// Configured external authentication provider (OIDC/OAuth2/...) and its claim mapping.
 #[derive(Clone, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[sea_orm(table_name = "external_auth_providers")]
 pub struct Model {
+    /// Auto-incrementing surrogate key.
     #[sea_orm(primary_key)]
     pub id: i64,
+    /// Stable URL-safe provider identifier used in routes and auth callbacks; unique per
+    /// provider kind.
     pub key: String,
+    /// Human-facing provider name shown on sign-in UI.
     pub display_name: String,
+    /// Optional logo URL rendered next to the provider on sign-in UI.
     pub icon_url: Option<String>,
+    /// Built-in provider preset that decides driver behavior and defaults.
     pub provider_kind: ExternalAuthProviderKind,
+    /// Wire protocol spoken with the provider.
     pub protocol: ExternalAuthProtocol,
+    /// Callback route family the provider registration expects.
     pub callback_mode: ExternalAuthCallbackMode,
+    /// Raw JSON object of provider-kind-specific options (e.g. tenant IDs); secrets must
+    /// not be placed here — they belong in `client_secret`.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub options: StoredExternalAuthProviderOptions,
+    /// OIDC issuer URL used for discovery; required for discovery-based protocols, `None`
+    /// for manually configured endpoints.
     pub issuer_url: Option<String>,
+    /// Manually configured authorization endpoint; `None` when discovery supplies it.
     pub authorization_url: Option<String>,
+    /// Manually configured token endpoint; `None` when discovery supplies it.
     pub token_url: Option<String>,
+    /// Manually configured userinfo endpoint; `None` when discovery supplies it.
     pub userinfo_url: Option<String>,
+    /// OAuth client identifier registered at the provider.
     pub client_id: String,
+    /// OAuth client secret registered at the provider; sensitive, never serialized.
     #[serde(skip_serializing)]
     pub client_secret: Option<String>,
+    /// Space-separated OAuth scope list requested during authorization.
     pub scopes: String,
+    /// Whether the provider accepts new sign-ins; disabled providers are hidden and rejected.
     pub enabled: bool,
+    /// Whether sign-in with an unlinked external identity creates a local account.
     pub auto_provision_enabled: bool,
+    /// Whether a verified email that matches an existing local account is linked
+    /// automatically without explicit confirmation.
     pub auto_link_verified_email_enabled: bool,
+    /// Whether sign-in requires the provider to assert the email as verified.
     pub require_email_verified: bool,
+    /// Claim name override for the stable subject; `None` uses the protocol default (`sub`).
     pub subject_claim: Option<String>,
+    /// Claim name override for the preferred username; `None` uses the protocol default.
     pub username_claim: Option<String>,
+    /// Claim name override for the display name; `None` uses the protocol default.
     pub display_name_claim: Option<String>,
+    /// Claim name override for the email; `None` uses the protocol default (`email`).
     pub email_claim: Option<String>,
+    /// Claim name override for the email-verified flag; `None` uses the protocol default.
     pub email_verified_claim: Option<String>,
+    /// Claim name override for group memberships; `None` uses the protocol default.
     pub groups_claim: Option<String>,
+    /// Claim name override for the avatar URL; `None` uses the protocol default.
     pub avatar_url_claim: Option<String>,
+    /// JSON array of email domains allowed to sign in; `None` or empty allows every domain.
     pub allowed_domains: Option<String>,
+    /// UTC instant the provider was created.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: DateTimeUtc,
+    /// UTC instant of the latest configuration update.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: DateTimeUtc,
 }
@@ -93,12 +127,16 @@ impl fmt::Debug for Model {
     }
 }
 
+/// Declared database relations for this entity.
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
+    /// Email-verification flows opened under this provider.
     #[sea_orm(has_many = "super::external_auth_email_verification_flow::Entity")]
     ExternalAuthEmailVerificationFlows,
+    /// Local accounts linked through this provider.
     #[sea_orm(has_many = "super::external_auth_identity::Entity")]
     ExternalAuthIdentities,
+    /// Sign-in flows started against this provider.
     #[sea_orm(has_many = "super::external_auth_login_flow::Entity")]
     ExternalAuthLoginFlows,
 }

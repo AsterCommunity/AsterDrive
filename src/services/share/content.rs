@@ -48,6 +48,11 @@ pub(crate) async fn initialize_share_download(
     }
 }
 
+/// Downloads the file targeted by a file share as an attachment.
+///
+/// Supports `Range` partial content and `If-None-Match` conditional requests;
+/// an ETag match short-circuits before the share's download counter is
+/// incremented, so cached revalidation does not consume the download quota.
 pub async fn download_shared_file_with_range_header(
     state: &PrimaryAppState,
     token: &str,
@@ -84,6 +89,10 @@ pub(crate) async fn download_shared_file_with_disposition_and_range_header(
     .await
 }
 
+/// Downloads a single file inside a shared folder as an attachment.
+///
+/// The requested file must lie within the folder share's subtree; `Range`
+/// and `If-None-Match` semantics match the single-file download variant.
 pub async fn download_shared_folder_file_with_range_header(
     state: &PrimaryAppState,
     token: &str,
@@ -123,6 +132,10 @@ pub(crate) async fn download_shared_folder_file_with_disposition_and_range_heade
     .await
 }
 
+/// Lists the contents of a folder share's root directory.
+///
+/// The token must resolve to an unexpired, non-exhausted folder share;
+/// pagination and sorting follow the ordinary folder listing contract.
 pub async fn list_shared_folder(
     state: &impl SharedRuntimeState,
     token: &str,
@@ -177,6 +190,10 @@ async fn load_or_enqueue_thumbnail(
     }
 }
 
+/// Returns the thumbnail for the file targeted by a file share.
+///
+/// Returns `Ok(None)` when no thumbnail exists yet; in that case thumbnail
+/// generation is enqueued so a later call can serve it.
 pub async fn get_shared_thumbnail(
     state: &PrimaryAppState,
     token: &str,
@@ -194,6 +211,9 @@ pub async fn get_shared_thumbnail(
     Ok(thumbnail)
 }
 
+/// Returns the image preview for the file targeted by a file share.
+///
+/// Returns `Ok(None)` when no preview is available for this file type.
 pub async fn get_shared_image_preview(
     state: &PrimaryAppState,
     token: &str,
@@ -204,6 +224,9 @@ pub async fn get_shared_image_preview(
     file_ops::image_preview_for_file(state, &file).await
 }
 
+/// Returns media metadata for the file targeted by a file share.
+///
+/// May report a pending lookup while metadata extraction has not finished.
 pub async fn get_shared_media_metadata(
     state: &PrimaryAppState,
     token: &str,
@@ -221,6 +244,10 @@ pub async fn get_shared_media_metadata(
     Ok(metadata)
 }
 
+/// Returns the thumbnail for a single file inside a shared folder.
+///
+/// Returns `Ok(None)` when no thumbnail exists yet; generation is enqueued
+/// in that case so a later call can serve it.
 pub async fn get_shared_folder_file_thumbnail(
     state: &PrimaryAppState,
     token: &str,
@@ -238,6 +265,9 @@ pub async fn get_shared_folder_file_thumbnail(
     Ok(thumbnail)
 }
 
+/// Returns the image preview for a single file inside a shared folder.
+///
+/// Returns `Ok(None)` when no preview is available for this file type.
 pub async fn get_shared_folder_file_image_preview(
     state: &PrimaryAppState,
     token: &str,
@@ -251,6 +281,9 @@ pub async fn get_shared_folder_file_image_preview(
     file_ops::image_preview_for_file(state, &file).await
 }
 
+/// Returns media metadata for a single file inside a shared folder.
+///
+/// May report a pending lookup while metadata extraction has not finished.
 pub async fn get_shared_folder_file_media_metadata(
     state: &PrimaryAppState,
     token: &str,
@@ -304,6 +337,10 @@ pub(crate) async fn load_shared_folder_file_ignoring_download_limit(
     load_shared_folder_file_target_ignoring_download_limit(state, token, file_id).await
 }
 
+/// Lists the contents of a subfolder inside a folder share.
+///
+/// The requested folder must lie within the shared subtree, otherwise access
+/// is denied; pagination and sorting follow the ordinary folder contract.
 pub async fn list_shared_subfolder(
     state: &impl SharedRuntimeState,
     token: &str,

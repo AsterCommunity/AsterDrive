@@ -34,6 +34,7 @@ const MAX_LOOKUP_PAGES: usize = 16;
 /// Supplies server-side credentials without coupling object I/O to Drive's DB.
 /// Implementations must redact Debug and never return tokens to client DTOs.
 pub trait GoogleDriveTokenProvider: Send + Sync + std::fmt::Debug {
+    /// Returns a valid OAuth access token for Google Drive API calls.
     async fn access_token(&self) -> Result<String>;
 }
 

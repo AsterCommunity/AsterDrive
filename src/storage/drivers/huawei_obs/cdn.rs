@@ -14,11 +14,14 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use url::Url;
 
+/// Download delivery channel for OBS objects.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ObsDownloadDelivery {
+    /// Presigned URL signed natively by the OBS `SignatureObs` scheme.
     #[default]
     ObsOrigin,
+    /// Type A / SHA-256 signed URL served through the Huawei CDN edge.
     HuaweiCdnTypeASha256,
 }
 

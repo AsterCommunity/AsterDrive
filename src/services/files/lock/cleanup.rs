@@ -91,6 +91,8 @@ pub async fn cleanup_expired(state: &impl SharedRuntimeState) -> Result<u64> {
     Ok(removed)
 }
 
+/// Runs [`cleanup_expired`] and writes an admin audit entry recording the
+/// number of removed locks. Returns the removed count.
 pub async fn cleanup_expired_with_audit(
     state: &impl SharedRuntimeState,
     audit_ctx: &AuditContext,

@@ -7,16 +7,23 @@ pub use crate::config::definitions::{
     WOPI_ACCESS_TOKEN_TTL_SECS_KEY, WOPI_DISCOVERY_CACHE_TTL_SECS_KEY, WOPI_LOCK_TTL_SECS_KEY,
 };
 
+/// Default WOPI access token validity, in seconds (15 minutes).
 pub const DEFAULT_WOPI_ACCESS_TOKEN_TTL_SECS: u64 = 15 * 60;
+/// Default WOPI lock validity, in seconds (30 minutes).
 pub const DEFAULT_WOPI_LOCK_TTL_SECS: u64 = 30 * 60;
+/// Default WOPI discovery XML cache lifetime, in seconds (5 minutes).
 pub const DEFAULT_WOPI_DISCOVERY_CACHE_TTL_SECS: u64 = 5 * 60;
 
+/// Validates a WOPI TTL value (identified by `key`) as a strictly positive
+/// integer and returns its canonical decimal form.
 pub fn normalize_ttl_config_value(key: &str, value: &str) -> Result<String> {
     let parsed = parse_positive_u64(value)
         .ok_or_else(|| AsterError::validation_error(format!("{key} must be a positive integer")))?;
     Ok(parsed.to_string())
 }
 
+/// Effective WOPI access token validity in seconds, read from the runtime
+/// config; missing or invalid values keep the default.
 pub fn access_token_ttl_secs(runtime_config: &RuntimeConfig) -> i64 {
     read_positive_i64(
         runtime_config,
@@ -25,6 +32,8 @@ pub fn access_token_ttl_secs(runtime_config: &RuntimeConfig) -> i64 {
     )
 }
 
+/// Effective WOPI lock validity in seconds, read from the runtime config;
+/// missing or invalid values keep the default.
 pub fn lock_ttl_secs(runtime_config: &RuntimeConfig) -> i64 {
     read_positive_i64(
         runtime_config,
@@ -33,6 +42,8 @@ pub fn lock_ttl_secs(runtime_config: &RuntimeConfig) -> i64 {
     )
 }
 
+/// Effective WOPI discovery XML cache lifetime in seconds, read from the
+/// runtime config; missing or invalid values keep the default.
 pub fn discovery_cache_ttl_secs(runtime_config: &RuntimeConfig) -> u64 {
     read_positive_u64(
         runtime_config,

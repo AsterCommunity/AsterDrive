@@ -31,6 +31,7 @@ pub use paths::{
     graph_drive_item_content_path, graph_drive_item_path, normalize_graph_relative_path,
 };
 
+/// OneDrive / SharePoint driver backed by the Microsoft Graph client.
 #[derive(Clone)]
 pub struct OneDriveDriver {
     client: MicrosoftGraphClient,
@@ -84,6 +85,8 @@ fn graph_simple_upload_too_large_error() -> StorageError {
     )
 }
 
+/// Browser-facing resumable upload capabilities for Microsoft Graph, exposing
+/// the 320 KiB fragment alignment and Graph's 250 MB simple-upload ceiling.
 pub fn microsoft_graph_upload_capabilities() -> ProviderResumableUploadCapabilities {
     ProviderResumableUploadCapabilities {
         browser_upload_protocol: Some(aster_drive_storage::BrowserUploadProtocol {
@@ -105,6 +108,7 @@ pub fn microsoft_graph_upload_capabilities() -> ProviderResumableUploadCapabilit
 }
 
 impl OneDriveDriver {
+    /// Assembles the driver around a preconfigured Graph client.
     pub fn new(
         client: MicrosoftGraphClient,
         drive_id: impl Into<String>,
@@ -263,6 +267,7 @@ impl OneDriveDriver {
         self.put_owned_with_attempt(path, data, None).await
     }
 
+    /// Fetches the configured root driveItem to verify drive and root identity.
     pub async fn validate_root(&self) -> Result<MicrosoftGraphDriveItem> {
         self.client
             .get_drive_item_by_id(&self.drive_id, &self.root_item_id)

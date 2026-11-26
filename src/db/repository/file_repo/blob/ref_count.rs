@@ -8,6 +8,8 @@ use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::file_blob::{self, Entity as FileBlob};
 use aster_forge_utils::numbers::usize_to_u64;
 
+/// 查找 (hash, policy_id) 下仍可领用的 blob：`ref_count >= 0` 排除已被清理认领的行。
+/// 上传去重用它判断既有物理对象能否直接复用。
 pub async fn find_active_blob_by_hash<C: ConnectionTrait>(
     db: &C,
     hash: &str,

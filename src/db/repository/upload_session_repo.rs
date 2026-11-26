@@ -8,6 +8,9 @@ use sea_orm::{
     PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, SqlErr, sea_query::Expr,
 };
 
+/// Finds an upload session by id.
+///
+/// Errors with `UploadSessionNotFound` when the session does not exist.
 pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: &str) -> Result<upload_session::Model> {
     UploadSession::find_by_id(id.to_string())
         .one(db)
@@ -16,6 +19,9 @@ pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: &str) -> Result<upload_s
         .ok_or_else(|| AsterError::upload_session_not_found(format!("session {id}")))
 }
 
+/// Finds an upload session by id with an exclusive row lock on PostgreSQL and MySQL.
+///
+/// Other backends fall back to an unlocked read.
 pub async fn lock_by_id<C: ConnectionTrait>(db: &C, id: &str) -> Result<upload_session::Model> {
     match db.get_database_backend() {
         DbBackend::Postgres | DbBackend::MySql => UploadSession::find_by_id(id.to_string())
@@ -28,6 +34,7 @@ pub async fn lock_by_id<C: ConnectionTrait>(db: &C, id: &str) -> Result<upload_s
     }
 }
 
+/// Inserts a new upload session row.
 pub async fn create<C: ConnectionTrait>(
     db: &C,
     model: upload_session::ActiveModel,
@@ -35,6 +42,10 @@ pub async fn create<C: ConnectionTrait>(
     model.insert(db).await.map_err(AsterError::from)
 }
 
+/// Inserts an upload session whose id is pre-set, treating an id conflict as idempotence.
+///
+/// Returns `false` when a session with the same id already exists; the model must carry
+/// its id before calling.
 pub async fn try_create<C: ConnectionTrait>(
     db: &C,
     model: upload_session::ActiveModel,
@@ -77,6 +88,7 @@ async fn upload_session_id_exists<C: ConnectionTrait>(db: &C, id: &str) -> Resul
     Ok(found.is_some())
 }
 
+/// Updates an existing upload session row.
 pub async fn update<C: ConnectionTrait>(
     db: &C,
     model: upload_session::ActiveModel,
@@ -84,6 +96,7 @@ pub async fn update<C: ConnectionTrait>(
     model.update(db).await.map_err(AsterError::from)
 }
 
+/// Deletes an upload session row by id.
 pub async fn delete<C: ConnectionTrait>(db: &C, id: &str) -> Result<()> {
     UploadSession::delete_by_id(id.to_string())
         .exec(db)
@@ -108,6 +121,9 @@ pub async fn delete_if_cancellable<C: ConnectionTrait>(db: &C, id: &str) -> Resu
     Ok(result.rows_affected == 1)
 }
 
+/// Reports whether a folder still has an unexpired session in an active state.
+///
+/// Used to block empty-directory compensation while uploads into the folder are live.
 pub async fn exists_by_folder_id<C: ConnectionTrait>(db: &C, folder_id: i64) -> Result<bool> {
     let now = chrono::Utc::now();
     Ok(UploadSession::find()
@@ -128,6 +144,10 @@ pub async fn exists_by_folder_id<C: ConnectionTrait>(db: &C, folder_id: i64) -> 
         .is_some())
 }
 
+/// Atomically increments a session's received chunk count while it is still `Uploading`.
+///
+/// Returns `false` when the session is not in `Uploading` state, which also blocks late
+/// receipts after terminal transitions.
 pub async fn increment_received_count_if_uploading<C: ConnectionTrait>(
     db: &C,
     id: &str,
@@ -149,6 +169,10 @@ pub async fn increment_received_count_if_uploading<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// Increments a provider relay session's received count with a CAS on the expected value.
+///
+/// The update applies only to a `ProviderRelayResumable` session in `Uploading` state
+/// whose count still equals `expected_received_count`; returns `false` otherwise.
 pub async fn advance_provider_relay_received_count<C: ConnectionTrait>(
     db: &C,
     id: &str,
@@ -173,6 +197,11 @@ pub async fn advance_provider_relay_received_count<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// Atomically completes an assembling session with the produced file id.
+///
+/// For provider resumable sessions the uploaded object itself becomes the file content,
+/// so the temporary object key is cleared in the same update to transfer cleanup
+/// authority to the file. Returns `false` when the session is not in `Assembling` state.
 pub async fn complete_if_assembling<C: ConnectionTrait>(
     db: &C,
     id: &str,
@@ -186,9 +215,6 @@ pub async fn complete_if_assembling<C: ConnectionTrait>(
             Expr::value(UploadSessionStatus::Completed.to_value()),
         )
         .col_expr(upload_session::Column::FileId, Expr::value(Some(file_id)))
-        // Provider resumable completion adopts the uploaded object itself.
-        // Transfer its cleanup authority in the same transaction as the file,
-        // quota and Completed state; no later session cleanup owns that key.
         .col_expr(
             upload_session::Column::ObjectTempKey,
             sea_orm::sea_query::CaseStatement::new()
@@ -384,6 +410,7 @@ pub async fn find_active_staged<C: ConnectionTrait>(db: &C) -> Result<Vec<upload
         .map_err(AsterError::from)
 }
 
+/// Lists all sessions bound to a team, regardless of status or expiry.
 pub async fn find_by_team<C: ConnectionTrait>(
     db: &C,
     team_id: i64,
@@ -395,6 +422,7 @@ pub async fn find_by_team<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Lists all sessions bound to a storage policy, regardless of status or expiry.
 pub async fn find_by_policy<C: ConnectionTrait>(
     db: &C,
     policy_id: i64,
@@ -406,6 +434,7 @@ pub async fn find_by_policy<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Counts all sessions bound to a storage policy.
 pub async fn count_by_policy<C: ConnectionTrait>(db: &C, policy_id: i64) -> Result<u64> {
     UploadSession::find()
         .filter(upload_session::Column::PolicyId.eq(policy_id))
@@ -414,6 +443,8 @@ pub async fn count_by_policy<C: ConnectionTrait>(db: &C, policy_id: i64) -> Resu
         .map_err(AsterError::from)
 }
 
+/// Counts unexpired sessions of a policy in an active (uploading, assembling, or
+/// presigned) state.
 pub async fn count_active_by_policy<C: ConnectionTrait>(db: &C, policy_id: i64) -> Result<u64> {
     let now = chrono::Utc::now();
     UploadSession::find()
@@ -440,6 +471,10 @@ pub async fn count_unfinished_by_policy<C: ConnectionTrait>(db: &C, policy_id: i
         .map_err(AsterError::from)
 }
 
+/// Lists a user's unexpired, resumable sessions, newest activity first.
+///
+/// Covers staging sessions without provider state and provider sessions that carry
+/// resumable ciphertext. `team_id` and `frontend_client_id` narrow the scope when given.
 pub async fn find_recoverable_by_owner<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -480,6 +515,7 @@ pub async fn find_recoverable_by_owner<C: ConnectionTrait>(
     query.all(db).await.map_err(AsterError::from)
 }
 
+/// Lists the non-null temporary object keys recorded by a policy's sessions.
 pub async fn list_temp_keys_by_policy<C: ConnectionTrait>(
     db: &C,
     policy_id: i64,
@@ -506,6 +542,7 @@ pub async fn delete_all_by_user<C: ConnectionTrait>(db: &C, user_id: i64) -> Res
     Ok(res.rows_affected)
 }
 
+/// Deletes all sessions bound to a team, returning the deleted row count.
 pub async fn delete_all_by_team<C: ConnectionTrait>(db: &C, team_id: i64) -> Result<u64> {
     let res = UploadSession::delete_many()
         .filter(upload_session::Column::TeamId.eq(team_id))
@@ -557,6 +594,10 @@ pub async fn compare_exchange_provider_session<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// Installs the provider resumable state onto a session created with a reserved object key.
+///
+/// The update applies only while the session is `Uploading`, still holds the given temp
+/// key, and has no ciphertext yet; returns `false` otherwise.
 pub(crate) async fn install_reserved_provider_session<C: sea_orm::ConnectionTrait>(
     db: &C,
     upload_id: &str,

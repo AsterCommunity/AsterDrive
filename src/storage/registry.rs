@@ -49,6 +49,14 @@ impl DriverEntry {
     }
 }
 
+/// Runtime driver cache keyed by storage policy id.
+///
+/// Drivers are constructed lazily through the connector registry that also
+/// publishes configuration descriptors, so the admin surface and the runtime
+/// can never disagree about which connectors exist. Entries are wrapped in
+/// metrics when metrics are enabled and are invalidated when the published
+/// policy snapshot, the credential generation, or the remote protocol runtime
+/// changes.
 pub struct DriverRegistry {
     /// policy_id → 已实例化的 driver
     drivers: DashMap<i64, DriverEntry>,
@@ -74,6 +82,7 @@ pub struct DriverRegistry {
 const STORAGE_CONNECTOR_METRIC_LABEL: &str = "storage_connector";
 
 impl DriverRegistry {
+    /// Build a registry backed by the built-in storage connector registry.
     pub fn new(metrics: SharedMetricsRecorder) -> Result<Self> {
         let connectors = Arc::new(builtin_storage_connector_registry()?);
         Ok(Self::with_connectors(metrics, connectors))
@@ -100,6 +109,7 @@ impl DriverRegistry {
         }
     }
 
+    /// Build a registry without metrics recording, primarily for tests.
     pub fn noop() -> Result<Self> {
         Self::new(aster_drive_metrics::NoopMetrics::arc())
     }
@@ -217,12 +227,16 @@ impl DriverRegistry {
         self.capacity_probes.invalidate(policy_id);
     }
 
+    /// Evict every cached driver entry and drop all capacity probe state;
+    /// subsequent lookups rebuild through the connector registry.
     pub fn invalidate_all(&self) {
         let _guard = self.driver_init_lock.lock();
         self.drivers.clear();
         self.capacity_probes.invalidate_all();
     }
 
+    /// Reload all primary-node routing facts: managed followers, master
+    /// bindings, and storage credentials.
     pub async fn reload_primary_state(
         &self,
         db: &sea_orm::DatabaseConnection,
@@ -233,15 +247,21 @@ impl DriverRegistry {
         self.reload_storage_policy_credentials(db, config).await
     }
 
+    /// Install the remote protocol runtime and evict cached drivers so remote
+    /// entries rebuild against the new transport state.
     pub fn set_remote_protocol(&self, remote_protocol: Arc<RemoteProtocolRuntime>) {
         *self.remote_protocol.write() = Some(remote_protocol);
         self.invalidate_all();
     }
 
+    /// Reload follower-node routing facts; followers only consume master
+    /// bindings, not the follower table they are described by.
     pub async fn reload_follower_state(&self, db: &sea_orm::DatabaseConnection) -> Result<()> {
         self.reload_master_bindings(db).await
     }
 
+    /// Re-read the managed follower cache used when constructing remote
+    /// drivers for policies bound to a node.
     pub async fn reload_managed_followers(&self, db: &sea_orm::DatabaseConnection) -> Result<()> {
         let followers = managed_follower_repo::find_all(db).await?;
         let mut by_id = HashMap::with_capacity(followers.len());
@@ -252,6 +272,8 @@ impl DriverRegistry {
         Ok(())
     }
 
+    /// Re-read the master binding cache keyed by follower access key, used to
+    /// authenticate follower callbacks to the master.
     pub async fn reload_master_bindings(&self, db: &sea_orm::DatabaseConnection) -> Result<()> {
         let bindings = master_binding_repo::find_all(db).await?;
         let mut by_access_key = HashMap::with_capacity(bindings.len());
@@ -262,6 +284,12 @@ impl DriverRegistry {
         Ok(())
     }
 
+    /// Reload connector runtime credentials from the writer database.
+    ///
+    /// Publishes the new credential map under a bumped generation, which
+    /// retires every cached driver entry built against older credentials.
+    /// Policies whose credential cannot be loaded are skipped with a warning
+    /// and keep no runtime credential for this cycle.
     pub async fn reload_storage_policy_credentials(
         &self,
         db: &sea_orm::DatabaseConnection,
@@ -330,6 +358,7 @@ impl DriverRegistry {
         Ok(())
     }
 
+    /// Return the cached managed follower model for `follower_id`.
     pub fn get_managed_follower(
         &self,
         follower_id: i64,
@@ -340,6 +369,7 @@ impl DriverRegistry {
             .cloned()
     }
 
+    /// Return the cached master binding that matches a follower access key.
     pub fn find_master_binding_by_access_key(
         &self,
         access_key: &str,
@@ -364,6 +394,9 @@ impl DriverRegistry {
         self.remote_protocol.read().clone()
     }
 
+    /// Insert a storage-only driver for tests, bypassing connector-owned
+    /// construction. The entry carries no policy snapshot, so it remains
+    /// valid until credentials reload or the cache is invalidated.
     #[cfg(any(test, debug_assertions))]
     pub fn insert_for_test(&self, policy_id: i64, driver: Arc<dyn StorageDriver>) {
         self.capacity_probes.invalidate(policy_id);
@@ -378,6 +411,8 @@ impl DriverRegistry {
         );
     }
 
+    /// Insert a driver that serves both the storage and multipart paths for
+    /// tests, bypassing connector-owned construction and metrics wrapping.
     #[cfg(any(test, debug_assertions))]
     pub fn insert_multipart_for_test<T>(&self, policy_id: i64, driver: Arc<T>)
     where
@@ -417,6 +452,7 @@ impl DriverRegistry {
         );
     }
 
+    /// Whether the shared cache currently holds an entry for `policy_id`.
     #[cfg(any(test, debug_assertions))]
     pub fn has_cached_driver_for_test(&self, policy_id: i64) -> bool {
         self.drivers.contains_key(&policy_id)

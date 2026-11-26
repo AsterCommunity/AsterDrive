@@ -16,6 +16,7 @@ use super::{
     AdminCreateTeamInput, AdminTeamInfo, AdminUpdateTeamInput, CreateTeamInput, UpdateTeamInput,
 };
 
+/// Lists active or archived teams across the deployment with keyword filtering and sorting.
 pub async fn list_admin_teams(
     state: &impl SharedRuntimeState,
     limit: u64,
@@ -66,6 +67,7 @@ pub async fn list_admin_teams(
     ))
 }
 
+/// Loads one team's admin view regardless of its archived state.
 pub async fn get_admin_team(
     state: &impl SharedRuntimeState,
     team_id: i64,
@@ -74,6 +76,7 @@ pub async fn get_admin_team(
     build_admin_team_info(state, &team).await
 }
 
+/// Creates a team on behalf of a user, resolving the designated team admin and required policy group.
 pub async fn create_admin_team(
     state: &impl SharedRuntimeState,
     actor_user_id: i64,
@@ -108,6 +111,7 @@ pub async fn create_admin_team(
     build_admin_team_info(state, &created_team).await
 }
 
+/// Updates an active team's profile, policy group, or storage quota.
 pub async fn update_admin_team(
     state: &impl SharedRuntimeState,
     team_id: i64,
@@ -128,11 +132,13 @@ pub async fn update_admin_team(
     build_admin_team_info(state, &updated).await
 }
 
+/// Archives an active team without requiring membership; archived teams keep their data until cleanup.
 pub async fn archive_admin_team(state: &impl SharedRuntimeState, team_id: i64) -> Result<()> {
     let team = team_repo::find_active_by_id(state.writer_db(), team_id).await?;
     archive_team_record(state, team).await
 }
 
+/// Restores an archived team to active state and returns its admin view.
 pub async fn restore_admin_team(
     state: &impl SharedRuntimeState,
     team_id: i64,

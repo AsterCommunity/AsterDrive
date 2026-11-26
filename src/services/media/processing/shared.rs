@@ -258,35 +258,56 @@ impl ResolvedMediaProcessor {
     }
 }
 
+/// Cached thumbnail bytes served to clients, with the cache key components.
 pub struct ThumbnailData {
+    /// Encoded WebP thumbnail bytes.
     pub data: Bytes,
+    /// Processor namespace embedded in the cache path.
     pub thumbnail_processor: String,
+    /// Derivative version embedded in the cache path.
     pub thumbnail_version: String,
 }
 
+/// Result of the store-or-reuse thumbnail flow.
 pub struct StoredThumbnail {
+    /// Storage path the thumbnail was written to or found at.
     pub thumbnail_path: String,
+    /// Processor namespace embedded in the cache path.
     pub thumbnail_processor: String,
+    /// Derivative version embedded in the cache path.
     pub thumbnail_version: String,
+    /// `true` when an existing cache entry was reused instead of re-rendered.
     pub reused_existing_thumbnail: bool,
 }
 
+/// Cached image preview bytes served to clients, with the cache key components.
 pub struct ImagePreviewData {
+    /// Encoded WebP preview bytes.
     pub data: Bytes,
+    /// Processor namespace embedded in the cache path.
     pub image_preview_processor: String,
+    /// Derivative version embedded in the cache path.
     pub image_preview_version: String,
 }
 
+/// Result of the store-or-reuse image preview flow.
 pub struct StoredImagePreview {
+    /// Storage path the preview was written to or found at.
     pub image_preview_path: String,
+    /// Processor namespace embedded in the cache path.
     pub image_preview_processor: String,
+    /// Derivative version embedded in the cache path.
     pub image_preview_version: String,
+    /// `true` when an existing cache entry was reused instead of re-rendered.
     pub reused_existing_preview: bool,
 }
 
+/// Rendered avatar variants ready to be published to the avatar directory.
 #[derive(Debug)]
 pub struct ProcessedAvatar {
+    /// Small WebP variant bytes (512 px square).
     pub small_bytes: Vec<u8>,
+    /// Large WebP variant bytes (1024 px square).
     pub large_bytes: Vec<u8>,
 }
 
@@ -295,6 +316,7 @@ pub(crate) struct ThumbnailContext {
     pub(crate) processor: ResolvedMediaProcessor,
 }
 
+/// Builds the thumbnail ETag value, keyed by blob hash plus optional processor namespace and version.
 pub fn thumbnail_etag_value_for(
     blob_hash: &str,
     thumbnail_processor: Option<&str>,
@@ -307,6 +329,7 @@ pub fn thumbnail_etag_value_for(
     )
 }
 
+/// Builds the image preview ETag value, keyed by blob hash, processor namespace, and version.
 pub fn image_preview_etag_value_for(
     blob_hash: &str,
     image_preview_processor: &str,

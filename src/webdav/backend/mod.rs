@@ -109,9 +109,13 @@ enum DeletedResource {
     Folder(aster_drive_model::entities::folder::Model),
 }
 
+/// Continuation position for paged directory listings, which always emit
+/// folders before files.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AsterDavDirectoryCursor {
+    /// Resume with folders strictly after this folder id; file pages are not started yet.
     Folders(i64),
+    /// Folders are exhausted; resume with files strictly after this file id.
     Files(i64),
 }
 
@@ -129,6 +133,8 @@ impl std::fmt::Debug for AsterDavFs {
 }
 
 impl AsterDavFs {
+    /// Creates a per-account filesystem rooted at the user's personal
+    /// workspace, optionally confined to `root_folder_id` and its subtree.
     pub fn new(state: PrimaryAppState, user_id: i64, root_folder_id: Option<i64>) -> Self {
         let payload_limit = state.config.webdav.payload_limit;
         Self::new_with_audit(

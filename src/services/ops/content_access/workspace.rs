@@ -15,21 +15,32 @@ use serde::Serialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
+/// Parameters for browsing a workspace under an administrator inspection grant.
 pub struct AdminWorkspaceQuery {
+    /// Administrator content access grant ID authorizing the inspection.
     pub access_id: String,
+    /// Folder to list; omitted to browse the workspace root.
     pub folder_id: Option<i64>,
+    /// When `true`, navigation may enter and list recycled (deleted) entries.
     pub deleted: bool,
+    /// Pagination and sorting applied to the folder and file listings.
     pub pagination: crate::api::pagination::FolderListQuery,
 }
 
+/// One directory listing with its ancestor chain relative to the grant scope.
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct AdminWorkspaceContents {
+    /// Folders and files under the requested directory.
     pub contents: FolderContents,
+    /// Ancestor chain from the scope root down to the listed directory.
     pub ancestors: Vec<FolderAncestorItem>,
+    /// Echoes whether the listing was served in the deleted (recycle bin) view.
     pub deleted: bool,
 }
 
+/// Lists one directory of a workspace under an administrator inspection grant,
+/// verifying every folder on the ancestor path stays within the granted scope.
 pub async fn list_workspace(
     state: &impl SharedRuntimeState,
     claims: &Claims,
@@ -150,6 +161,7 @@ pub async fn get_file(
     crate::services::files::file::build_authorized_file_info(state, &grant.read, file).await
 }
 
+/// Lists the revision history of one file within the granted workspace context.
 pub async fn list_versions(
     state: &impl SharedRuntimeState,
     claims: &Claims,
@@ -216,20 +228,27 @@ pub async fn get_thumbnail(
     crate::services::files::file::thumbnail_for_file(state, &file).await
 }
 
+/// Direct child counts of a folder, counted without pagination limits.
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct AdminFolderChildCount {
+    /// Number of child folders.
     pub folders: u64,
+    /// Number of child files.
     pub files: u64,
 }
 
+/// Folder metadata together with its direct child counts.
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct AdminFolderInfo {
+    /// Authorized metadata of the requested folder.
     pub folder: crate::services::workspace::models::FolderInfo,
+    /// Direct child folder and file totals.
     pub child_count: AdminFolderChildCount,
 }
 
+/// Returns one folder's authorized metadata and direct child counts under the grant.
 pub async fn get_folder(
     state: &impl SharedRuntimeState,
     claims: &Claims,

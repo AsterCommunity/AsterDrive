@@ -25,6 +25,13 @@ use super::{
     ensure_password_login_enabled, is_email_verified, user_audit_info,
 };
 
+/// Records a pending email change and mails its confirmation token to the new address.
+///
+/// The change only takes effect when the token is later confirmed; validation of the new address
+/// (availability, local email policy) happens at request time, active-account status at both ends.
+///
+/// # Errors
+/// Returns validation, policy, availability, or persistence errors.
 pub async fn request_email_change(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -94,6 +101,13 @@ pub async fn request_email_change(
     Ok(AuthUserInfo::from(updated))
 }
 
+/// Re-issues the confirmation token for an already pending email change.
+///
+/// Honors the resend cooldown; returns `Ok(None)` when the resend was skipped (cooldown, an
+/// active request, or a raced-away pending email) so callers can reply without leaking state.
+///
+/// # Errors
+/// Returns validation, policy, availability, or persistence errors.
 pub async fn resend_email_change(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -161,6 +175,14 @@ pub async fn resend_email_change(
     Ok(Some(user_audit_info(&user)))
 }
 
+/// Mails a single-use password reset token for an active, email-verified account.
+///
+/// Unknown emails, disabled accounts, and unverified accounts return `user: None` without an
+/// error, so the response cannot be used to enumerate accounts. The cooldown check runs before
+/// token issuance; a throttled or raced request still reports the account as auditable.
+///
+/// # Errors
+/// Returns validation, policy, or persistence errors.
 pub async fn request_password_reset(
     state: &impl SharedRuntimeState,
     email: &str,
@@ -223,6 +245,14 @@ pub async fn request_password_reset(
     })
 }
 
+/// Exchanges a single-use password reset token for a new password.
+///
+/// Consumption happens under a row lock inside one writer transaction together with the password
+/// update and notification mail, so the link replays into "already used" instead of a second
+/// change; all sessions are revoked by the shared update path.
+///
+/// # Errors
+/// Returns invalid/expired/already-used token, policy, or persistence errors.
 pub async fn confirm_password_reset(
     state: &impl SharedRuntimeState,
     token: &str,
@@ -290,6 +320,15 @@ pub async fn confirm_password_reset(
     Ok(AuthUserInfo::from(updated))
 }
 
+/// Confirms a single-use contact-verification token for activation or email change.
+///
+/// Password-reset tokens are rejected here; they must go through [`confirm_password_reset`].
+/// Activation marks the current email verified, email change atomically swaps the address and
+/// clears the pending marker; both are guarded by consume-if-unused under the account lock.
+///
+/// # Errors
+/// Returns invalid/expired/already-used token, mismatched target, email-policy, or persistence
+/// errors.
 pub async fn confirm_contact_verification(
     state: &impl SharedRuntimeState,
     token: &str,
@@ -407,12 +446,17 @@ pub async fn confirm_contact_verification(
     })
 }
 
+/// Deletes expired contact-verification tokens; returns the number of removed rows.
 pub async fn cleanup_expired_contact_verification_tokens(
     state: &impl SharedRuntimeState,
 ) -> Result<u64> {
     contact_verification_token_repo::delete_expired(state.writer_db()).await
 }
 
+/// Rejects any contact-verification record that is not currently in `RecoveryPending`.
+///
+/// Expired and already-consumed records map to their own dedicated error codes so the UI can
+/// distinguish "request a new link" from "this link was replayed".
 fn ensure_contact_verification_active(
     record: &aster_drive_model::entities::contact_verification_token::Model,
 ) -> Result<()> {

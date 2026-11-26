@@ -2,10 +2,17 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Per-process task consumer shutdown budgets (`[worker]`).
+///
+/// Shared cluster-wide quotas are runtime configuration in the authoritative
+/// system_config table, not static file settings.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct WorkerConfig {
+    /// Grace period, in seconds, for in-flight tasks to finish during shutdown.
     pub drain_timeout_secs: u64,
+    /// Additional grace period, in seconds, before cancellation is forced
+    /// once draining has stopped accepting new work.
     pub cancellation_timeout_secs: u64,
 }
 
@@ -19,6 +26,7 @@ impl Default for WorkerConfig {
 }
 
 impl WorkerConfig {
+    /// Rejects shutdown budgets that overflow or exceed 24 hours in total.
     pub fn validate(&self) -> crate::errors::Result<()> {
         if self
             .drain_timeout_secs
@@ -32,6 +40,7 @@ impl WorkerConfig {
         Ok(())
     }
 
+    /// Maps the configured budgets onto the Forge task consumer settings.
     pub fn consumer_config(&self) -> aster_forge_tasks::TaskConsumerConfig {
         aster_forge_tasks::TaskConsumerConfig {
             drain_timeout: std::time::Duration::from_secs(self.drain_timeout_secs),

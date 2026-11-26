@@ -8,6 +8,7 @@ use crate::errors::{AsterError, Result};
 const MAX_ACCOUNT_STREAMS: usize = 8;
 const MAX_INSTANCE_STREAMS: usize = 1024;
 
+/// Per-account admission registry bounding concurrent storage-event SSE streams.
 #[derive(Clone, Default)]
 pub struct StorageEventStreams(Arc<Mutex<HashMap<i64, usize>>>);
 

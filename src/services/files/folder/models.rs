@@ -13,20 +13,29 @@ use aster_drive_model::types::EntityType;
 
 use super::FolderIcon;
 
+/// Single hop of a folder's ancestor chain, ordered from the root down.
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct FolderAncestorItem {
+    /// Folder id.
     pub id: i64,
+    /// Folder name.
     pub name: String,
+    /// Folder icon resolved from the persisted icon pair.
     pub icon: FolderIcon,
 }
 
+/// File entry shown in a folder listing.
 #[derive(Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct FileListItem {
+    /// File id.
     pub id: i64,
+    /// File name including its extension.
     pub name: String,
+    /// Logical size in bytes.
     pub size: i64,
+    /// Declared MIME type of the current blob.
     pub mime_type: String,
     /// Lowercase final extension without a leading dot. Empty when the file name has no extension.
     pub extension: String,
@@ -35,53 +44,79 @@ pub struct FileListItem {
     pub compound_extension: Option<String>,
     /// Category derived from the extension first, then MIME type as fallback.
     pub file_category: aster_forge_file_classification::FileCategory,
+    /// Last update timestamp of the file record.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: chrono::DateTime<chrono::Utc>,
+    /// Snapshot identity of the creator, when known.
     pub created_by: Option<crate::services::workspace::activity::ActivityIdentity>,
+    /// Snapshot identity of the last modifier, when known.
     pub modified_by: Option<crate::services::workspace::activity::ActivityIdentity>,
+    /// Timestamp of the last user-driven content or metadata change.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub modified_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Active lock state for this file in the requested scope.
     pub lock_state: ResourceLockState,
+    /// True when the file is reachable through at least one share link.
     pub is_shared: bool,
+    /// Tags attached to the file.
     pub tags: Vec<TagSummary>,
 }
 
+/// Folder entry shown in a folder listing.
 #[derive(Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct FolderListItem {
+    /// Folder id.
     pub id: i64,
+    /// Folder name.
     pub name: String,
+    /// Folder icon resolved from the persisted icon pair.
     pub icon: FolderIcon,
+    /// Last update timestamp of the folder record.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: chrono::DateTime<chrono::Utc>,
+    /// Snapshot identity of the creator, when known.
     pub created_by: Option<crate::services::workspace::activity::ActivityIdentity>,
+    /// Snapshot identity of the last modifier, when known.
     pub modified_by: Option<crate::services::workspace::activity::ActivityIdentity>,
+    /// Timestamp of the last user-driven change.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub modified_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Active lock state for this folder in the requested scope.
     pub lock_state: ResourceLockState,
+    /// True when the folder is reachable through at least one share link.
     pub is_shared: bool,
+    /// Tags attached to the folder.
     pub tags: Vec<TagSummary>,
 }
 
+/// Opaque cursor for file pagination: sort key plus tie-breaking id.
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct FileCursor {
     /// 排序字段值（序列化为字符串）
     pub value: String,
+    /// File id used to break ties between entries with equal sort keys.
     pub id: i64,
 }
 
+/// Page of a folder listing, with separate folder and file sections.
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct FolderContents {
+    /// Subfolder entries of the requested page.
     pub folders: Vec<FolderListItem>,
+    /// File entries of the requested page.
     pub files: Vec<FileListItem>,
+    /// Total number of subfolders under the parent.
     pub folders_total: u64,
+    /// Total number of files under the parent.
     pub files_total: u64,
     /// 下一页 cursor，None 表示已到最后一页
     pub next_file_cursor: Option<FileCursor>,
 }
 
+/// Maps file entities to listing items without tags or lock states.
 pub fn build_file_list_items(
     files: Vec<file::Model>,
     shared_file_ids: &HashSet<i64>,
@@ -89,6 +124,7 @@ pub fn build_file_list_items(
     build_file_list_items_with_tags(files, shared_file_ids, &std::collections::HashMap::new())
 }
 
+/// Maps file entities to listing items with tags, leaving lock states unset.
 pub fn build_file_list_items_with_tags(
     files: Vec<file::Model>,
     shared_file_ids: &HashSet<i64>,
@@ -102,6 +138,10 @@ pub fn build_file_list_items_with_tags(
     )
 }
 
+/// Maps file entities to listing items with tags and per-file lock states.
+///
+/// Entities missing from the tag or lock maps get empty tags and
+/// [`ResourceLockState::Unlocked`].
 pub fn build_file_list_items_with_tags_and_lock_states(
     files: Vec<file::Model>,
     shared_file_ids: &HashSet<i64>,
@@ -141,6 +181,7 @@ pub fn build_file_list_items_with_tags_and_lock_states(
         .collect()
 }
 
+/// Maps folder entities to listing items without tags or lock states.
 pub fn build_folder_list_items(
     folders: Vec<folder::Model>,
     shared_folder_ids: &HashSet<i64>,
@@ -152,6 +193,7 @@ pub fn build_folder_list_items(
     )
 }
 
+/// Maps folder entities to listing items with tags, leaving lock states unset.
 pub fn build_folder_list_items_with_tags(
     folders: Vec<folder::Model>,
     shared_folder_ids: &HashSet<i64>,
@@ -165,6 +207,11 @@ pub fn build_folder_list_items_with_tags(
     )
 }
 
+/// Maps folder entities to listing items with tags and per-folder lock
+/// states, resolving each folder icon from its persisted icon pair.
+///
+/// Entities missing from the tag or lock maps get empty tags and
+/// [`ResourceLockState::Unlocked`].
 pub fn build_folder_list_items_with_tags_and_lock_states(
     folders: Vec<folder::Model>,
     shared_folder_ids: &HashSet<i64>,

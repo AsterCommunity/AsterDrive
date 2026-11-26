@@ -15,6 +15,9 @@ const TOTP_WINDOW_STEPS: i64 = 1;
 
 type HmacSha1 = Hmac<Sha1>;
 
+/// 从 OS CSPRNG 生成新的 TOTP secret。
+///
+/// 返回原始字节；enrollment 编码与加密持久化由调用方负责。
 pub fn generate_secret() -> Vec<u8> {
     let mut secret = vec![0_u8; TOTP_SECRET_BYTES];
     let mut rng = rand::rng();
@@ -22,16 +25,23 @@ pub fn generate_secret() -> Vec<u8> {
     secret
 }
 
+/// enrollment 载荷与 `otpauth://` URI 使用的 Base32（RFC 4648，无填充）编码。
 pub fn encode_secret(secret: &[u8]) -> String {
     BASE32_NOPAD.encode(secret)
 }
 
+/// 解码 Base32 secret，容忍首尾空白与小写输入。
+///
+/// # Errors
+/// 输入不是合法无填充 Base32 时返回校验错误。
 pub fn decode_secret(secret: &str) -> Result<Vec<u8>> {
     BASE32_NOPAD
         .decode(secret.trim().to_ascii_uppercase().as_bytes())
         .map_err(|error| AsterError::validation_error(format!("invalid TOTP secret: {error}")))
 }
 
+/// 构造标准 `otpauth://totp/` enrollment URI，参数固定为本实现的常量
+/// （SHA1、[`TOTP_DIGITS`] 位、[`TOTP_STEP_SECS`] 秒周期）。
 pub fn otpauth_uri(secret_base32: &str, issuer: &str, account: &str) -> String {
     format!(
         "otpauth://totp/{}:{}?secret={}&issuer={}&algorithm=SHA1&digits={}&period={}",
@@ -44,6 +54,11 @@ pub fn otpauth_uri(secret_base32: &str, issuer: &str, account: &str) -> String {
     )
 }
 
+/// 校验验证码是否命中当前或相邻时间步，不暴露命中的具体步；需要做重放防护时用
+/// [`verify_code_matching_step`]。
+///
+/// # Errors
+/// 格式非法的验证码返回校验错误。
 pub fn verify_code(secret: &[u8], code: &str, now: chrono::DateTime<chrono::Utc>) -> Result<bool> {
     Ok(verify_code_matching_step(secret, code, now)?.is_some())
 }
@@ -76,11 +91,16 @@ pub fn replay_guard_min_step(now: chrono::DateTime<chrono::Utc>) -> i64 {
     now.timestamp() / (TOTP_STEP_SECS as i64) - TOTP_WINDOW_STEPS - 2
 }
 
+/// 廉价形状检查（去除空白后须为 6 位 ASCII 数字），用于判断提交的字符串是否按 TOTP 尝试处理。
 pub fn looks_like_code(code: &str) -> bool {
     let normalized = code.trim().replace(' ', "");
     normalized.len() == TOTP_DIGITS as usize && normalized.chars().all(|c| c.is_ascii_digit())
 }
 
+/// 计算包含 `now` 的时间步对应的验证码；测试向量与 fixture 辅助，不是验证路径。
+///
+/// # Errors
+/// 时间戳超出范围时返回错误。
 pub fn code_for_time(secret: &[u8], now: chrono::DateTime<chrono::Utc>) -> Result<String> {
     let timestamp = i64_to_u64(now.timestamp(), "totp timestamp")?;
     totp_code(secret, timestamp / TOTP_STEP_SECS)

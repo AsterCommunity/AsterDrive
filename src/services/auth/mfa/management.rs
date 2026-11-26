@@ -23,54 +23,78 @@ use super::{
     recovery_codes, totp,
 };
 
+/// MFA enrollment summary served to the self-management UI.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct MfaStatus {
+    /// Whether any persistent MFA factor is enrolled for the account.
     pub enabled: bool,
+    /// Enrolled persistent factors; challenge-only methods (recovery codes, email codes) are
+    /// never listed here.
     pub factors: Vec<MfaFactorInfo>,
+    /// Unused recovery codes left on the account.
     pub recovery_codes_remaining: u64,
 }
 
+/// One enrolled persistent MFA factor, as surfaced by the self-management UI.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct MfaFactorInfo {
+    /// Factor row primary key.
     pub id: i64,
     /// 只返回长期持久化 factor。恢复码和邮箱验证码不会出现在 MFA factor 列表里。
     pub method: MfaPersistentFactorMethod,
+    /// Display name assigned at enrollment time.
     pub name: String,
+    /// When the factor became active.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub enabled_at: chrono::DateTime<Utc>,
+    /// Last successful verification; `None` until first use.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub last_used_at: Option<chrono::DateTime<Utc>>,
 }
 
+/// Response of starting TOTP enrollment: a pending setup flow plus enrollment material.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct TotpSetupStartResponse {
+    /// Opaque single-use setup-flow token; presented again to finish enrollment.
     pub flow_token: String,
+    /// Setup-flow lifetime in seconds.
     pub expires_in: u64,
+    /// Generated secret, base32-encoded without padding.
     pub secret: String,
+    /// Ready-to-scan `otpauth://` URI for authenticator apps.
     pub otpauth_uri: String,
 }
 
+/// Request that completes TOTP enrollment by proving possession of the enrolled secret.
 #[derive(Debug, Clone, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct TotpSetupFinishRequest {
+    /// Setup-flow token returned by the start call.
     pub flow_token: String,
+    /// Current TOTP code generated from the enrolled secret.
     pub code: String,
+    /// Optional display name; defaults to "Authenticator app".
     pub name: Option<String>,
 }
 
+/// Response of a completed TOTP enrollment.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct TotpSetupFinishResponse {
+    /// Newly enrolled persistent factor.
     pub factor: MfaFactorInfo,
+    /// Fresh recovery codes; the only time they are returned in full.
     pub recovery_codes: Vec<String>,
 }
 
+/// Second-factor confirmation payload required by sensitive MFA operations.
 #[derive(Debug, Clone, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct MfaSensitiveActionRequest {
+    /// Second-factor confirmation: a TOTP code or a recovery code; `None` always fails.
     pub code: Option<String>,
 }
 
@@ -86,6 +110,7 @@ enum PreparedSensitiveMfaCode {
     Recovery(recovery_codes::VerifiedRecoveryCode),
 }
 
+/// Summarizes an account's MFA enrollment: persistent factors and remaining recovery codes.
 pub async fn get_status(state: &impl SharedRuntimeState, user_id: i64) -> Result<MfaStatus> {
     let factors = mfa_factor_repo::list_for_user(state.writer_db(), user_id)
         .await?
@@ -101,6 +126,14 @@ pub async fn get_status(state: &impl SharedRuntimeState, user_id: i64) -> Result
     })
 }
 
+/// Starts TOTP enrollment: generates a secret, persists it encrypted inside a single-use setup
+/// flow, and returns the base32 secret plus `otpauth://` URI for the authenticator app.
+///
+/// Nothing is enabled yet; enrollment completes only through [`verify_totp_setup`].
+///
+/// # Errors
+/// Returns forbidden for disabled accounts and `AuthMfaFactorAlreadyExists` when a TOTP factor
+/// is already enrolled.
 pub async fn start_totp_setup(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -156,6 +189,15 @@ pub async fn start_totp_setup(
     })
 }
 
+/// Completes TOTP enrollment by verifying a live code against the setup flow's secret.
+///
+/// Validation runs twice: once outside the transaction (cheap rejection) and again under locks
+/// together with the single-use consumption of the flow. The factor insert, secret
+/// re-encryption, and recovery-code replacement commit atomically; the codes are returned once
+/// and never stored in plaintext.
+///
+/// # Errors
+/// Returns invalid-flow, factor-already-exists, invalid-code, or persistence errors.
 pub async fn verify_totp_setup(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -244,6 +286,16 @@ pub async fn verify_totp_setup(
     }
 }
 
+/// Removes one persistent MFA factor and every dependent MFA record (recovery codes, email
+/// codes, login flows, setup flows, used TOTP steps).
+///
+/// Requires a verified second-factor confirmation and consumes one sensitive-action budget
+/// slot. Rejected confirmations still commit their attempt-budget increment; other failures
+/// roll back.
+///
+/// # Errors
+/// Returns not-found, invalid-code, attempts-exceeded, or persistence errors. `Ok(false)`
+/// means the factor was already gone.
 pub async fn delete_factor(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -315,6 +367,15 @@ pub async fn delete_factor(
     }
 }
 
+/// Replaces the account's recovery codes with a fresh set after a verified second-factor
+/// confirmation.
+///
+/// Old codes stop working immediately; the new codes are returned once and stored only as
+/// hashes. Rejected confirmations still commit their attempt-budget increment; other failures
+/// roll back without touching existing codes.
+///
+/// # Errors
+/// Returns invalid-code, attempts-exceeded, or persistence errors.
 pub async fn regenerate_recovery_codes(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -385,6 +446,14 @@ pub async fn regenerate_recovery_codes(
     }
 }
 
+/// Administrator emergency reset: drops every MFA record of the account, bumps its session
+/// version, and revokes all sessions so the account can enroll MFA again.
+///
+/// Counts of the destroyed factors, recovery codes, and used steps are written to the audit
+/// entry inside the same transaction, then reported after commit.
+///
+/// # Errors
+/// Returns persistence errors only; the whole reset rolls back on failure.
 pub async fn reset_user_mfa(
     state: &impl SharedRuntimeState,
     user_id: i64,

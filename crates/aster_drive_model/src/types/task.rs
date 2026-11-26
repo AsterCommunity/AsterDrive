@@ -1,3 +1,5 @@
+//! 后台任务类型、状态与 JSON 存储包装。
+
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
@@ -119,38 +121,52 @@ impl From<StoredLockOwnerInfo> for String {
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(32))")]
 #[serde(rename_all = "snake_case")]
 pub enum BackgroundTaskKind {
+    /// Extract an uploaded archive into the file tree.
     #[sea_orm(string_value = "archive_extract")]
     ArchiveExtract,
+    /// Compress selected files into a new archive.
     #[sea_orm(string_value = "archive_compress")]
     ArchiveCompress,
+    /// Generate the entry listing preview of an archive file.
     #[sea_orm(string_value = "archive_preview_generate")]
     ArchivePreviewGenerate,
+    /// Generate image thumbnails.
     #[sea_orm(string_value = "thumbnail_generate")]
     ThumbnailGenerate,
+    /// Generate larger image previews.
     #[sea_orm(string_value = "image_preview_generate")]
     ImagePreviewGenerate,
+    /// Extract image / audio / video metadata for a blob.
     #[sea_orm(string_value = "media_metadata_extract")]
     MediaMetadataExtract,
+    /// Permanently purge every trashed item.
     #[sea_orm(string_value = "trash_purge_all")]
     TrashPurgeAll,
+    /// Apply a deferred folder subtree deletion or restore.
     #[sea_orm(string_value = "folder_tree_mutation")]
     FolderTreeMutation,
+    /// Clean temp files left behind by a storage policy migration.
     #[sea_orm(string_value = "storage_policy_temp_cleanup")]
     StoragePolicyTempCleanup,
+    /// Move stored blobs from one policy to another.
     #[sea_orm(string_value = "storage_policy_migration")]
     StoragePolicyMigration,
     /// Permanently purges every file history that still references a lost policy.
     #[sea_orm(string_value = "storage_policy_forced_purge")]
     StoragePolicyForcedPurge,
+    /// Run blob integrity checks, ref-count reconciliation, and orphan cleanup.
     #[sea_orm(string_value = "blob_maintenance")]
     BlobMaintenance,
+    /// Fetch a remote URL into the user's drive.
     #[sea_orm(string_value = "offline_download")]
     OfflineDownload,
+    /// Runtime dispatch bookkeeping such as mail outbox and task scheduling.
     #[sea_orm(string_value = "system_runtime")]
     SystemRuntime,
 }
 
 impl BackgroundTaskKind {
+    /// Returns the snake_case kind name persisted in `background_tasks.kind`.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::ArchiveExtract => "archive_extract",
@@ -183,23 +199,32 @@ impl std::fmt::Display for BackgroundTaskKind {
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(16))")]
 #[serde(rename_all = "snake_case")]
 pub enum BackgroundTaskStatus {
+    /// Queued and waiting for a worker lane.
     #[sea_orm(string_value = "pending")]
     Pending,
+    /// Currently executing on a worker.
     #[sea_orm(string_value = "processing")]
     Processing,
+    /// Cancellation was requested and is being propagated.
     #[sea_orm(string_value = "canceling")]
     Canceling,
+    /// Execution failed and waits for the next retry attempt.
     #[sea_orm(string_value = "retry")]
     Retry,
+    /// Finished successfully; no further attempts.
     #[sea_orm(string_value = "succeeded")]
     Succeeded,
+    /// Finished with a permanent failure; no further attempts.
     #[sea_orm(string_value = "failed")]
     Failed,
+    /// Stopped by cancellation before completing.
     #[sea_orm(string_value = "canceled")]
     Canceled,
 }
 
 impl BackgroundTaskStatus {
+    /// Returns the snake_case status name persisted in
+    /// `background_tasks.status`.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Pending => "pending",
@@ -212,6 +237,7 @@ impl BackgroundTaskStatus {
         }
     }
 
+    /// Returns `true` for final states: `succeeded`, `failed`, or `canceled`.
     pub fn is_terminal(self) -> bool {
         matches!(self, Self::Succeeded | Self::Failed | Self::Canceled)
     }

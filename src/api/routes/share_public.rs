@@ -109,9 +109,16 @@ pub struct ShareAccess<
     const REQUIRE_ARCHIVE_DOWNLOAD_ENABLED: bool,
 >;
 
+/// Extractor type for share endpoints that count downloads normally.
 pub type VerifiedShareAccess = ShareAccess<false, false>;
+/// Extractor type for share endpoints whose download counting is handled by an
+/// independent session or preview token.
 pub type VerifiedShareAccessIgnoringDownloadLimit = ShareAccess<true, false>;
+/// Extractor type for archive endpoints that require the archive download feature
+/// flag in addition to a valid share cookie.
 pub type VerifiedShareArchiveDownloadAccess = ShareAccess<false, true>;
+/// Extractor type for paid archive endpoints: independent download counting plus
+/// the archive download feature flag.
 pub type VerifiedPaidShareArchiveDownloadAccess = ShareAccess<true, true>;
 
 impl<const IGNORE_DOWNLOAD_LIMIT: bool, const REQUIRE_ARCHIVE_DOWNLOAD_ENABLED: bool> FromRequest
@@ -175,6 +182,8 @@ impl DirectLinkQuery {
     }
 }
 
+/// Builds the unauthenticated public share scope `/api/v1/s/{token}/...` with
+/// public-tier rate limiting and a stricter limit on password verification.
 pub fn routes(
     rl: &RateLimitConfig,
     network_trust: &NetworkTrustConfig,
@@ -258,6 +267,8 @@ pub fn routes(
         .route("/{token}/avatar/{size}", web::get().to(shared_avatar))
 }
 
+/// Builds the short-link download routes `/d/{token}/{filename}` (direct link) and
+/// `/pv/{token}/{filename}` (preview link) with public-tier rate limiting.
 pub fn direct_routes(
     rl: &RateLimitConfig,
     network_trust: &NetworkTrustConfig,
@@ -274,6 +285,8 @@ pub fn direct_routes(
     )
 }
 
+/// Returns the public metadata of a share (name, size, type, expiry), without any
+/// file content.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}",
@@ -293,6 +306,8 @@ pub async fn get_share_info(
     Ok(HttpResponse::Ok().json(crate::api::response::success(info)))
 }
 
+/// Verifies a password-protected share's password and sets the signed access cookie
+/// for subsequent share requests.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/s/{token}/verify",
@@ -327,6 +342,7 @@ pub async fn verify_password(
         .json(crate::api::response::empty_success()))
 }
 
+/// Creates a preview link token for a shared file, bound to the request origin.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/s/{token}/preview-link",
@@ -360,6 +376,8 @@ pub async fn create_preview_link(
     Ok(HttpResponse::Ok().json(crate::api::response::success(link)))
 }
 
+/// Returns an archive preview manifest for a shared archive file; queues generation
+/// and returns 202 while it is being built.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/archive-preview",
@@ -400,6 +418,8 @@ pub async fn archive_preview(
     }
 }
 
+/// Issues a one-time ticket for streaming an archive of the shared selection,
+/// subject to the share's download limits.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/s/{token}/archive-download",
@@ -437,6 +457,8 @@ pub async fn archive_download(
     Ok(HttpResponse::Ok().json(crate::api::response::success(ticket)))
 }
 
+/// Streams the shared archive for a previously issued download ticket, counting
+/// against the share's download limit.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/archive-download/{ticket}",
@@ -464,6 +486,8 @@ pub async fn archive_download_stream(
     task::archive::stream_shared_archive_download(state.get_ref(), &token, params).await
 }
 
+/// Creates a streaming session for a shared media file, bound to the request
+/// origin, for later Range-based playback.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/s/{token}/stream-session",
@@ -497,6 +521,7 @@ pub async fn create_stream_session(
     Ok(HttpResponse::Ok().json(crate::api::response::success(session)))
 }
 
+/// Rejects shared archive downloads while the feature is disabled by the administrator.
 fn ensure_share_archive_download_enabled(state: &PrimaryAppState) -> Result<()> {
     if !operations::archive_download_share_enabled(state.runtime_config()) {
         return Err(auth_forbidden_with_code(
@@ -507,6 +532,8 @@ fn ensure_share_archive_download_enabled(state: &PrimaryAppState) -> Result<()> 
     Ok(())
 }
 
+/// Downloads the shared file's content, counting against the share's download
+/// limit; honors `If-None-Match` and Range requests (200/206/304).
 #[aster_forge_api_docs_macros::path(
     get,
 	path = "/api/v1/s/{token}/download",
@@ -548,6 +575,8 @@ pub async fn download_shared(
     Ok(file::outcome_to_response(outcome))
 }
 
+/// Short-link download endpoint for direct-link tokens (`/d/...`); supports Range
+/// and conditional requests and counts the download.
 pub async fn download_direct(
     state: web::Data<PrimaryAppState>,
     path: web::Path<(String, String)>,
@@ -576,6 +605,8 @@ pub async fn download_direct(
     Ok(file::outcome_to_response(outcome))
 }
 
+/// Short-link download endpoint for preview-link tokens (`/pv/...`); supports Range
+/// and conditional requests without counting a download.
 pub async fn download_preview(
     state: web::Data<PrimaryAppState>,
     path: web::Path<(String, String)>,
@@ -602,6 +633,8 @@ pub async fn download_preview(
     Ok(file::outcome_to_response(outcome))
 }
 
+/// Streams a shared media file for a streaming session, supporting Range-based
+/// playback; each Range request counts against the share's download limit.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/stream/{session_token}/{filename}",
@@ -644,6 +677,8 @@ pub async fn stream_shared_video(
     Ok(file::outcome_to_response(outcome))
 }
 
+/// Downloads one file inside a shared folder, counting against the share's download
+/// limit; honors `If-None-Match` and Range requests (200/206/304).
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/files/{file_id}/download",
@@ -691,6 +726,8 @@ pub async fn download_shared_folder_file_handler(
     Ok(file::outcome_to_response(outcome))
 }
 
+/// Creates a preview link token for one file inside a shared folder, bound to the
+/// request origin.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/s/{token}/files/{file_id}/preview-link",
@@ -728,6 +765,8 @@ pub async fn create_folder_file_preview_link(
     Ok(HttpResponse::Ok().json(crate::api::response::success(link)))
 }
 
+/// Returns an archive preview manifest for one file inside a shared folder; queues
+/// generation and returns 202 while it is being built.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/files/{file_id}/archive-preview",
@@ -779,6 +818,8 @@ pub async fn folder_file_archive_preview(
     }
 }
 
+/// Creates a streaming session for one media file inside a shared folder, bound to
+/// the request origin.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/s/{token}/files/{file_id}/stream-session",
@@ -816,6 +857,7 @@ pub async fn create_folder_file_stream_session(
     Ok(HttpResponse::Ok().json(crate::api::response::success(session)))
 }
 
+/// Lists the contents of the shared folder root.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/content",
@@ -839,6 +881,7 @@ pub async fn list_shared_content(
     Ok(HttpResponse::Ok().json(crate::api::response::success(contents)))
 }
 
+/// Lists the contents of a subfolder inside a shared folder.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/folders/{folder_id}/content",
@@ -869,6 +912,8 @@ pub async fn list_shared_subfolder_content(
     Ok(HttpResponse::Ok().json(crate::api::response::success(contents)))
 }
 
+/// Returns the ancestor chain of a subfolder inside a shared folder, from the
+/// shared root down to it.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/folders/{folder_id}/ancestors",
@@ -896,6 +941,8 @@ pub async fn get_shared_subfolder_ancestors(
     Ok(HttpResponse::Ok().json(crate::api::response::success(ancestors)))
 }
 
+/// Returns the share owner's avatar image in WebP format at the requested size
+/// (512 or 1024).
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/avatar/{size}",
@@ -922,6 +969,8 @@ pub async fn shared_avatar(
     Ok(profile::avatar_image_response(bytes))
 }
 
+/// Returns the shared file's thumbnail as WebP; queues generation and returns 202
+/// while it is being built.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/thumbnail",
@@ -961,6 +1010,8 @@ pub async fn shared_thumbnail(
     }
 }
 
+/// Returns the shared file's image preview as WebP; queues generation and returns
+/// 202 while it is being built.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/image-preview",
@@ -1002,6 +1053,8 @@ pub async fn shared_image_preview(
     }
 }
 
+/// Returns the media metadata extracted from the shared file's blob; returns 202
+/// while extraction is still in progress.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/media-metadata",
@@ -1026,6 +1079,7 @@ pub async fn shared_media_metadata(
     Ok(media_metadata_response(lookup))
 }
 
+/// Returns the thumbnail of one file inside a shared folder as WebP.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/files/{file_id}/thumbnail",
@@ -1070,6 +1124,8 @@ pub async fn shared_folder_file_thumbnail(
     }
 }
 
+/// Returns the media metadata of one file inside a shared folder; returns 202 while
+/// extraction is still in progress.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/files/{file_id}/media-metadata",
@@ -1098,6 +1154,7 @@ pub async fn shared_folder_file_media_metadata(
     Ok(media_metadata_response(lookup))
 }
 
+/// Returns the image preview of one file inside a shared folder as WebP.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/files/{file_id}/image-preview",

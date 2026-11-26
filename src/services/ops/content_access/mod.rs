@@ -92,6 +92,8 @@ fn validate_request(request: &CreateAdminContentAccess) -> Result<WorkspaceAcces
     })
 }
 
+/// Creates a short-lived administrator content access grant after verifying
+/// the actor's authority and the target's existence, and writes the audit entry.
 pub async fn create(
     state: &impl SharedRuntimeState,
     claims: &Claims,

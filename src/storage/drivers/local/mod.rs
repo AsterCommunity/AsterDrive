@@ -20,6 +20,7 @@ pub use promote::promote_local_file_if_absent;
 
 pub(crate) const DEFAULT_LOCAL_STORAGE_PATH: &str = "./data/uploads";
 
+/// Filesystem-backed storage driver rooted at the connector-resolved base path.
 pub struct LocalDriver {
     pub(super) base_path: PathBuf,
 }

@@ -24,6 +24,14 @@ use super::shared::{
     replace_placement_rules, serialize_admission, validate_placement_rules,
 };
 
+/// Reconciles the system default policy group and its default placement rule.
+///
+/// Runs at startup and after migration. When any default policy exists, this
+/// ensures a default group exists, that it carries at least one placement rule
+/// targeting the default policy, that it is the only default group, and that
+/// previously unassigned users are moved onto it. All steps run in one
+/// transaction after serializing on the default-group assignment lock, so
+/// concurrent Primaries cannot create competing default groups.
 pub async fn ensure_policy_groups_seeded<C>(db: &C) -> Result<()>
 where
     C: sea_orm::ConnectionTrait + TransactionTrait,
@@ -100,6 +108,7 @@ where
     transaction::commit(txn).await.map_err(Into::into)
 }
 
+/// Lists storage policy groups with placement rules and targets attached.
 pub async fn list_groups_paginated(
     state: &impl SharedRuntimeState,
     limit: u64,
@@ -130,11 +139,19 @@ pub async fn list_groups_paginated(
     })
 }
 
+/// Loads one storage policy group with its placement rules and targets.
 pub async fn get_group(state: &impl SharedRuntimeState, id: i64) -> Result<StoragePolicyGroupInfo> {
     let group = policy_group_repo::find_group_by_id(state.reader_db(), id).await?;
     Ok(build_group_info(state, &group))
 }
 
+/// Creates a storage policy group with its placement rules in one transaction.
+///
+/// Validates rules and admission constraints up front and requires the default
+/// group, when requested, to be enabled; the default transfer takes the
+/// default-group assignment lock inside the transaction. Commits reload the
+/// compiled policy snapshot and publish a storage topology reload before the
+/// group info is re-read.
 pub async fn create_group(
     state: &impl SharedRuntimeState,
     input: CreateStoragePolicyGroupInput,
@@ -202,6 +219,13 @@ pub async fn create_group(
     Ok(build_group_info(state, &group))
 }
 
+/// Applies a partial update to a storage policy group.
+///
+/// Enforces the default-group invariants: the default group cannot be
+/// disabled or unset while it is the only default group, and disabling a group
+/// fails while users or teams are still assigned. Replaced rules are
+/// revalidated, and every mutation bumps `routing_revision` so compiled
+/// placement snapshot entries refresh after the commit.
 pub async fn update_group(
     state: &impl SharedRuntimeState,
     id: i64,
@@ -319,6 +343,11 @@ pub async fn update_group(
     Ok(build_group_info(state, &group))
 }
 
+/// Deletes a storage policy group after verifying no assignments remain.
+///
+/// Takes the default-group assignment lock and refuses deletion while users
+/// or teams are still assigned to the group. Reloads the compiled policy
+/// snapshot and publishes a storage topology reload after the commit.
 pub async fn delete_group(state: &impl SharedRuntimeState, id: i64) -> Result<()> {
     let txn = transaction::begin(state.writer_db()).await?;
     lock_default_group_assignment(&txn).await?;
@@ -359,6 +388,11 @@ pub async fn delete_group(state: &impl SharedRuntimeState, id: i64) -> Result<()
     Ok(())
 }
 
+/// Moves user and team assignments from one policy group to another.
+///
+/// The target must be enabled and own at least one placement rule; the source
+/// must differ from the target. Returns the moved assignment counts without
+/// reloading the policy snapshot when nothing was assigned.
 pub async fn migrate_group_assignments(
     state: &impl SharedRuntimeState,
     source_group_id: i64,
@@ -433,6 +467,7 @@ pub async fn migrate_group_assignments(
     })
 }
 
+/// Creates the catch-all first-available placement rule targeting the default policy.
 async fn create_default_placement_rule<C: sea_orm::ConnectionTrait>(
     db: &C,
     group_id: i64,

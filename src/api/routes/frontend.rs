@@ -18,6 +18,7 @@ const IMMUTABLE_ASSET_CACHE_CONTROL: &str = "public, max-age=31536000, immutable
 const STATIC_ASSET_CACHE_CONTROL: &str = "public, max-age=86400";
 const PWA_CACHE_CONTROL: &str = "no-cache";
 
+/// 响应头版内容安全策略，随每个 HTML 响应下发。
 pub const FRONTEND_CSP_HEADER: &str = concat!(
     "default-src 'self'; ",
     "base-uri 'self'; ",
@@ -37,6 +38,7 @@ pub const FRONTEND_CSP_HEADER: &str = concat!(
     "manifest-src 'self'"
 );
 
+/// 注入 index.html `<meta>` 标签的 CSP；不能承载 `frame-ancestors`，该约束仍由响应头版生效。
 pub const FRONTEND_CSP_META: &str = concat!(
     "default-src 'self'; ",
     "base-uri 'self'; ",
@@ -54,6 +56,7 @@ pub const FRONTEND_CSP_META: &str = concat!(
     "manifest-src 'self'"
 );
 
+/// 前端静态资源服务：优先读运行时覆盖目录，再回退到编译期嵌入的前端产物。
 pub struct FrontendService;
 
 impl FrontendService {
@@ -116,6 +119,7 @@ impl FrontendService {
             .body(processed)
     }
 
+    /// 处理站点首页请求。
     pub async fn handle_index(
         state: web::Data<PrimaryAppState>,
         _req: HttpRequest,
@@ -123,6 +127,7 @@ impl FrontendService {
         Self::serve_index(state.get_ref()).await
     }
 
+    /// 处理带内容哈希的 `assets/` 构建产物，使用不可变缓存策略。
     pub async fn handle_assets(req: HttpRequest) -> HttpResponse {
         let path = req.match_info().query("path");
         let asset_path = format!("assets/{path}");
@@ -137,6 +142,7 @@ impl FrontendService {
         }
     }
 
+    /// 处理 `static/` 下的非哈希静态文件，使用每日缓存策略。
     pub async fn handle_static(req: HttpRequest) -> HttpResponse {
         let path = req.match_info().query("path");
         let asset_path = format!("static/{path}");
@@ -151,6 +157,7 @@ impl FrontendService {
         }
     }
 
+    /// 处理 `pdfjs/` 下的 PDF.js 查看器资源；缺失时直接 404，不回退到 SPA。
     pub async fn handle_pdfjs_assets(req: HttpRequest) -> HttpResponse {
         let path = req.match_info().query("path");
         let asset_path = format!("pdfjs/{path}");
@@ -165,6 +172,7 @@ impl FrontendService {
         }
     }
 
+    /// 处理站点图标请求；图标缺失时返回空的 SVG 响应而不是 404。
     pub async fn handle_favicon(_req: HttpRequest) -> HttpResponse {
         match Self::load_file("favicon.svg").await {
             Some(data) => HttpResponse::Ok()
@@ -178,6 +186,7 @@ impl FrontendService {
         }
     }
 
+    /// SPA 回退入口：未命中任何 API 或静态路由的 GET 请求统一返回 index.html。
     pub async fn handle_spa_fallback(
         state: web::Data<PrimaryAppState>,
         _req: HttpRequest,
@@ -185,6 +194,7 @@ impl FrontendService {
         Self::serve_index(state.get_ref()).await
     }
 
+    /// 处理 PWA 文件（service worker、workbox 运行时、web manifest），始终要求重新验证。
     pub async fn handle_pwa_file(req: HttpRequest) -> HttpResponse {
         let filename = req.uri().path().trim_start_matches('/');
         let content_type = Self::get_content_type(filename);
@@ -197,6 +207,7 @@ impl FrontendService {
         }
     }
 
+    /// 按文件扩展名推断静态资源的 `Content-Type`，未知类型回落到 `application/octet-stream`。
     fn get_content_type(path: &str) -> &'static str {
         match path.rsplit('.').next() {
             Some("css") => "text/css",

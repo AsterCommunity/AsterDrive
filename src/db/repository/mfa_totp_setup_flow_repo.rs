@@ -9,6 +9,7 @@ use sea_orm::{
 use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::mfa_totp_setup_flow::{self, Entity as MfaTotpSetupFlow};
 
+/// Inserts a new TOTP setup flow from the given active model.
 pub async fn create(
     db: &DatabaseConnection,
     model: mfa_totp_setup_flow::ActiveModel,
@@ -16,6 +17,9 @@ pub async fn create(
     model.insert(db).await.map_err(AsterError::from)
 }
 
+/// Resolves a setup flow by its flow-token hash, but only while it is
+/// unconsumed and unexpired at `now`. Returns `None` for unknown, consumed or
+/// expired flows.
 pub async fn find_active_by_flow_token_hash<C: ConnectionTrait>(
     db: &C,
     flow_token_hash: &str,
@@ -30,6 +34,9 @@ pub async fn find_active_by_flow_token_hash<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Marks a setup flow consumed at `now`, only while unconsumed and unexpired.
+/// Returns `false` when the flow is absent, already consumed, or expired, so
+/// the final confirmation cannot run twice.
 pub async fn consume<C: ConnectionTrait>(
     db: &C,
     id: i64,
@@ -49,6 +56,7 @@ pub async fn consume<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// Removes every TOTP setup flow of a user, returning the number of deleted rows.
 pub async fn delete_all_for_user<C: ConnectionTrait>(db: &C, user_id: i64) -> Result<u64> {
     let result = MfaTotpSetupFlow::delete_many()
         .filter(mfa_totp_setup_flow::Column::UserId.eq(user_id))
@@ -58,6 +66,8 @@ pub async fn delete_all_for_user<C: ConnectionTrait>(db: &C, user_id: i64) -> Re
     Ok(result.rows_affected)
 }
 
+/// Removes setup flows that expired before `now`, returning the number of
+/// deleted rows.
 pub async fn cleanup_expired(db: &DatabaseConnection, now: chrono::DateTime<Utc>) -> Result<u64> {
     let result = MfaTotpSetupFlow::delete_many()
         .filter(mfa_totp_setup_flow::Column::ExpiresAt.lt(now))

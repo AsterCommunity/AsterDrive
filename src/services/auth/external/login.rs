@@ -38,6 +38,12 @@ fn browser_binding_secret() -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }
 
+/// Starts an external login: validates the enabled provider, normalizes the return path,
+/// asks the provider driver for the authorization URL, and persists a one-shot login flow.
+///
+/// The flow stores only hashed `state` and browser binding values, plus the OAuth nonce,
+/// PKCE verifier and redirect URI needed for the later token exchange. The returned
+/// browser binding must be carried to the callback as a cookie by the route layer.
 pub async fn start_login(
     state: &impl SharedRuntimeState,
     registry: &ExternalAuthProviderRegistry,
@@ -121,6 +127,15 @@ pub async fn start_login(
     })
 }
 
+/// Completes an external login from the OAuth provider redirect.
+///
+/// Validates the `state` and browser binding cookie against the stored flow hashes,
+/// checks the flow state machine, then consumes the flow exactly once before exchanging
+/// the authorization code at the provider. Legacy callbacks must match the flow's provider
+/// kind and key. The provider settings are re-read after the external token exchange, and
+/// resolution follows the provider's verified-email and auto-link policy: an existing
+/// identity logs in directly, a matching verified email may require account MFA before
+/// the link commits, and otherwise a pending email-verification flow is created.
 pub async fn finish_callback(
     state: &impl SharedRuntimeState,
     registry: &ExternalAuthProviderRegistry,

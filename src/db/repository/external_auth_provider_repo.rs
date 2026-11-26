@@ -11,6 +11,7 @@ use aster_drive_model::entities::external_auth_provider::{self, Entity as Extern
 use aster_forge_db::pagination::fetch_offset_page;
 use aster_forge_external_auth::ExternalAuthProviderKind;
 
+/// Lists every external auth provider, ordered by display name then id.
 pub async fn find_all(db: &DatabaseConnection) -> Result<Vec<external_auth_provider::Model>> {
     ExternalAuthProvider::find()
         .order_by_asc(external_auth_provider::Column::DisplayName)
@@ -20,6 +21,8 @@ pub async fn find_all(db: &DatabaseConnection) -> Result<Vec<external_auth_provi
         .map_err(AsterError::from)
 }
 
+/// Returns one offset page of providers restricted to the given kinds, ordered
+/// by display name then id, together with the total matching count.
 pub async fn find_paginated(
     db: &DatabaseConnection,
     limit: u64,
@@ -38,6 +41,8 @@ pub async fn find_paginated(
     .await
 }
 
+/// Lists all providers of one kind (enabled or not), ordered by display name
+/// then id.
 pub async fn find_all_by_kind(
     db: &DatabaseConnection,
     kind: ExternalAuthProviderKind,
@@ -51,6 +56,7 @@ pub async fn find_all_by_kind(
         .map_err(AsterError::from)
 }
 
+/// Lists every enabled provider across all kinds, ordered by display name then id.
 pub async fn find_enabled<C: ConnectionTrait>(
     db: &C,
 ) -> Result<Vec<external_auth_provider::Model>> {
@@ -63,6 +69,7 @@ pub async fn find_enabled<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Lists the enabled providers of one kind, ordered by display name then id.
 pub async fn find_enabled_by_kind(
     db: &DatabaseConnection,
     kind: ExternalAuthProviderKind,
@@ -77,6 +84,7 @@ pub async fn find_enabled_by_kind(
         .map_err(AsterError::from)
 }
 
+/// Loads a provider by id, returning `record_not_found` when absent.
 pub async fn find_by_id<C: ConnectionTrait>(
     db: &C,
     id: i64,
@@ -107,6 +115,8 @@ pub async fn lock_by_id<C: ConnectionTrait>(
         .ok_or_else(|| AsterError::record_not_found(format!("external auth provider #{id}")))
 }
 
+/// Finds a provider by its unique (kind, key) identity. Returns `None` when no
+/// provider matches the pair.
 pub async fn find_by_kind_key(
     db: &DatabaseConnection,
     kind: ExternalAuthProviderKind,
@@ -120,6 +130,7 @@ pub async fn find_by_kind_key(
         .map_err(AsterError::from)
 }
 
+/// Inserts a new provider from the given active model.
 pub async fn create(
     db: &DatabaseConnection,
     model: external_auth_provider::ActiveModel,
@@ -127,6 +138,7 @@ pub async fn create(
     model.insert(db).await.map_err(AsterError::from)
 }
 
+/// Persists the given provider model's changed fields.
 pub async fn update<C: ConnectionTrait>(
     db: &C,
     model: external_auth_provider::ActiveModel,
@@ -134,6 +146,7 @@ pub async fn update<C: ConnectionTrait>(
     model.update(db).await.map_err(AsterError::from)
 }
 
+/// Deletes a provider by id, returning `record_not_found` when it does not exist.
 pub async fn delete<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     let result = ExternalAuthProvider::delete_by_id(id)
         .exec(db)
@@ -147,6 +160,8 @@ pub async fn delete<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     Ok(())
 }
 
+/// Overwrites only the provider's `updated_at`. Returns `false` when the id
+/// does not exist.
 pub async fn touch_updated_at(
     db: &DatabaseConnection,
     id: i64,

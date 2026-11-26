@@ -4,6 +4,8 @@ use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::remote_tunnel_owner;
 use sea_orm::{ConnectionTrait, EntityTrait, Set, sea_query::OnConflict};
 
+/// Loads the current tunnel owner lease of a remote node. Returns `None` when
+/// no tunnel is registered for the node.
 pub async fn find_by_remote_node_id<C: ConnectionTrait>(
     db: &C,
     remote_node_id: i64,
@@ -14,6 +16,10 @@ pub async fn find_by_remote_node_id<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Claims or refreshes the tunnel owner lease for a node: on insert records
+/// the new owner, on conflict overwrites runtime id, endpoint, fencing token
+/// and lease expiry. Returns the reloaded row; errors if it cannot be
+/// reloaded afterwards.
 pub async fn upsert<C: ConnectionTrait>(
     db: &C,
     owner: remote_tunnel_owner::Model,
@@ -46,6 +52,9 @@ pub async fn upsert<C: ConnectionTrait>(
         .ok_or_else(|| AsterError::record_not_found("remote tunnel owner after upsert"))
 }
 
+/// Releases a tunnel owner lease only when the caller still presents the
+/// fencing token it was granted, so a superseded owner cannot delete the
+/// current one. Returns `true` when this call removed the row.
 pub async fn delete_if_fencing_token<C: ConnectionTrait>(
     db: &C,
     remote_node_id: i64,

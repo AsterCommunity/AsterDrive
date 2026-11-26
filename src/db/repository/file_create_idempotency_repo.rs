@@ -1,3 +1,5 @@
+//! 仓储模块：`file_create_idempotency_repo`。
+
 use chrono::{DateTime, Utc};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, IntoActiveModel, QueryFilter,
@@ -9,13 +11,20 @@ use aster_drive_model::entities::file_create_idempotency::{self, Entity as FileC
 
 const EXPIRED_DELETE_BATCH_SIZE: u64 = 1_000;
 
+/// Partition of an idempotency key: claims are unique per actor, workspace and key hash.
 #[derive(Clone, Copy, Debug)]
 pub struct FileCreateIdempotencyScope {
+    /// User performing the create; the same key from a different actor is a different claim.
     pub actor_user_id: i64,
+    /// Workspace partition identifier (e.g. personal or team), never a free-form string.
     pub workspace_kind: &'static str,
+    /// Id of the workspace within `workspace_kind`.
     pub workspace_id: i64,
 }
 
+/// Loads an existing idempotency claim for the scope and hashed key. Returns
+/// `None` when no claim exists; claims are matched on the hashed key, never the
+/// raw client value.
 pub async fn find<C: ConnectionTrait>(
     db: &C,
     scope: FileCreateIdempotencyScope,
@@ -31,6 +40,7 @@ pub async fn find<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Deletes one claim row by id; succeeds even when the id is absent.
 pub async fn delete<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     FileCreateIdempotency::delete_by_id(id)
         .exec(db)
@@ -39,11 +49,12 @@ pub async fn delete<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
         .map_err(AsterError::from)
 }
 
+/// Removes expired claims in bounded batches (1000 ids each) ordered by expiry,
+/// so a large backlog cannot turn into one long-running delete, and returns the
+/// total number of removed rows.
 pub async fn delete_expired<C: ConnectionTrait>(db: &C, now: DateTime<Utc>) -> Result<u64> {
     let mut total_deleted = 0_u64;
     loop {
-        // Keep each delete bounded so a delayed maintenance run cannot turn a large
-        // idempotency backlog into one long table lock and transaction-log spike.
         let ids = FileCreateIdempotency::find()
             .select_only()
             .column(file_create_idempotency::Column::Id)
@@ -71,6 +82,8 @@ pub async fn delete_expired<C: ConnectionTrait>(db: &C, now: DateTime<Utc>) -> R
     }
 }
 
+/// Records a new idempotency claim with no result file yet. The scope plus
+/// hashed key must be unique; uniqueness violations surface as database errors.
 pub async fn create_claim<C: ConnectionTrait>(
     db: &C,
     scope: FileCreateIdempotencyScope,
@@ -95,6 +108,8 @@ pub async fn create_claim<C: ConnectionTrait>(
     .map_err(AsterError::from)
 }
 
+/// Fills in the created file id on a claim once the create succeeded; replays
+/// then resolve to this id instead of re-running the create.
 pub async fn complete<C: ConnectionTrait>(
     db: &C,
     claim: file_create_idempotency::Model,

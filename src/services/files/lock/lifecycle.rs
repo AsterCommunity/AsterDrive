@@ -65,6 +65,11 @@ pub async fn lock(
     clippy::too_many_arguments,
     reason = "lock acquisition keeps each persisted domain dimension explicit"
 )]
+/// Acquires a lock with full control over target, mode, origin, holder,
+/// timeout, and presentation path, on the writer database.
+///
+/// Fails when an existing lock overlaps the target and is neither expired
+/// nor satisfied.
 pub async fn acquire(
     state: &impl SharedRuntimeState,
     target: LockTarget,
@@ -92,6 +97,9 @@ pub async fn acquire(
     clippy::too_many_arguments,
     reason = "transactional acquisition mirrors the complete lock command without a duplicate DTO"
 )]
+/// Transactional twin of [`acquire`]: acquires the lock inside one
+/// transaction on the given connection, so callers can combine it with
+/// other writes atomically.
 pub async fn acquire_on(
     db: &DatabaseConnection,
     target: LockTarget,
@@ -260,11 +268,15 @@ pub async fn unlock(
     Ok(())
 }
 
+/// Releases the lock identified by `token` on the writer database.
 pub async fn unlock_by_token(state: &impl SharedRuntimeState, token: &str) -> Result<()> {
     unlock_by_token_on(state.writer_db(), token).await?;
     Ok(())
 }
 
+/// Releases the lock identified by `token`, re-validating inside the
+/// transaction that the lock still anchors the snapshot target; returns
+/// the released lock row.
 pub async fn unlock_by_token_on(
     db: &DatabaseConnection,
     token: &str,
@@ -282,6 +294,8 @@ pub async fn unlock_by_token_on(
     Ok(lock)
 }
 
+/// Releases a lock by id without ownership checks; reserved for
+/// administrative recovery paths.
 pub async fn force_unlock(state: &impl SharedRuntimeState, lock_id: i64) -> Result<()> {
     let snapshot = lock_repo::find_by_id(state.writer_db(), lock_id)
         .await?
@@ -296,6 +310,8 @@ pub async fn force_unlock(state: &impl SharedRuntimeState, lock_id: i64) -> Resu
     Ok(())
 }
 
+/// Administrative twin of [`force_unlock`] that also writes a
+/// `AdminForceUnlock` audit entry with the lock's entity details.
 pub async fn force_unlock_with_audit(
     state: &impl SharedRuntimeState,
     lock_id: i64,
@@ -404,6 +420,9 @@ async fn release_snapshot_on(
     .await
 }
 
+/// Refreshes (or clears) the expiry of the lock identified by `token`,
+/// re-validating that the lock still anchors the snapshot target before
+/// the update is committed.
 pub async fn refresh_by_token_on(
     db: &DatabaseConnection,
     token: &str,
@@ -436,6 +455,8 @@ pub async fn refresh_by_token_on(
     .await
 }
 
+/// Replaces owner info and expiry of the lock identified by `token` in
+/// one transaction, after re-validating the lock's anchor target.
 pub async fn replace_owner_info_and_timeout_by_token_on(
     db: &DatabaseConnection,
     token: &str,

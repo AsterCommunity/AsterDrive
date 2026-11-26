@@ -13,6 +13,7 @@ use aster_forge_api::SortOrder;
 use aster_forge_db::pagination::fetch_offset_page;
 use aster_forge_db::sort::{order_by_column_with_id, order_by_id};
 
+/// Loads a background task by id, returning `record_not_found` when absent.
 pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<background_task::Model> {
     BackgroundTask::find_by_id(id)
         .one(db)
@@ -49,6 +50,8 @@ pub async fn find_active_by_kind_in_workspace<C: ConnectionTrait>(
     query.lock_shared().one(db).await.map_err(AsterError::from)
 }
 
+/// Loads a task by id under an exclusive row lock, inside the caller's transaction.
+/// Returns `None` when no row matches.
 pub async fn find_by_id_for_update<C: ConnectionTrait>(
     db: &C,
     id: i64,
@@ -60,6 +63,8 @@ pub async fn find_by_id_for_update<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Finds a task by its dedupe key, regardless of status. Returns `None` when the
+/// key is unset on every row or no row carries it.
 pub async fn find_by_dedupe_key<C: ConnectionTrait>(
     db: &C,
     dedupe_key: &str,
@@ -71,6 +76,8 @@ pub async fn find_by_dedupe_key<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Returns one offset page of the user's personal tasks (personal scope only,
+/// `team_id` NULL), newest first, together with the total matching count.
 pub async fn find_paginated_personal(
     db: &DatabaseConnection,
     user_id: i64,
@@ -89,6 +96,8 @@ pub async fn find_paginated_personal(
     .await
 }
 
+/// Returns one offset page of a team's tasks, newest first, together with the
+/// total matching count.
 pub async fn find_paginated_team(
     db: &DatabaseConnection,
     team_id: i64,
@@ -106,6 +115,8 @@ pub async fn find_paginated_team(
     .await
 }
 
+/// Returns one offset page of all tasks with default admin filters and
+/// `UpdatedAt` descending order, together with the total matching count.
 pub async fn find_paginated_all(
     db: &DatabaseConnection,
     limit: u64,
@@ -122,6 +133,9 @@ pub async fn find_paginated_all(
     .await
 }
 
+/// Returns one offset page of all tasks after applying admin filters, ordered by
+/// the requested sort key (always tie-broken by id) and direction, together with
+/// the total matching count.
 pub async fn find_paginated_all_filtered(
     db: &DatabaseConnection,
     limit: u64,
@@ -201,6 +215,7 @@ fn apply_admin_task_sort(
     }
 }
 
+/// Returns the most recently updated tasks (no scope filter), at most `limit` rows.
 pub async fn list_recent(
     db: &DatabaseConnection,
     limit: u64,
@@ -213,6 +228,8 @@ pub async fn list_recent(
         .map_err(AsterError::from)
 }
 
+/// Finds the most recently updated `SystemRuntime` task whose stored payload
+/// matches `payload_json` exactly. Returns `None` when no runtime task carries it.
 pub async fn find_latest_system_runtime_by_payload(
     db: &DatabaseConnection,
     payload_json: &StoredTaskPayload,
@@ -226,6 +243,7 @@ pub async fn find_latest_system_runtime_by_payload(
         .map_err(AsterError::from)
 }
 
+/// Counts tasks currently in `Processing` or `Canceling` status, across all kinds.
 pub async fn count_processing(db: &DatabaseConnection) -> Result<u64> {
     BackgroundTask::find()
         .filter(background_task::Column::Status.is_in([
@@ -237,6 +255,8 @@ pub async fn count_processing(db: &DatabaseConnection) -> Result<u64> {
         .map_err(AsterError::from)
 }
 
+/// Counts tasks waiting to be claimed (`Pending` or `Retry`), including those
+/// whose `next_run_at` has not been reached yet.
 pub async fn count_pending_or_retry(db: &DatabaseConnection) -> Result<u64> {
     BackgroundTask::find()
         .filter(
@@ -248,6 +268,9 @@ pub async fn count_pending_or_retry(db: &DatabaseConnection) -> Result<u64> {
         .map_err(AsterError::from)
 }
 
+/// Counts tasks in `Processing` or `Canceling` status whose lease is still valid
+/// (non-null and not yet expired at `now`) for the given kinds. An empty kind
+/// list short-circuits to zero.
 pub async fn count_active_processing_by_kinds<C: ConnectionTrait>(
     db: &C,
     now: DateTime<Utc>,
@@ -276,6 +299,8 @@ pub async fn count_active_processing_by_kinds<C: ConnectionTrait>(
     )?)
 }
 
+/// Finds the most recently created task for the given kind and display name,
+/// across all statuses. Returns `None` when no task matches.
 pub async fn find_latest_by_kind_and_display_name(
     db: &DatabaseConnection,
     kind: BackgroundTaskKind,
@@ -290,6 +315,8 @@ pub async fn find_latest_by_kind_and_display_name(
         .map_err(AsterError::from)
 }
 
+/// Returns the age in seconds of the oldest `Pending` or `Retry` task, measured
+/// from its creation time to now. Returns `0.0` when no such task exists.
 pub async fn oldest_pending_age_seconds(db: &DatabaseConnection) -> Result<f64> {
     let oldest = BackgroundTask::find()
         .select_only()

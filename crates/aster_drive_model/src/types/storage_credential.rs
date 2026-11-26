@@ -1,3 +1,5 @@
+//! OAuth 存储凭据与 Microsoft Graph 云端点类型。
+
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -10,13 +12,16 @@ use utoipa::ToSchema;
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(32))")]
 #[serde(rename_all = "snake_case")]
 pub enum StorageCredentialProvider {
+    /// Microsoft Graph (OneDrive / SharePoint).
     #[sea_orm(string_value = "microsoft_graph")]
     MicrosoftGraph,
+    /// Google Drive.
     #[sea_orm(string_value = "google_drive")]
     GoogleDrive,
 }
 
 impl StorageCredentialProvider {
+    /// Returns the snake_case provider name shared by storage and API values.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::MicrosoftGraph => "microsoft_graph",
@@ -24,6 +29,7 @@ impl StorageCredentialProvider {
         }
     }
 
+    /// Parses a provider name produced by [`StorageCredentialProvider::as_str`].
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "microsoft_graph" => Some(Self::MicrosoftGraph),
@@ -53,15 +59,19 @@ impl AsRef<str> for StorageCredentialProvider {
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(32))")]
 #[serde(rename_all = "snake_case")]
 pub enum StorageCredentialKind {
+    /// Delegated OAuth tokens acting as the authorizing user.
     #[sea_orm(string_value = "oauth_delegated")]
     OauthDelegated,
+    /// App-only OAuth tokens acting as the application identity.
     #[sea_orm(string_value = "oauth_app_only")]
     OauthAppOnly,
+    /// Google service account key material.
     #[sea_orm(string_value = "service_account")]
     ServiceAccount,
 }
 
 impl StorageCredentialKind {
+    /// Returns the snake_case credential kind name shared by storage and API values.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::OauthDelegated => "oauth_delegated",
@@ -77,19 +87,25 @@ impl StorageCredentialKind {
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(32))")]
 #[serde(rename_all = "snake_case")]
 pub enum StorageCredentialStatus {
+    /// Credential refreshes and authorizes normally.
     #[sea_orm(string_value = "authorized")]
     Authorized,
+    /// Authorization expired or was rejected; the user must re-authorize.
     #[sea_orm(string_value = "reauth_required")]
     ReauthRequired,
+    /// The grant no longer covers the scopes the policy needs.
     #[sea_orm(string_value = "permission_denied")]
     PermissionDenied,
+    /// Authorization was explicitly revoked.
     #[sea_orm(string_value = "revoked")]
     Revoked,
+    /// Credential is misconfigured or otherwise unusable.
     #[sea_orm(string_value = "invalid")]
     Invalid,
 }
 
 impl StorageCredentialStatus {
+    /// Returns the snake_case status name shared by storage and API values.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Authorized => "authorized",
@@ -107,17 +123,22 @@ impl StorageCredentialStatus {
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(32))")]
 #[serde(rename_all = "snake_case")]
 pub enum StorageAuthorizationFlowStatus {
+    /// Flow started and awaits the provider callback.
     #[sea_orm(string_value = "pending")]
     Pending,
+    /// Callback completed and the credential was stored.
     #[sea_orm(string_value = "consumed")]
     Consumed,
+    /// Flow expired before the callback completed.
     #[sea_orm(string_value = "expired")]
     Expired,
+    /// Flow was cancelled before the callback completed.
     #[sea_orm(string_value = "cancelled")]
     Cancelled,
 }
 
 impl StorageAuthorizationFlowStatus {
+    /// Returns the snake_case status name shared by storage and API values.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Pending => "pending",
@@ -134,12 +155,15 @@ impl StorageAuthorizationFlowStatus {
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
 pub enum MicrosoftGraphCloud {
+    /// Microsoft global public cloud.
     #[default]
     Global,
+    /// Microsoft cloud operated by 21Vianet in China.
     China,
 }
 
 impl MicrosoftGraphCloud {
+    /// Returns the Graph API base URL for this cloud.
     pub const fn graph_base_url(self) -> &'static str {
         match self {
             Self::Global => "https://graph.microsoft.com",
@@ -147,6 +171,7 @@ impl MicrosoftGraphCloud {
         }
     }
 
+    /// Returns the OAuth 2.0 login (authority) base URL for this cloud.
     pub const fn login_base_url(self) -> &'static str {
         match self {
             Self::Global => "https://login.microsoftonline.com",
@@ -157,6 +182,7 @@ impl MicrosoftGraphCloud {
         }
     }
 
+    /// Builds the OAuth 2.0 authorization endpoint URL for a validated tenant.
     pub fn authorization_endpoint(self, tenant: &str) -> Result<String, MicrosoftGraphTenantError> {
         Ok(format!(
             "{}/{}/oauth2/v2.0/authorize",
@@ -165,6 +191,7 @@ impl MicrosoftGraphCloud {
         ))
     }
 
+    /// Builds the OAuth 2.0 token endpoint URL for a validated tenant.
     pub fn token_endpoint(self, tenant: &str) -> Result<String, MicrosoftGraphTenantError> {
         Ok(format!(
             "{}/{}/oauth2/v2.0/token",
@@ -174,6 +201,7 @@ impl MicrosoftGraphCloud {
     }
 }
 
+/// Returned when a tenant identifier cannot be embedded in an auth URL.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MicrosoftGraphTenantError;
 
@@ -187,6 +215,9 @@ impl fmt::Display for MicrosoftGraphTenantError {
 
 impl std::error::Error for MicrosoftGraphTenantError {}
 
+/// Validates a Microsoft Graph tenant identifier: trims the input, defaults the
+/// empty value to `common`, and accepts the well-known aliases, a tenant GUID,
+/// or a verified domain name.
 pub fn validate_microsoft_graph_tenant(tenant: &str) -> Result<&str, MicrosoftGraphTenantError> {
     let tenant = tenant.trim();
     let tenant = if tenant.is_empty() { "common" } else { tenant };

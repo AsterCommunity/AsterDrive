@@ -22,16 +22,20 @@ pub(crate) const fn follower_master_readiness_min_secs(binding_count: usize) -> 
         + FOLLOWER_BINDING_CONTROL_TIMEOUT.as_secs() * (batches + 1)
 }
 
+/// 节点启动后的静态运行角色（config.toml `server.start_mode`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
 pub enum NodeRuntimeMode {
+    /// Primary：权威数据面，拥有数据库写入与完整 API。
     #[default]
     Primary,
+    /// Follower：跟随 Primary 的只读副本节点。
     Follower,
 }
 
 impl NodeRuntimeMode {
+    /// 配置文件与指标标签使用的角色拼写（`"primary"` / `"follower"`）。
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Primary => "primary",
@@ -40,6 +44,7 @@ impl NodeRuntimeMode {
     }
 }
 
+/// 解析字符串形式的节点角色；大小写不敏感、忽略首尾空白，未知值返回 None。
 pub fn parse_node_runtime_mode(value: &str) -> Option<NodeRuntimeMode> {
     match value.trim().to_ascii_lowercase().as_str() {
         "primary" => Some(NodeRuntimeMode::Primary),
@@ -48,6 +53,7 @@ pub fn parse_node_runtime_mode(value: &str) -> Option<NodeRuntimeMode> {
     }
 }
 
+/// 读取静态配置中的节点启动角色。
 pub fn start_mode(config: &Config) -> NodeRuntimeMode {
     config.server.start_mode
 }

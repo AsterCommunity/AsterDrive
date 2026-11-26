@@ -11,8 +11,11 @@ use crate::services::user::account::{MeResponseField, MeResponseFields};
 #[derive(Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct RegisterReq {
+    /// Desired username for the new account.
     pub username: String,
+    /// Email address that receives the activation email.
     pub email: String,
+    /// Account password in plaintext; stored server-side only as a hash.
     pub password: String,
 }
 
@@ -20,7 +23,9 @@ pub struct RegisterReq {
 #[derive(Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct AcceptUserInvitationReq {
+    /// Username to claim for the invited account.
     pub username: String,
+    /// Account password in plaintext; stored server-side only as a hash.
     pub password: String,
 }
 
@@ -28,6 +33,7 @@ pub struct AcceptUserInvitationReq {
 #[derive(Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ResendRegisterActivationReq {
+    /// Username or email address of the pending registration.
     pub identifier: String,
 }
 
@@ -35,10 +41,15 @@ pub struct ResendRegisterActivationReq {
 #[derive(serde::Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct CheckResp {
+    /// Current phase of the initial system setup.
     pub setup_state: crate::services::system_setup::SystemSetupState,
+    /// Whether any user account already exists.
     pub has_users: bool,
+    /// Whether open registration is currently allowed.
     pub allow_user_registration: bool,
+    /// Whether password-less passkey login is enabled.
     pub passkey_login_enabled: bool,
+    /// Whether password-based login is enabled.
     pub password_login_enabled: bool,
 }
 
@@ -46,8 +57,11 @@ pub struct CheckResp {
 #[derive(Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct SetupReq {
+    /// Username for the first administrator account.
     pub username: String,
+    /// Email address for the first administrator account.
     pub email: String,
+    /// Account password in plaintext; stored server-side only as a hash.
     pub password: String,
 }
 
@@ -55,7 +69,9 @@ pub struct SetupReq {
 #[derive(Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct LoginReq {
+    /// Username or email address; values containing `@` are treated as email.
     pub identifier: String,
+    /// Account password in plaintext.
     pub password: String,
 }
 
@@ -66,6 +82,8 @@ pub struct LoginReq {
     derive(IntoParams, ToSchema)
 )]
 pub struct ContactVerificationConfirmQuery {
+    /// One-time verification token from the emailed link; empty or absent
+    /// redirects to the frontend fallback page instead of confirming.
     pub token: Option<String>,
 }
 
@@ -73,22 +91,33 @@ pub struct ContactVerificationConfirmQuery {
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct AuthTokenResp {
+    /// Access token lifetime in seconds.
     pub expires_in: u64,
 }
 
+/// Login outcome for the password login endpoint, tagged by `status`.
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum LoginResponse {
+    /// Credentials accepted and a session was issued.
     Authenticated {
+        /// Access token lifetime in seconds.
         expires_in: u64,
     },
+    /// Credentials accepted, but the account must set a new password first;
+    /// the issued session is restricted to the password-change flow.
     PasswordChangeRequired {
+        /// Access token lifetime in seconds.
         expires_in: u64,
     },
+    /// First factor verified; a second-factor challenge must be completed.
     MfaRequired {
+        /// Opaque token identifying the pending MFA flow.
         flow_token: String,
+        /// Lifetime of the MFA flow in seconds.
         expires_in: u64,
+        /// Second-factor methods available for this account.
         methods: Vec<aster_drive_model::types::MfaMethod>,
     },
 }
@@ -97,6 +126,7 @@ pub enum LoginResponse {
 #[derive(serde::Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ActionMessageResp {
+    /// Human-readable confirmation message.
     pub message: String,
 }
 
@@ -104,6 +134,7 @@ pub struct ActionMessageResp {
 #[derive(Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct UpdateAvatarSourceReq {
+    /// New avatar source (`none`, `gravatar`, or `upload`).
     pub source: aster_drive_model::types::AvatarSource,
 }
 
@@ -111,6 +142,7 @@ pub struct UpdateAvatarSourceReq {
 #[derive(Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct UpdateProfileReq {
+    /// New display name; `None` leaves the current name untouched.
     pub display_name: Option<String>,
 }
 
@@ -118,7 +150,9 @@ pub struct UpdateProfileReq {
 #[derive(Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ChangePasswordReq {
+    /// Current password, for re-authentication.
     pub current_password: String,
+    /// New password to set.
     pub new_password: String,
 }
 
@@ -134,6 +168,10 @@ pub struct MeQuery {
 }
 
 impl MeQuery {
+    /// Parses the comma-separated `fields` value into response field groups.
+    ///
+    /// Returns `Ok(None)` when the value is absent or trims to nothing;
+    /// unknown field names return a validation error.
     pub fn selected_fields(&self) -> Result<Option<MeResponseFields>> {
         let Some(fields) = self.fields.as_deref() else {
             return Ok(None);
@@ -175,6 +213,7 @@ impl MeQuery {
 #[derive(Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PasswordResetRequestReq {
+    /// Email address of the account to send the reset link to.
     pub email: String,
 }
 
@@ -182,7 +221,9 @@ pub struct PasswordResetRequestReq {
 #[derive(Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PasswordResetConfirmReq {
+    /// One-time token from the reset email.
     pub token: String,
+    /// New password to set.
     pub new_password: String,
 }
 
@@ -190,6 +231,7 @@ pub struct PasswordResetConfirmReq {
 #[derive(Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct RequestEmailChangeReq {
+    /// Email address to change to; a verification link is sent to it.
     pub new_email: String,
 }
 
@@ -197,6 +239,8 @@ pub struct RequestEmailChangeReq {
 #[derive(Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PasskeyRegisterStartReq {
+    /// Display name for the new passkey; `None` falls back to a server
+    /// default derived from the account.
     pub name: Option<String>,
 }
 
@@ -204,8 +248,12 @@ pub struct PasskeyRegisterStartReq {
 #[derive(Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PasskeyRegisterFinishReq {
+    /// Flow ID returned by the registration start call.
     pub flow_id: String,
+    /// Raw browser WebAuthn attestation response.
     pub credential: serde_json::Value,
+    /// Display name override for the passkey; `None` keeps the name chosen
+    /// at registration start.
     pub name: Option<String>,
 }
 
@@ -213,6 +261,7 @@ pub struct PasskeyRegisterFinishReq {
 #[derive(Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PatchPasskeyReq {
+    /// New display name for the passkey.
     pub name: String,
 }
 
@@ -220,6 +269,8 @@ pub struct PatchPasskeyReq {
 #[derive(Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PasskeyLoginStartReq {
+    /// Keep WebAuthn conditional mediation (autofill UI) for the challenge;
+    /// defaults to `false`.
     pub conditional: Option<bool>,
 }
 
@@ -227,6 +278,8 @@ pub struct PasskeyLoginStartReq {
 #[derive(Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PasskeyLoginFinishReq {
+    /// Flow ID returned by the login start call.
     pub flow_id: String,
+    /// Raw browser WebAuthn assertion response.
     pub credential: serde_json::Value,
 }

@@ -12,6 +12,9 @@ impl ConfigValueLookup for RuntimeConfig {
     }
 }
 
+/// Overlays authoritative schema metadata (value type, restart flag,
+/// sensitivity, visibility, category, description) onto a system-sourced
+/// config row; custom rows are passed through untouched.
 pub fn apply_definition(mut config: system_config::Model) -> system_config::Model {
     if config.source != ConfigSource::System {
         return config;

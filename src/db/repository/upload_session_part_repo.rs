@@ -9,11 +9,17 @@ use sea_orm::{
 use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::upload_session_part::{self, Entity as UploadSessionPart};
 
+/// Outcome of a part upsert, distinguishing a fresh claim from an overwrite.
 pub struct UpsertPartResult {
+    /// Reloaded row state after the upsert.
     pub model: upload_session_part::Model,
+    /// `true` when this call created the row instead of updating an existing one.
     pub inserted: bool,
 }
 
+/// Atomically reserves a part slot with an empty etag. Returns `true` when this
+/// call created the claim and `false` when the slot is already claimed; the
+/// claim row is left untouched on conflict.
 pub async fn try_claim_part<C: ConnectionTrait>(
     db: &C,
     upload_id: &str,
@@ -45,6 +51,10 @@ pub async fn try_claim_part<C: ConnectionTrait>(
     }
 }
 
+/// Records a completed part, inserting the claim row when missing and otherwise
+/// overwriting its etag, size and update time. Returns the reloaded row plus
+/// whether this call performed the insert; errors if a conflicting row cannot
+/// be updated or reloaded afterwards.
 pub async fn upsert_part<C: ConnectionTrait>(
     db: &C,
     upload_id: &str,
@@ -115,6 +125,8 @@ pub async fn upsert_part<C: ConnectionTrait>(
     Ok(UpsertPartResult { model, inserted })
 }
 
+/// Loads a single part row (claimed or not) for the given upload. Returns `None`
+/// when the slot has no row.
 pub async fn find_by_upload_and_part<C: ConnectionTrait>(
     db: &C,
     upload_id: &str,
@@ -128,6 +140,9 @@ pub async fn find_by_upload_and_part<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Fills in etag and size on an unclaimed (empty-etag) part row only. Returns
+/// `true` when this call finalized the claim and `false` when the row is absent
+/// or already finalized; the row is never overwritten twice.
 pub async fn finalize_claimed_part<C: ConnectionTrait>(
     db: &C,
     upload_id: &str,
@@ -154,6 +169,9 @@ pub async fn finalize_claimed_part<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// Refreshes `updated_at` on an unclaimed (empty-etag) part row to keep the
+/// claim out of stale-claim cleanup. Returns `false` when the claim no longer
+/// exists, leaving the row untouched.
 pub async fn touch_claimed_part<C: ConnectionTrait>(
     db: &C,
     upload_id: &str,
@@ -185,6 +203,9 @@ pub async fn touch_claimed_part<C: ConnectionTrait>(
     Ok(true)
 }
 
+/// Removes an unclaimed (empty-etag) part row whose `updated_at` is older than
+/// `stale_before`. Returns `true` when this call deleted the claim; finalized
+/// rows are never removed here.
 pub async fn delete_stale_claim<C: ConnectionTrait>(
     db: &C,
     upload_id: &str,
@@ -202,6 +223,7 @@ pub async fn delete_stale_claim<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// Lists the finalized (non-empty etag) parts of an upload, ordered by part number.
 pub async fn list_by_upload<C: ConnectionTrait>(
     db: &C,
     upload_id: &str,
@@ -215,6 +237,8 @@ pub async fn list_by_upload<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Lists all part rows of an upload, including unfinished (empty-etag) claims,
+/// ordered by part number.
 pub async fn list_all_by_upload<C: ConnectionTrait>(
     db: &C,
     upload_id: &str,
@@ -227,6 +251,7 @@ pub async fn list_all_by_upload<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Lists the finalized (non-empty etag) part numbers of an upload in ascending order.
 pub async fn list_part_numbers<C: ConnectionTrait>(db: &C, upload_id: &str) -> Result<Vec<i32>> {
     UploadSessionPart::find()
         .select_only()
@@ -278,6 +303,7 @@ pub async fn insert_part_if_missing<C: ConnectionTrait>(
     }
 }
 
+/// Deletes every part row of an upload, returning the number of removed rows.
 pub async fn delete_by_upload<C: ConnectionTrait>(db: &C, upload_id: &str) -> Result<u64> {
     let res = UploadSessionPart::delete_many()
         .filter(upload_session_part::Column::UploadId.eq(upload_id))
@@ -287,6 +313,8 @@ pub async fn delete_by_upload<C: ConnectionTrait>(db: &C, upload_id: &str) -> Re
     Ok(res.rows_affected)
 }
 
+/// Deletes one part row of an upload, returning the number of removed rows
+/// (0 when the slot has no row).
 pub async fn delete_by_upload_and_part<C: ConnectionTrait>(
     db: &C,
     upload_id: &str,

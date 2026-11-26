@@ -150,6 +150,11 @@ pub(super) async fn load_folder_chain_map<C: ConnectionTrait>(
     Ok(loaded)
 }
 
+/// Builds the absolute display path (`/a/b/c` style) for each requested
+/// folder, walking the ancestor chain from the root.
+///
+/// Fails if any folder in a chain is missing or the chain exceeds the
+/// depth limit or contains a cycle. Returns one entry per requested id.
 pub async fn build_folder_paths<C: ConnectionTrait>(
     db: &C,
     folder_ids: &[i64],
@@ -206,6 +211,10 @@ fn build_folder_path_entries_from_chain_map(
     Ok(paths)
 }
 
+/// Builds absolute folder paths reusing the cached ancestor chains when
+/// they are still valid, and falls back to database walks on cache misses.
+///
+/// Invalid cached chains are replaced with freshly computed ones.
 pub async fn build_folder_paths_cached(
     state: &impl SharedRuntimeState,
     folder_ids: &[i64],

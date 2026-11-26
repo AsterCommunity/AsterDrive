@@ -5,9 +5,18 @@ use std::time::Instant;
 
 macro_rules! labels {
     ($name:ident { $($variant:ident => $label:literal),* $(,)? }) => {
+        /// Bounded product label set; every variant maps to one stable wire label.
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-        pub enum $name { $($variant),* }
-        impl $name { pub const fn label(self) -> &'static str { match self { $(Self::$variant => $label),* } } }
+        pub enum $name {
+            $(
+            #[doc = "One product label value; the wire label is the literal in the macro call."]
+            $variant
+            ),*
+        }
+        impl $name {
+            /// Returns the stable wire label for this value.
+            pub const fn label(self) -> &'static str { match self { $(Self::$variant => $label),* } }
+        }
     };
 }
 labels!(AdmissionReason { Quota => "quota", TargetCapacity => "target_capacity", StagingCapacity => "staging_capacity", Concurrency => "concurrency", CapacityUnavailable => "capacity_unavailable" });
@@ -22,13 +31,18 @@ labels!(RemoteOperation { Read => "read", Write => "write", Delete => "delete", 
 labels!(RemoteReason { Ok => "ok", Timeout => "timeout", Disconnected => "disconnected", Rejected => "rejected", Error => "error", Cancelled => "cancelled" });
 
 #[derive(Clone, Copy, Debug)]
+/// Label triple identifying one data-plane transfer stream in product metrics.
 pub struct TransferLabels {
+    /// Transfer direction relative to this node.
     pub direction: TransferDirection,
+    /// Product surface the transfer belongs to.
     pub source: TransferSource,
+    /// Upload or transfer protocol mode of the stream.
     pub mode: TransferMode,
 }
 
 impl TransferLabels {
+    /// Returns the label values in metric field order: direction, source, mode.
     pub const fn values(self) -> [&'static str; 3] {
         [
             self.direction.label(),
@@ -48,6 +62,9 @@ pub struct TransferGuard {
 }
 
 impl TransferGuard {
+    /// Starts timing a transfer when the recorder is enabled and marks one stream
+    /// in flight; the terminal observation is emitted exactly once by `finish` or
+    /// drop.
     pub fn new(metrics: SharedMetricsRecorder, labels: TransferLabels) -> Self {
         let started = metrics.enabled().then(Instant::now);
         if started.is_some() {
@@ -61,6 +78,8 @@ impl TransferGuard {
         }
     }
 
+    /// Accumulates observed bytes and flushes them to the recorder in 1 MiB
+    /// batches; bytes consumed before an error or cancellation are still recorded.
     pub fn bytes(&mut self, bytes: u64) {
         if self.started.is_none() {
             return;
@@ -78,6 +97,9 @@ impl TransferGuard {
         }
     }
 
+    /// Flushes pending bytes, releases the in-flight gauge and observes the total
+    /// duration under the given outcome exactly once; later calls and drop do
+    /// nothing.
     pub fn finish(&mut self, outcome: TransferOutcome) {
         if let Some(started) = self.started.take() {
             self.flush_bytes();
@@ -94,6 +116,8 @@ impl Drop for TransferGuard {
     }
 }
 
+/// Measures one upload phase and records its duration exactly once; a disabled
+/// recorder observes nothing.
 pub struct UploadPhaseGuard {
     metrics: SharedMetricsRecorder,
     mode: &'static str,
@@ -102,6 +126,7 @@ pub struct UploadPhaseGuard {
 }
 
 impl UploadPhaseGuard {
+    /// Starts timing the phase when the recorder is enabled.
     pub fn new(metrics: SharedMetricsRecorder, mode: &'static str, phase: UploadPhase) -> Self {
         let started = metrics.enabled().then(Instant::now);
         Self {
@@ -112,6 +137,8 @@ impl UploadPhaseGuard {
         }
     }
 
+    /// Observes the phase duration in seconds under the given outcome exactly once;
+    /// drop records `TransferOutcome::Cancelled`.
     pub fn finish(&mut self, outcome: TransferOutcome) {
         if let Some(started) = self.started.take() {
             self.metrics.upload_phase(
@@ -130,6 +157,7 @@ impl Drop for UploadPhaseGuard {
     }
 }
 
+/// Measures one remote transport request and records its duration exactly once.
 pub struct RemoteRequestGuard {
     metrics: SharedMetricsRecorder,
     transport: RemoteTransport,
@@ -138,6 +166,7 @@ pub struct RemoteRequestGuard {
 }
 
 impl RemoteRequestGuard {
+    /// Starts timing the request when the recorder is enabled.
     pub fn new(
         metrics: SharedMetricsRecorder,
         transport: RemoteTransport,
@@ -152,6 +181,8 @@ impl RemoteRequestGuard {
         }
     }
 
+    /// Observes the request duration with its outcome and reason exactly once;
+    /// drop records a cancelled transfer.
     pub fn finish(&mut self, outcome: TransferOutcome, reason: RemoteReason) {
         if let Some(started) = self.started.take() {
             self.metrics.remote_request(
@@ -171,11 +202,14 @@ impl Drop for RemoteRequestGuard {
     }
 }
 
+/// Owns exactly one reverse tunnel connection gauge increment and releases it on
+/// drop.
 pub struct RemoteConnectionGuard {
     metrics: SharedMetricsRecorder,
 }
 
 impl RemoteConnectionGuard {
+    /// Marks one reverse tunnel connection as established.
     pub fn new(metrics: SharedMetricsRecorder) -> Self {
         metrics.remote_connections(1);
         Self { metrics }
@@ -188,12 +222,14 @@ impl Drop for RemoteConnectionGuard {
     }
 }
 
+/// Records at most one blob cleanup outcome across `finish` and drop.
 pub struct BlobCleanupGuard {
     metrics: SharedMetricsRecorder,
     finished: bool,
 }
 
 impl BlobCleanupGuard {
+    /// Creates a guard whose outcome is recorded by `finish` or drop.
     pub fn new(metrics: SharedMetricsRecorder) -> Self {
         Self {
             metrics,
@@ -201,6 +237,8 @@ impl BlobCleanupGuard {
         }
     }
 
+    /// Records the cleanup outcome and retired backing bytes exactly once; later
+    /// calls do nothing and drop records `CleanupOutcome::Cancelled`.
     pub fn finish(&mut self, outcome: CleanupOutcome, retired_bytes: u64) {
         if !self.finished {
             self.finished = true;

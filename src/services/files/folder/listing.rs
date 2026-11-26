@@ -20,6 +20,8 @@ use super::{
     build_folder_list_items_with_tags_and_lock_states, ensure_personal_folder_scope,
 };
 
+/// Pagination and ordering parameters for a folder listing: folders page
+/// by offset, files by cursor.
 #[derive(Debug, Clone)]
 pub struct FolderListParams {
     pub(crate) folder_limit: u64,
@@ -329,6 +331,7 @@ pub(crate) async fn list_in_scope(
     Ok(contents)
 }
 
+/// Lists a folder's contents in the given user's personal workspace.
 pub async fn list(
     state: &impl SharedRuntimeState,
     user_id: i64,

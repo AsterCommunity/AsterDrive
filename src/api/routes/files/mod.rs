@@ -47,6 +47,9 @@ pub(crate) use self::upload::{
 };
 pub(crate) use self::versions::{team_delete_version, team_list_versions, team_restore_version};
 
+/// Builds the personal `/api/v1/files` route scope behind JWT auth and the API rate
+/// limiter: file access, resumable/chunked upload, content edits, locks, copies,
+/// and version history.
 pub fn routes(
     rl: &RateLimitConfig,
     network_trust: &NetworkTrustConfig,
@@ -145,6 +148,8 @@ pub fn routes(
         .route("/{id}", web::patch().to(patch_file))
 }
 
+/// Builds the team file route scope mounted under `/api/v1/teams/{team_id}/files`;
+/// mirrors the personal file routes for team-scoped callers.
 pub fn team_routes() -> actix_web::Scope {
     web::scope("/files")
         // Team workspace variants mirror personal file routes for team-scoped callers.

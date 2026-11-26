@@ -3,15 +3,21 @@
 use crate::errors::AsterError;
 use http::Uri;
 
+/// 校验后的 endpoint 与 bucket 值。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NormalizedS3Config {
+    /// 去除首尾空白的 endpoint URL；为空时使用 SDK 默认 endpoint。
     pub endpoint: String,
+    /// 去除首尾空白的 bucket 名称。
     pub bucket: String,
 }
 
+/// S3 endpoint/bucket 校验失败的原因。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum S3ConfigError {
+    /// bucket 名称为空。
     MissingBucket,
+    /// endpoint 不是可用的绝对 HTTP(S) URL。
     InvalidEndpoint(String),
 }
 
@@ -23,6 +29,7 @@ pub enum S3ConfigError {
 pub struct InvalidSigV4Region;
 
 impl S3ConfigError {
+    /// 将校验失败转换为面向客户端的输入错误。
     pub fn into_aster_error(self) -> AsterError {
         match self {
             Self::MissingBucket => {
@@ -33,6 +40,7 @@ impl S3ConfigError {
     }
 }
 
+/// 校验 SigV4 region：非空、不超过 128 字节，且仅含除 `/` 外的可打印 ASCII。
 pub fn validate_sigv4_region(region: &str) -> std::result::Result<(), InvalidSigV4Region> {
     if region.is_empty()
         || region.len() > 128
@@ -46,6 +54,8 @@ pub fn validate_sigv4_region(region: &str) -> std::result::Result<(), InvalidSig
     Ok(())
 }
 
+/// 校验 S3 兼容 endpoint/bucket 组合。endpoint 为空仅在 bucket 存在时允许
+/// （走 AWS 默认寻址）；否则 endpoint 必须是带 hostname 的绝对 http(s) URL。
 pub fn normalize_s3_endpoint_and_bucket(
     endpoint: &str,
     bucket: &str,

@@ -13,6 +13,7 @@ use aster_forge_api::LimitOffsetQuery;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use aster_forge_api::OffsetPage;
 
+/// Lists teams with pagination, keyword filtering, sorting, and an archived toggle.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/teams",
@@ -44,6 +45,8 @@ pub async fn list_teams(
     Ok(HttpResponse::Ok().json(crate::api::response::success(teams)))
 }
 
+/// Creates a team, optionally resolving its admin by user ID or identifier, and
+/// records the change in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/teams",
@@ -83,6 +86,7 @@ pub async fn create_team(
     Ok(HttpResponse::Created().json(crate::api::response::success(team)))
 }
 
+/// Returns a single team by ID.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/teams/{id}",
@@ -105,6 +109,7 @@ pub async fn get_team(
     Ok(HttpResponse::Ok().json(crate::api::response::success(team)))
 }
 
+/// Updates team profile, quota, or policy group and records the change in the audit log.
 #[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/admin/teams/{id}",
@@ -145,6 +150,7 @@ pub async fn update_team(
     Ok(HttpResponse::Ok().json(crate::api::response::success(team)))
 }
 
+/// Archives a team (soft delete) and records the change in the audit log.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/admin/teams/{id}",
@@ -170,6 +176,7 @@ pub async fn delete_team(
     Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
+/// Restores an archived team and records the change in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/teams/{id}/restore",
@@ -195,6 +202,7 @@ pub async fn restore_team(
     Ok(HttpResponse::Ok().json(crate::api::response::success(team)))
 }
 
+/// Lists a team's audit log entries with pagination and filtering.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/teams/{id}/audit-logs",
@@ -231,6 +239,7 @@ pub async fn list_team_audit_logs(
     Ok(HttpResponse::Ok().json(crate::api::response::success(page)))
 }
 
+/// Streams a team's audit log entries as a UTF-8 CSV export, capped at 100000 rows.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/teams/{id}/audit-logs/export",
@@ -263,6 +272,7 @@ pub async fn export_team_audit_logs(
     Ok(crate::api::routes::audit_csv::response(export))
 }
 
+/// Lists a team's members with pagination, filtering, and sorting.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/teams/{id}/members",
@@ -307,6 +317,8 @@ pub async fn list_team_members(
     Ok(HttpResponse::Ok().json(crate::api::response::success(members)))
 }
 
+/// Adds a member to a team (role defaults to member) and records the change in the
+/// audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/teams/{id}/members",
@@ -347,6 +359,7 @@ pub async fn add_team_member(
     Ok(HttpResponse::Created().json(crate::api::response::success(member)))
 }
 
+/// Changes a team member's role and records the change in the audit log.
 #[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/admin/teams/{id}/members/{member_user_id}",
@@ -385,6 +398,7 @@ pub async fn patch_team_member(
     Ok(HttpResponse::Ok().json(crate::api::response::success(member)))
 }
 
+/// Removes a member from a team and records the change in the audit log.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/admin/teams/{id}/members/{member_user_id}",

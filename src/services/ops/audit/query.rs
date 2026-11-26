@@ -104,6 +104,11 @@ async fn build_audit_entries(
     Ok(items)
 }
 
+/// 按过滤条件分页查询审计日志，返回可直接展示的条目。
+///
+/// 查询前先 flush 审计缓冲，保证结果不含滞留记录；条目的 details 和实体名
+/// 已脱敏，presentation 按当前规则在读取时生成，历史行因此始终跟随最新展示
+/// 逻辑。entity_type 无法识别的历史行会被跳过并记录警告。
 pub async fn query(
     state: &impl SharedRuntimeState,
     filters: AuditLogFilters,
@@ -178,6 +183,10 @@ fn build_team_audit_entry(
     }
 }
 
+/// 分页查询团队维度的审计条目，固定按创建时间倒序，供团队审计历史视图使用。
+///
+/// 调用方负责把 filters 收敛到目标团队（entity_type/entity_id）；本函数从
+/// details 中解析成员与角色变更字段，并按当前规则生成 presentation。
 pub async fn query_team_entries(
     state: &impl SharedRuntimeState,
     filters: AuditLogFilters,

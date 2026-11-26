@@ -25,6 +25,8 @@ use crate::services::{files::file, ops::audit, preview::wopi};
 use actix_web::http::header;
 use actix_web::{HttpRequest, HttpResponse, web};
 
+/// Builds the WOPI protocol scope `/api/v1/wopi`; the module doc lists the exact
+/// endpoint mapping and its coupling to launch URL generation.
 pub fn routes() -> impl actix_web::dev::HttpServiceFactory + use<> {
     web::scope("/wopi")
         .route("/files/{id}", web::get().to(check_file_info))
@@ -33,6 +35,8 @@ pub fn routes() -> impl actix_web::dev::HttpServiceFactory + use<> {
         .route("/files/{id}/contents", web::post().to(put_file_contents))
 }
 
+/// WOPI `CheckFileInfo`: returns file metadata for the WOPI client, authenticated
+/// via `X-WOPI-Token` header or `access_token` query parameter.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/wopi/files/{id}",
@@ -71,6 +75,8 @@ pub async fn check_file_info(
     }
 }
 
+/// WOPI `GetFile`: returns the file content, honoring `If-None-Match` and the
+/// `X-WOPI-MaxExpectedSize` guard, with `X-WOPI-ItemVersion` attached.
 pub async fn get_file_contents(
     state: web::Data<PrimaryAppState>,
     req: HttpRequest,
@@ -118,6 +124,8 @@ pub async fn get_file_contents(
     }
 }
 
+/// WOPI `PutFile`: stores uploaded content for the file, enforcing the lock and
+/// size expectations; returns the new `X-WOPI-ItemVersion` on success.
 pub async fn put_file_contents(
     state: web::Data<PrimaryAppState>,
     req: HttpRequest,
@@ -164,6 +172,9 @@ pub async fn put_file_contents(
     }
 }
 
+/// WOPI `X-WOPI-Override` dispatch on the file endpoint: routes Lock, Unlock,
+/// RefreshLock, UnlockAndRelock, GetLock, RenameFile, PutRelativeFile, and
+/// PutUserInfo to their respective operations.
 pub async fn file_operation(
     state: web::Data<PrimaryAppState>,
     req: HttpRequest,

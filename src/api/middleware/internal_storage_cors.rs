@@ -27,6 +27,7 @@ use crate::storage::remote_protocol::{
 const PRESIGNED_OBJECTS_PATH_PREFIX: &str = "/api/v1/internal/storage/objects/";
 const PREFLIGHT_ALLOWED_METHODS: &str = "GET, PUT, OPTIONS";
 
+/// Browser presigned CORS middleware for follower internal storage endpoints.
 pub struct PresignedInternalStorageCors;
 
 impl<S, B> Transform<S, ServiceRequest> for PresignedInternalStorageCors
@@ -47,6 +48,8 @@ where
     }
 }
 
+/// Service produced by [`PresignedInternalStorageCors`]; answers preflight
+/// requests directly and attaches CORS headers to matching presigned requests.
 pub struct PresignedInternalStorageCorsMiddleware<S> {
     service: Rc<S>,
 }

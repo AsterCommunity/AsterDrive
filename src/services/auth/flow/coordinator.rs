@@ -11,6 +11,16 @@ use super::{
     plan_transition,
 };
 
+/// Creates a first-factor login flow and immediately advances it into [`AuthFlowState::Processing`].
+///
+/// Used by first-factor-only entry points (passkey and external login) whose provider challenge
+/// must be verified before any completion transition is legal. The snapshot starts at revision 1
+/// with no attempt budget; expiry is the caller's responsibility and is enforced on every later
+/// transition.
+///
+/// # Errors
+/// Returns the underlying [`AuthFlowTransitionError`] when the initial
+/// `FirstFactorPending -> Processing` transition is rejected for `kind`.
 pub fn new_primary_flow(
     kind: AuthFlowKind,
     flow_id: impl Into<String>,

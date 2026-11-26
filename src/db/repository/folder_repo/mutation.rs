@@ -13,6 +13,8 @@ use aster_drive_model::types::FolderIconKind;
 
 use super::common::{FolderScope, map_bulk_name_db_err, map_name_db_err};
 
+/// 个人空间 get-or-create：在指定父文件夹下按名插入文件夹；命中 live-name 唯一索引时
+/// 加锁重读并返回既有记录，而不是报错。
 pub async fn create_or_find_by_name_in_parent<C: ConnectionTrait>(
     db: &C,
     model: folder::ActiveModel,
@@ -30,6 +32,8 @@ pub async fn create_or_find_by_name_in_parent<C: ConnectionTrait>(
     .await
 }
 
+/// 同 [`create_or_find_by_name_in_parent`]，额外返回 `created` 标志：`true` 表示本次
+/// 新建，`false` 表示返回的是既有记录。
 pub async fn create_or_find_by_name_in_parent_with_created<C: ConnectionTrait>(
     db: &C,
     model: folder::ActiveModel,
@@ -47,6 +51,7 @@ pub async fn create_or_find_by_name_in_parent_with_created<C: ConnectionTrait>(
     .await
 }
 
+/// 团队空间版本的 [`create_or_find_by_name_in_parent`]。
 pub async fn create_or_find_by_name_in_team_parent<C: ConnectionTrait>(
     db: &C,
     model: folder::ActiveModel,
@@ -57,6 +62,7 @@ pub async fn create_or_find_by_name_in_team_parent<C: ConnectionTrait>(
     create_or_find_in_scope(db, model, FolderScope::Team { team_id }, parent_id, name).await
 }
 
+/// 团队空间版本的 [`create_or_find_by_name_in_parent_with_created`]。
 pub async fn create_or_find_by_name_in_team_parent_with_created<C: ConnectionTrait>(
     db: &C,
     model: folder::ActiveModel,
@@ -150,6 +156,8 @@ fn folder_insert_conflict(backend: DbBackend) -> OnConflict {
     }
 }
 
+/// 插入单条文件夹记录；同位置重名（live-name 唯一索引）映射为 `FolderNameConflict`
+/// 校验错误。
 pub async fn create<C: ConnectionTrait>(
     db: &C,
     model: folder::ActiveModel,
@@ -161,6 +169,8 @@ pub async fn create<C: ConnectionTrait>(
         .map_err(|err| map_name_db_err(err, &name))
 }
 
+/// 更新文件夹图标的类型与取值（`icon_value` 传 `None` 表示清除），并刷新 `updated_at`；
+/// 返回更新后的完整记录。
 pub async fn update_icon<C: ConnectionTrait>(
     db: &C,
     folder: folder::Model,

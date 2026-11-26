@@ -9,16 +9,25 @@ use sea_orm::{
 use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::external_auth_identity::{self, Entity as ExternalAuthIdentity};
 
+/// Values for creating a new external auth identity binding.
 pub struct CreateExternalAuthIdentityInput<'a> {
+    /// Local account the identity is bound to.
     pub user_id: i64,
+    /// Configured external auth provider.
     pub provider_id: i64,
+    /// Stable namespace used to match the identity across provider config changes.
     pub identity_namespace: &'a str,
+    /// Provider-side subject identifier for the account.
     pub subject: &'a str,
+    /// Email observed at bind or login time; a snapshot, not a live mapping.
     pub email_snapshot: Option<&'a str>,
+    /// Display name observed at bind or login time; a snapshot, not a live mapping.
     pub display_name_snapshot: Option<&'a str>,
+    /// Binding time, also recorded as the first login time.
     pub now: chrono::DateTime<Utc>,
 }
 
+/// Lists a user's bound external identities, most recently used first.
 pub async fn list_for_user(
     db: &DatabaseConnection,
     user_id: i64,
@@ -32,6 +41,7 @@ pub async fn list_for_user(
         .map_err(AsterError::from)
 }
 
+/// Finds an identity by provider and its provider-side subject id.
 pub async fn find_by_provider_subject<C: ConnectionTrait>(
     db: &C,
     provider_id: i64,
@@ -45,6 +55,7 @@ pub async fn find_by_provider_subject<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Finds an identity by namespace and subject, independent of provider config changes.
 pub async fn find_by_identity_namespace_subject<C: ConnectionTrait>(
     db: &C,
     identity_namespace: &str,
@@ -58,6 +69,9 @@ pub async fn find_by_identity_namespace_subject<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Finds an identity by id, scoped to the owning user.
+///
+/// Returns `None` when the identity exists but belongs to another user.
 pub async fn find_by_id_for_user<C: ConnectionTrait>(
     db: &C,
     id: i64,
@@ -71,6 +85,7 @@ pub async fn find_by_id_for_user<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Inserts a new external auth identity row.
 pub async fn create<C: ConnectionTrait>(
     db: &C,
     model: external_auth_identity::ActiveModel,
@@ -78,6 +93,8 @@ pub async fn create<C: ConnectionTrait>(
     model.insert(db).await.map_err(AsterError::from)
 }
 
+/// Creates an external auth identity from structured input, recording the binding time as
+/// the first login.
 pub async fn create_identity<C: ConnectionTrait>(
     db: &C,
     input: CreateExternalAuthIdentityInput<'_>,
@@ -100,6 +117,9 @@ pub async fn create_identity<C: ConnectionTrait>(
     .await
 }
 
+/// Refreshes an identity's last login time and updates the profile snapshots when provided.
+///
+/// Returns `false` when the identity row does not exist.
 pub async fn touch_login<C: ConnectionTrait>(
     db: &C,
     id: i64,
@@ -133,6 +153,7 @@ pub async fn touch_login<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// Unbinds an identity from a user, returning whether a row was removed.
 pub async fn delete_for_user(db: &DatabaseConnection, id: i64, user_id: i64) -> Result<bool> {
     let result = ExternalAuthIdentity::delete_many()
         .filter(external_auth_identity::Column::Id.eq(id))

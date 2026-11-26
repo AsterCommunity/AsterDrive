@@ -33,95 +33,154 @@ use aster_drive_storage::{StoragePathVisitControl, StoragePathVisitor};
 // 审计走全表扫描，但必须控制单批内存占用；因此统一按主键顺序分批拉取。
 const INTEGRITY_BATCH_SIZE: u64 = 1_000;
 
+/// Workspace kind a storage usage ledger entry belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StorageOwnerKind {
+    /// A user's personal workspace.
     User,
+    /// A team workspace.
     Team,
 }
 
+/// One owner whose recorded storage usage no longer matches the derived total.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct StorageUsageDrift {
+    /// Workspace kind the drifted usage belongs to.
     pub owner_kind: StorageOwnerKind,
+    /// User or team ID the drift was found on, per `owner_kind`.
     pub owner_id: i64,
+    /// Bytes recorded on the owner row.
     pub recorded_bytes: i64,
+    /// Bytes derived from live files plus non-current revisions.
     pub actual_bytes: i64,
+    /// `actual_bytes - recorded_bytes`; may be negative.
     pub delta_bytes: i64,
 }
 
+/// One blob whose stored reference count disagrees with the derived total.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct BlobRefCountDrift {
+    /// Blob the drift was found on.
     pub blob_id: i64,
+    /// Storage policy the blob belongs to.
     pub policy_id: i64,
+    /// Physical storage path, `None` for virtual empty blobs.
     pub storage_path: Option<String>,
+    /// Reference count persisted on the blob row.
     pub recorded_ref_count: i32,
+    /// Reference count derived from file and revision references.
     pub actual_ref_count: i64,
 }
 
+/// One violation of the revision ledger invariants checked by [`audit_revision_ledger`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RevisionLedgerIssue {
+    /// File the issue belongs to; `None` when detached history rows are involved.
     pub file_id: Option<i64>,
+    /// Revision history row involved; `0` when no history row exists.
     pub history_id: i64,
+    /// Revision involved, when the issue is tied to one specific revision.
     pub revision_id: Option<i64>,
+    /// Human-readable description of the violated invariant.
     pub detail: String,
 }
 
+/// One stored object that diverges from the blob ledger.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct BlobObjectIssue {
+    /// Storage policy owning the object.
     pub policy_id: i64,
+    /// Physical object path in the storage backend.
     pub path: String,
+    /// Blob the object belongs to; `None` for untracked objects.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub blob_id: Option<i64>,
 }
 
+/// One stored thumbnail object no longer covered by any blob's expected cache paths.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ThumbnailIssue {
+    /// Storage policy owning the orphan thumbnail.
     pub policy_id: i64,
+    /// Physical thumbnail object path in the storage backend.
     pub path: String,
 }
 
+/// Kind of folder hierarchy corruption found by the ancestry audit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FolderTreeIssueKind {
+    /// The folder references a parent row that no longer exists.
     MissingParent,
+    /// The folder's parent belongs to another user or team workspace.
     CrossScopeParent,
+    /// The folder's parent chain loops back on itself.
     Cycle,
 }
 
+/// One folder hierarchy problem with enough context to locate the offending row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct FolderTreeIssue {
+    /// Corruption category found.
     pub kind: FolderTreeIssueKind,
+    /// Folder the issue was found on.
     pub folder_id: i64,
+    /// Parent folder involved, `None` for cycle findings.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_id: Option<i64>,
+    /// Human-readable description including the affected identifiers.
     pub detail: String,
 }
 
+/// Aggregate result of a storage object audit, keeping totals exact and
+/// samples bounded by the configured finding limit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
 pub struct StorageObjectAudit {
+    /// Storage policies the audit covered.
     pub scanned_policies: usize,
+    /// Policies audited to completion (list-capable driver and all passes done).
     pub completed_policies: usize,
+    /// Blob rows checked for the existence of their stored objects.
     pub scanned_blob_records: usize,
+    /// Physical objects visited by the path scan across all policies.
     pub scanned_objects: usize,
+    /// Objects skipped by convention (e.g. staging paths).
     pub ignored_paths: usize,
+    /// Largest number of object paths held between database lookups.
     pub peak_path_batch: usize,
+    /// Exact number of blobs whose stored objects are missing.
     pub missing_blob_objects_total: usize,
+    /// Exact number of stored objects not covered by any blob, session or
+    /// derivative cache path.
     pub untracked_objects_total: usize,
+    /// Exact number of orphan thumbnails found.
     pub orphan_thumbnails_total: usize,
+    /// `true` when any sample list was truncated by the finding limit.
     pub findings_truncated: bool,
+    /// Sampled blobs whose stored objects are missing.
     pub missing_blob_objects: Vec<BlobObjectIssue>,
+    /// Sampled objects not covered by the blob ledger.
     pub untracked_objects: Vec<BlobObjectIssue>,
+    /// Sampled orphan thumbnails.
     pub orphan_thumbnails: Vec<ThumbnailIssue>,
 }
 
+/// A single storage audit finding, fanned out to the sink before sampling.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StorageObjectFinding {
+    /// A blob's stored object is missing from the backend.
     MissingBlob(BlobObjectIssue),
+    /// A stored object is not covered by any blob, session or derivative path.
     UntrackedObject(BlobObjectIssue),
+    /// A stored thumbnail is not an expected cache path of any blob.
     OrphanThumbnail(ThumbnailIssue),
 }
 
+/// Receives every storage audit finding as it is detected, in addition to the
+/// sampled report; used to stream findings out without keeping them in memory.
 pub trait StorageObjectFindingSink: Send {
+    /// Records one finding; failing aborts the audit.
     fn record(&mut self, finding: StorageObjectFinding) -> Result<()>;
 }
 
@@ -133,9 +192,12 @@ impl StorageObjectFindingSink for NoopStorageObjectFindingSink {
     }
 }
 
+/// Exact finding count paired with a bounded list of retained samples.
 #[derive(Debug, Clone, Serialize)]
 pub struct AuditFindingSummary<T> {
+    /// Total findings observed, independent of the sample limit.
     pub total: usize,
+    /// First findings retained, at most the configured sample limit.
     pub samples: Vec<T>,
 }
 
@@ -533,12 +595,16 @@ async fn load_actual_storage_usage_for_owners<C: ConnectionTrait>(
     Ok(totals)
 }
 
+/// Recomputes user and team storage usage and returns every owner whose
+/// recorded total drifted from the derived value.
 pub async fn audit_storage_usage<C: ConnectionTrait>(db: &C) -> Result<Vec<StorageUsageDrift>> {
     Ok(audit_storage_usage_with_limit(db, usize::MAX)
         .await?
         .samples)
 }
 
+/// Bounded-sample variant of [`audit_storage_usage`]: totals stay exact while
+/// at most `sample_limit` drift samples are retained in memory.
 pub async fn audit_storage_usage_with_limit<C: ConnectionTrait>(
     db: &C,
     sample_limit: usize,
@@ -647,6 +713,8 @@ pub async fn audit_revision_ledger<C: ConnectionTrait>(db: &C) -> Result<Vec<Rev
         .samples)
 }
 
+/// Bounded-sample variant of [`audit_revision_ledger`]: totals stay exact
+/// while at most `sample_limit` issue samples are retained in memory.
 pub async fn audit_revision_ledger_with_limit<C: ConnectionTrait>(
     db: &C,
     sample_limit: usize,
@@ -892,6 +960,9 @@ async fn reconcile_storage_owner(db: &DatabaseConnection, owner: StorageOwner) -
     .await
 }
 
+/// Reconciles drifted storage usage for every user and team. Each suspected
+/// drift is re-counted under the same owner row lock used by charges, so only
+/// real drift is written back; returns how many owners were corrected.
 pub async fn repair_storage_usage(db: &DatabaseConnection) -> Result<usize> {
     let mut fixed = 0;
     let mut last_user_id = None;
@@ -992,6 +1063,8 @@ pub(crate) async fn actual_blob_ref_counts_for_blobs<C: ConnectionTrait>(
     Ok(actual)
 }
 
+/// Compares stored blob reference counts against the derived totals and
+/// returns every blob that drifted.
 pub async fn audit_blob_ref_counts<C: ConnectionTrait>(
     db: &C,
     policy_id: Option<i64>,
@@ -1001,6 +1074,8 @@ pub async fn audit_blob_ref_counts<C: ConnectionTrait>(
         .samples)
 }
 
+/// Bounded-sample variant of [`audit_blob_ref_counts`]: totals stay exact
+/// while at most `sample_limit` drift samples are retained in memory.
 pub async fn audit_blob_ref_counts_with_limit<C: ConnectionTrait>(
     db: &C,
     policy_id: Option<i64>,
@@ -1131,6 +1206,9 @@ pub(crate) async fn reconcile_blob_reference_count(
     .await
 }
 
+/// Repairs drifted blob reference counts. Healthy pages stay batched; only
+/// suspected drifts enter a short writer transaction that re-counts and writes
+/// authoritatively. Returns how many blobs were corrected.
 pub async fn repair_blob_ref_counts(
     db: &DatabaseConnection,
     policy_id: Option<i64>,
@@ -1437,10 +1515,14 @@ async fn audit_folder_tree_partition_bounded<C: ConnectionTrait>(
     Ok(issues)
 }
 
+/// Audits every workspace's folder hierarchy for missing parents,
+/// cross-scope parents and cycles, returning all issues found.
 pub async fn audit_folder_tree<C: ConnectionTrait>(db: &C) -> Result<Vec<FolderTreeIssue>> {
     Ok(audit_folder_tree_with_limit(db, usize::MAX).await?.samples)
 }
 
+/// Bounded-sample variant of [`audit_folder_tree`]: totals stay exact while
+/// at most `sample_limit` issue samples are retained in memory.
 pub async fn audit_folder_tree_with_limit<C: ConnectionTrait>(
     db: &C,
     sample_limit: usize,
@@ -1593,6 +1675,8 @@ async fn audit_missing_blob_objects<C: ConnectionTrait>(
     Ok(())
 }
 
+/// Audits stored objects against the blob ledger for every storage policy
+/// (or only `policy_id` when given), retaining unlimited samples per finding kind.
 pub async fn audit_storage_objects<C: ConnectionTrait>(
     db: &C,
     driver_registry: &DriverRegistry,
@@ -1634,6 +1718,8 @@ pub async fn audit_storage_objects_with_finding_limit<C: ConnectionTrait>(
     .await
 }
 
+/// Like [`audit_storage_objects_with_finding_limit`] with a `finding_limit` of
+/// zero: every finding goes to `sink` and none are retained in the report.
 pub async fn audit_storage_objects_with_sink<C: ConnectionTrait>(
     db: &C,
     driver_registry: &DriverRegistry,

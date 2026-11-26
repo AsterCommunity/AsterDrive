@@ -8,16 +8,21 @@ use crate::db::repository::{policy_group_repo, policy_repo, user_repo};
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use aster_drive_model::types::UserRole;
 
+/// One-time system initialization lifecycle, derived from database state on each check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum SystemSetupState {
+    /// No users exist yet; the public first-administrator setup flow is open.
     NeedsAdmin,
+    /// An administrator exists but default storage configuration is incomplete.
     NeedsStorage,
+    /// Administrator and default storage are both configured; public setup is closed.
     Ready,
 }
 
 impl SystemSetupState {
+    /// Wire/log identifier, matching the serde representation.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::NeedsAdmin => "needs_admin",
@@ -26,17 +31,23 @@ impl SystemSetupState {
         }
     }
 
+    /// Whether public setup flows are closed and normal operation may proceed.
     pub const fn is_ready(self) -> bool {
         matches!(self, Self::Ready)
     }
 }
 
+/// Detailed setup inspection result for admin-facing status endpoints.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SystemSetupStatus {
+    /// Current one-time setup lifecycle state.
     pub state: SystemSetupState,
+    /// Whether any user account exists in the database.
     pub has_users: bool,
 }
 
+/// Inspect the database and derive the current setup status. Errors with an internal
+/// error when users exist but no administrator does, because public setup must stay closed.
 pub async fn inspect<C: ConnectionTrait>(db: &C) -> Result<SystemSetupStatus> {
     let user_count = user_repo::count_all(db).await?;
     if user_count == 0 {
@@ -67,10 +78,13 @@ pub async fn inspect<C: ConnectionTrait>(db: &C) -> Result<SystemSetupStatus> {
     })
 }
 
+/// Current setup state; see [`inspect`] for the underlying derivation.
 pub async fn state<C: ConnectionTrait>(db: &C) -> Result<SystemSetupState> {
     inspect(db).await.map(|status| status.state)
 }
 
+/// Guard for endpoints that require a fully initialized system; fails with a validation
+/// error identifying the missing setup stage otherwise.
 pub async fn require_ready<C: ConnectionTrait>(db: &C) -> Result<()> {
     match state(db).await? {
         SystemSetupState::Ready => Ok(()),
@@ -103,6 +117,8 @@ pub async fn require_needs_storage<C: ConnectionTrait>(db: &C) -> Result<()> {
     }
 }
 
+/// Return the default policy group id only when it is fully usable: the default policy
+/// exists, the group is enabled, and at least one rule targets it. `Ok(None)` otherwise.
 pub async fn configured_default_policy_group_id<C: ConnectionTrait>(db: &C) -> Result<Option<i64>> {
     if policy_repo::find_default(db).await?.is_none() {
         return Ok(None);

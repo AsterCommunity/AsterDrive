@@ -9,6 +9,7 @@ use sea_orm::{
 use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::mfa_email_code::{self, Entity as MfaEmailCode};
 
+/// Inserts a new email verification code row from the given active model.
 pub async fn create<C: ConnectionTrait>(
     db: &C,
     model: mfa_email_code::ActiveModel,
@@ -16,6 +17,7 @@ pub async fn create<C: ConnectionTrait>(
     model.insert(db).await.map_err(AsterError::from)
 }
 
+/// Returns the user's most recent unconsumed, still-valid code at `now`.
 pub async fn find_latest_active_for_user<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -31,6 +33,8 @@ pub async fn find_latest_active_for_user<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Returns the user's most recent unconsumed code, even if already expired;
+/// used for diagnostics and resend bookkeeping.
 pub async fn find_latest_unconsumed_for_user<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -44,6 +48,8 @@ pub async fn find_latest_unconsumed_for_user<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Returns the most recent unconsumed code issued within one login flow for
+/// the user, regardless of expiry.
 pub async fn find_latest_unconsumed_for_flow<C: ConnectionTrait>(
     db: &C,
     flow_id: i64,
@@ -59,6 +65,8 @@ pub async fn find_latest_unconsumed_for_flow<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Marks one code consumed at `now`. Returns `false` when the code is absent
+/// or already consumed, so concurrent verifications cannot double-spend it.
 pub async fn consume<C: ConnectionTrait>(
     db: &C,
     id: i64,
@@ -74,6 +82,8 @@ pub async fn consume<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// Consumes every unconsumed, unexpired code of the user, returning how many
+/// were invalidated; used when a fresh code supersedes the old ones.
 pub async fn consume_active_for_user<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -90,6 +100,7 @@ pub async fn consume_active_for_user<C: ConnectionTrait>(
     Ok(result.rows_affected)
 }
 
+/// Removes every code row of a user, returning the number of deleted rows.
 pub async fn delete_all_for_user<C: ConnectionTrait>(db: &C, user_id: i64) -> Result<u64> {
     let result = MfaEmailCode::delete_many()
         .filter(mfa_email_code::Column::UserId.eq(user_id))
@@ -99,6 +110,7 @@ pub async fn delete_all_for_user<C: ConnectionTrait>(db: &C, user_id: i64) -> Re
     Ok(result.rows_affected)
 }
 
+/// Removes codes that expired before `now`, returning the number of deleted rows.
 pub async fn cleanup_expired(db: &DatabaseConnection, now: chrono::DateTime<Utc>) -> Result<u64> {
     let result = MfaEmailCode::delete_many()
         .filter(mfa_email_code::Column::ExpiresAt.lt(now))

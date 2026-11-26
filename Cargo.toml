@@ -166,6 +166,8 @@ webauthn-rs-proto = "0.6.2"
 aster-fs = { version = "0.1.0", default-features = false }
 
 [workspace.lints.rust]
+missing_docs = "warn"
+unsafe_code = "deny"
 unsafe_op_in_unsafe_fn = "deny"
 
 [workspace.lints.clippy]

@@ -445,6 +445,8 @@ fn serialize_options(
         })
 }
 
+/// Lists enabled providers of kinds the default registry supports, as exposed to
+/// anonymous visitors on login screens.
 pub async fn list_public_providers(
     state: &impl SharedRuntimeState,
 ) -> Result<Vec<ExternalAuthPublicProvider>> {
@@ -456,6 +458,7 @@ pub async fn list_public_providers(
         .collect())
 }
 
+/// Lists enabled providers of one kind, filtered to kinds the default registry supports.
 pub async fn list_public_providers_by_kind(
     state: &impl SharedRuntimeState,
     provider_kind: ExternalAuthProviderKind,
@@ -470,6 +473,8 @@ pub async fn list_public_providers_by_kind(
     )
 }
 
+/// Lists all configured providers for administrators as a paginated page, with secrets
+/// redacted and callback URIs resolved against the request origin.
 pub async fn list_admin_providers(
     state: &impl SharedRuntimeState,
     origin: ExternalAuthRequestOrigin,
@@ -494,6 +499,9 @@ pub async fn list_admin_providers(
     Ok(OffsetPage::new(items, page.total, page.limit, page.offset))
 }
 
+/// Describes every supported provider kind with its capability flags and create defaults.
+///
+/// The unified callback URI is left empty because no request origin is available.
 pub fn list_provider_kinds() -> Vec<ExternalAuthProviderKindInfo> {
     default_registry()
         .descriptors()
@@ -502,6 +510,8 @@ pub fn list_provider_kinds() -> Vec<ExternalAuthProviderKindInfo> {
         .collect()
 }
 
+/// Describes every supported provider kind like [`list_provider_kinds`], but resolves the
+/// unified callback URI against the request origin.
 pub fn list_provider_kinds_with_origin(
     state: &impl SharedRuntimeState,
     origin: ExternalAuthRequestOrigin,
@@ -519,6 +529,9 @@ pub fn list_provider_kinds_with_origin(
     Ok(kinds)
 }
 
+/// Returns one provider as the administrator projection, with secrets redacted.
+///
+/// Errors with record-not-found when the provider kind is not in the default registry.
 pub async fn get_admin_provider(
     state: &impl SharedRuntimeState,
     origin: ExternalAuthRequestOrigin,
@@ -533,6 +546,10 @@ pub async fn get_admin_provider(
     provider_to_admin(state, origin, provider)
 }
 
+/// Creates a provider: validates every field against the kind's descriptor, generates a
+/// unique key via best-effort UUID collision probing, and persists the row.
+///
+/// Returns the administrator projection of the created provider.
 pub async fn create_provider(
     state: &impl SharedRuntimeState,
     origin: ExternalAuthRequestOrigin,
@@ -665,6 +682,12 @@ pub async fn create_provider(
     provider_to_admin(state, origin, provider)
 }
 
+/// Patches a provider field by field: present values are re-validated against the kind's
+/// descriptor, `NullablePatch` clears or restores nullable fields, and the redacted client
+/// secret placeholder keeps the stored secret.
+///
+/// Enabling changes run inside the login-method lock so the last usable login method
+/// cannot be turned off; returns the administrator projection of the updated provider.
 pub async fn update_provider(
     state: &impl SharedRuntimeState,
     origin: ExternalAuthRequestOrigin,
@@ -845,6 +868,10 @@ pub async fn update_provider(
     provider_to_admin(state, origin, provider)
 }
 
+/// Deletes a provider configuration.
+///
+/// Like enablement changes, the deletion runs inside the login-method lock and is
+/// rejected if it would leave no enabled external provider while local login is disabled.
 pub async fn delete_provider(state: &impl SharedRuntimeState, id: i64) -> Result<()> {
     let provider = external_auth_provider_repo::find_by_id(state.writer_db(), id).await?;
     if !default_registry().contains(provider.provider_kind) {
@@ -904,6 +931,8 @@ mod policy_tests {
     }
 }
 
+/// Runs the kind driver's connection test against the provider's stored settings and
+/// records the attempt by bumping `updated_at`.
 pub async fn test_provider(
     state: &impl SharedRuntimeState,
     registry: &ExternalAuthProviderRegistry,
@@ -919,6 +948,8 @@ pub async fn test_provider(
     Ok(result)
 }
 
+/// Runs the kind driver's connection test against administrator-supplied settings that
+/// are not persisted, used to verify a draft configuration before creating the provider.
 pub async fn test_provider_params(
     _state: &impl SharedRuntimeState,
     registry: &ExternalAuthProviderRegistry,

@@ -95,6 +95,7 @@ impl From<PatchPolicyGroupReq> for policy::UpdateStoragePolicyGroupInput {
     }
 }
 
+/// Lists storage policies with pagination, sorting, and keyword filtering.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/policies",
@@ -125,6 +126,7 @@ pub async fn list_policies(
     Ok(HttpResponse::Ok().json(crate::api::response::success(policies)))
 }
 
+/// Lists storage driver capability descriptors for the requested catalog context.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/policies/storage-drivers",
@@ -151,6 +153,7 @@ pub async fn list_storage_driver_descriptors(
     )))
 }
 
+/// Returns connector-owned localized UI resources with ETag-based caching.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/policies/storage-drivers/localizations",
@@ -210,6 +213,7 @@ fn if_none_match_matches(value: Option<&header::HeaderValue>, current_etag: &str
     })
 }
 
+/// Creates a storage policy and records the change in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/policies",
@@ -235,6 +239,7 @@ pub async fn create_policy(
     Ok(HttpResponse::Created().json(crate::api::response::success(policy)))
 }
 
+/// Returns a single storage policy by ID.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/policies/{id}",
@@ -257,6 +262,7 @@ pub async fn get_policy(
     Ok(HttpResponse::Ok().json(crate::api::response::success(policy)))
 }
 
+/// Returns capacity observability for a storage policy, such as usage against limits.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/policies/{id}/capacity",
@@ -283,6 +289,7 @@ fn storage_policy_action_response(result: policy::StoragePolicyActionResult) -> 
     HttpResponse::Ok().json(crate::api::response::success(result))
 }
 
+/// Updates a storage policy and records the change in the audit log.
 #[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/admin/policies/{id}",
@@ -312,6 +319,8 @@ pub async fn update_policy(
     Ok(HttpResponse::Ok().json(crate::api::response::success(policy)))
 }
 
+/// Deletes a storage policy; with `force`, proceeds even if the policy is still in use,
+/// and records the action in the audit log.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/admin/policies/{id}",
@@ -338,6 +347,7 @@ pub async fn delete_policy(
     Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
+/// Tests the stored connection of a storage policy.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/policies/{id}/test",
@@ -455,6 +465,7 @@ pub async fn create_storage_policy_forced_purge(
     Ok(HttpResponse::Ok().json(crate::api::response::success(task)))
 }
 
+/// Tests draft connector parameters (before saving a policy) by attempting a connection.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/policies/test",
@@ -477,6 +488,7 @@ pub async fn test_policy_params(
     Ok(HttpResponse::Ok().json(crate::api::response::empty_object_success()))
 }
 
+/// Executes a connector action against a saved storage policy.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/policies/{id}/action",
@@ -508,6 +520,8 @@ pub async fn execute_saved_storage_policy_action(
     Ok(storage_policy_action_response(result))
 }
 
+/// Promotes the policy's connector to the target connector version and records the
+/// change in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/policies/{id}/promote-connector",
@@ -542,6 +556,7 @@ pub async fn promote_storage_policy_connector(
     Ok(HttpResponse::Ok().json(crate::api::response::success(result)))
 }
 
+/// Executes a connector action against draft policy parameters (before saving).
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/policies/action",
@@ -569,6 +584,8 @@ pub async fn execute_draft_storage_policy_action(
     Ok(storage_policy_action_response(result))
 }
 
+/// Starts the OAuth-style storage credential authorization flow and returns the
+/// provider authorization URL for the policy.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/policies/{id}/storage-authorization/start",
@@ -595,6 +612,7 @@ pub async fn start_storage_authorization(
     Ok(HttpResponse::Ok().json(crate::api::response::success(response)))
 }
 
+/// Lists credential info entries for a storage policy.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/policies/{id}/storage-credentials",
@@ -617,6 +635,7 @@ pub async fn list_storage_policy_credentials(
     Ok(HttpResponse::Ok().json(crate::api::response::success(credentials)))
 }
 
+/// Validates the policy's stored credential against the storage provider.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/policies/{id}/storage-credentials/validate",
@@ -642,6 +661,9 @@ pub async fn validate_storage_policy_credential(
     Ok(HttpResponse::Ok().json(crate::api::response::success(result)))
 }
 
+/// OAuth callback endpoint that completes a storage credential authorization and
+/// redirects the browser back to the admin policies page with success or error state.
+/// This route sits outside the JWT-authenticated scope so the provider can redirect to it.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/policies/storage-authorization/callback",
@@ -713,6 +735,7 @@ fn storage_authorization_redirect_path(
     path
 }
 
+/// Lists storage policy groups with pagination and sorting.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/policy-groups",
@@ -742,6 +765,8 @@ pub async fn list_policy_groups(
     Ok(HttpResponse::Ok().json(crate::api::response::success(groups)))
 }
 
+/// Creates a storage policy group (placement profile) and records the change in the
+/// audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/policy-groups",
@@ -769,6 +794,7 @@ pub async fn create_policy_group(
     Ok(HttpResponse::Created().json(crate::api::response::success(group)))
 }
 
+/// Returns a single storage policy group by ID.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/policy-groups/{id}",
@@ -791,6 +817,8 @@ pub async fn get_policy_group(
     Ok(HttpResponse::Ok().json(crate::api::response::success(group)))
 }
 
+/// Simulates which storage policy a file upload would be placed under, given a
+/// filename, size, MIME type, and optional folder policy override.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/policy-groups/{id}/simulate",
@@ -844,6 +872,7 @@ pub async fn simulate_policy_group_placement(
     Ok(HttpResponse::Ok().json(crate::api::response::success(result)))
 }
 
+/// Updates a storage policy group and records the change in the audit log.
 #[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/admin/policy-groups/{id}",
@@ -875,6 +904,7 @@ pub async fn update_policy_group(
     Ok(HttpResponse::Ok().json(crate::api::response::success(group)))
 }
 
+/// Removes a storage policy group and records the change in the audit log.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/admin/policy-groups/{id}",
@@ -901,6 +931,8 @@ pub async fn delete_policy_group(
     Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
+/// Migrates all assignments from this policy group to the target group and records
+/// the change in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/policy-groups/{id}/migrate-assignments",

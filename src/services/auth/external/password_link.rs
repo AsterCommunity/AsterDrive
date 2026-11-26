@@ -13,6 +13,12 @@ use super::{
     ExternalAuthPasswordLinkRequest, ExternalAuthPasswordLinkResult, ExternalAuthPrimaryLogin,
 };
 
+/// Completes the password first factor of linking an external identity: verifies the
+/// browser binding and flow state, then the local account's password.
+///
+/// Unknown identifiers still verify against a dummy hash to keep timing uniform. The
+/// result carries a pending link that only commits after the account's required MFA
+/// succeeds in the route layer's completion transaction.
 pub async fn link_with_password(
     state: &impl SharedRuntimeState,
     input: ExternalAuthPasswordLinkRequest,

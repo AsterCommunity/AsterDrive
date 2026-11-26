@@ -51,8 +51,11 @@ pub(crate) fn lock_enforcement_error_response(
 
 /// WebDAV 共享状态（单例）
 pub struct WebDavState {
+    /// URL path prefix the WebDAV scope is mounted under.
     pub prefix: String,
+    /// Maximum XML request body size in bytes (PROPFIND, PROPPATCH, LOCK bodies).
     pub xml_payload_limit: usize,
+    /// Maximum total request body size in bytes for WebDAV requests.
     pub payload_limit: u64,
     event_sink: Arc<dyn DavEventSink>,
 }
@@ -450,6 +453,9 @@ pub fn configure(
     );
 }
 
+/// Registers WebDAV routes with explicitly provided rate-limit and network
+/// trust settings; [`configure`] is the variant that reads them from global
+/// config. Also builds the shared [`WebDavState`] from the WebDAV config.
 pub fn configure_with_rate_limit(
     cfg: &mut web::ServiceConfig,
     webdav_config: &WebDavConfig,

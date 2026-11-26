@@ -124,6 +124,11 @@ pub(crate) async fn create_share_in_scope(
     share_info_from_model_with_user(state, created).await
 }
 
+/// Creates a share in a user's personal workspace.
+///
+/// At most one active share may exist per target resource; an expired share
+/// on the same resource is deleted and replaced. The password is stored only
+/// as a hash, and a `max_downloads` of `0` means unlimited downloads.
 pub async fn create_share(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -339,6 +344,10 @@ pub(crate) async fn batch_delete_shares_in_scope(
     Ok(result)
 }
 
+/// Lists the shares in a user's personal workspace with offset pagination.
+///
+/// Includes shares in every status (active, expired, exhausted, or with a
+/// deleted target); each item carries the resolved resource summary.
 pub async fn list_my_shares_paginated(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -354,6 +363,10 @@ pub async fn list_my_shares_paginated(
     .await
 }
 
+/// Lists all shares in a team workspace with offset pagination.
+///
+/// `user_id` is the acting user for workspace authorization, not an owner
+/// filter: shares of every team member are included.
 pub async fn list_team_shares_paginated(
     state: &impl SharedRuntimeState,
     team_id: i64,
@@ -373,6 +386,10 @@ pub async fn list_team_shares_paginated(
     .await
 }
 
+/// Deletes a share from a user's personal workspace.
+///
+/// Deletion immediately revokes anonymous access through the share token by
+/// invalidating the token record and active-target caches.
 pub async fn delete_share(
     state: &impl SharedRuntimeState,
     share_id: i64,
@@ -381,6 +398,9 @@ pub async fn delete_share(
     delete_share_in_scope(state, WorkspaceStorageScope::Personal { user_id }, share_id).await
 }
 
+/// Deletes a share from a team workspace on behalf of the acting user.
+///
+/// Deletion immediately revokes anonymous access through the share token.
 pub async fn delete_team_share(
     state: &impl SharedRuntimeState,
     team_id: i64,
@@ -398,6 +418,11 @@ pub async fn delete_team_share(
     .await
 }
 
+/// Updates the password, expiry, and download limit of a personal share.
+///
+/// An empty password string removes protection and omitting the password
+/// keeps the current one; a new hash also invalidates previously issued
+/// password-verification cookies. Returns the updated share info.
 pub async fn update_share(
     state: &impl SharedRuntimeState,
     share_id: i64,
@@ -418,6 +443,11 @@ pub async fn update_share(
     .map(|outcome| outcome.share)
 }
 
+/// Updates the password, expiry, and download limit of a team share.
+///
+/// An empty password string removes protection and omitting the password
+/// keeps the current one; a new hash also invalidates previously issued
+/// password-verification cookies. Returns the updated share info.
 pub async fn update_team_share(
     state: &impl SharedRuntimeState,
     team_id: i64,
@@ -442,6 +472,8 @@ pub async fn update_team_share(
     .map(|outcome| outcome.share)
 }
 
+/// Validates a batch delete request: at least one share ID and no more than
+/// the configured batch size limit.
 pub fn validate_batch_share_ids(share_ids: &[i64]) -> Result<()> {
     if share_ids.is_empty() {
         return Err(AsterError::validation_error(
@@ -457,6 +489,11 @@ pub fn validate_batch_share_ids(share_ids: &[i64]) -> Result<()> {
     Ok(())
 }
 
+/// Deletes multiple personal shares in a single transaction.
+///
+/// IDs that do not resolve to a share in the caller's scope are reported
+/// per-item as failures; token and target caches are invalidated for every
+/// deleted share so their public tokens stop working.
 pub async fn batch_delete_shares(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -471,6 +508,11 @@ pub async fn batch_delete_shares(
     .await
 }
 
+/// Deletes multiple team shares in a single transaction on behalf of the
+/// acting user.
+///
+/// IDs that do not resolve to a share in the team's scope are reported
+/// per-item as failures.
 pub async fn batch_delete_team_shares(
     state: &impl SharedRuntimeState,
     team_id: i64,
@@ -489,6 +531,10 @@ pub async fn batch_delete_team_shares(
     .await
 }
 
+/// Lists every share in the deployment for the admin console.
+///
+/// Offset-paginated, with sorting, target-type filtering, and per-user
+/// filtering; intended for administration, not for owner-facing listings.
 pub async fn list_paginated(
     state: &impl SharedRuntimeState,
     limit: u64,
@@ -515,6 +561,10 @@ pub async fn list_paginated(
     .await
 }
 
+/// Deletes any share regardless of its owning workspace.
+///
+/// Admin-only entry point that bypasses personal/team scoping; invalidates
+/// the target and token caches so the public token stops working immediately.
 pub async fn admin_delete_share(state: &impl SharedRuntimeState, share_id: i64) -> Result<()> {
     let share = share_repo::find_by_id(state.writer_db(), share_id).await?;
     share_repo::delete(state.writer_db(), share_id).await?;

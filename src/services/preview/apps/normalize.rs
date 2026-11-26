@@ -12,6 +12,9 @@ use super::{
     is_required_builtin_preview_app_key, is_table_preview_app_key,
 };
 
+/// Validates a preview apps JSON document and returns its normalized form.
+///
+/// Used as the write-path gate before a new config value is persisted.
 pub fn normalize_public_preview_apps_config_value(value: &str) -> Result<String> {
     let mut config: PublicPreviewAppsConfig = serde_json::from_str(value).map_err(|error| {
         AsterError::validation_error(format!("preview apps config must be valid JSON: {error}"))
@@ -22,6 +25,8 @@ pub fn normalize_public_preview_apps_config_value(value: &str) -> Result<String>
     })
 }
 
+/// Checks whether a stored config JSON is missing any required built-in app
+/// key, signaling that the config should be re-merged with defaults.
 pub fn public_preview_apps_config_has_missing_required_builtins(value: &str) -> Result<bool> {
     let config: PublicPreviewAppsConfig = serde_json::from_str(value).map_err(|error| {
         AsterError::validation_error(format!("preview apps config must be valid JSON: {error}"))
@@ -37,6 +42,10 @@ pub fn public_preview_apps_config_has_missing_required_builtins(value: &str) -> 
         .any(|key| !keys.contains(*key)))
 }
 
+/// Loads the effective preview apps config.
+///
+/// Falls back to [`default_public_preview_apps`] when the runtime config has
+/// no stored value or when the stored JSON fails to parse or validate.
 pub fn get_public_preview_apps(state: &impl SharedRuntimeState) -> PublicPreviewAppsConfig {
     let Some(raw) = state.runtime_config().get(PREVIEW_APPS_CONFIG_KEY) else {
         return default_public_preview_apps();
@@ -51,6 +60,8 @@ pub fn get_public_preview_apps(state: &impl SharedRuntimeState) -> PublicPreview
     }
 }
 
+/// Parses and validates a stored config JSON, rejecting unsupported schema
+/// versions and invalid app entries.
 pub(super) fn parse_public_preview_apps_config(value: &str) -> Result<PublicPreviewAppsConfig> {
     let mut config: PublicPreviewAppsConfig = serde_json::from_str(value).map_err(|error| {
         AsterError::validation_error(format!("preview apps config must be valid JSON: {error}"))

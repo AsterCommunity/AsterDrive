@@ -35,6 +35,10 @@ pub async fn acquire_login_method_lock<C: ConnectionTrait>(db: &C) -> Result<()>
     Ok(())
 }
 
+/// Returns `true` when at least one built-in login method (password or
+/// passkey) is enabled in the runtime configuration, applying each key's
+/// default when unset. Callers use this to refuse policy changes that would
+/// leave no way to log in.
 pub async fn any_builtin_login_method_enabled<C: ConnectionTrait>(db: &C) -> Result<bool> {
     let password_enabled = read_bool(
         db,

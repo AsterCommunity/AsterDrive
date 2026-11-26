@@ -29,20 +29,31 @@ use utoipa::ToSchema;
 
 const REMOTE_BINDING_SYNC_TIMEOUT: Duration = Duration::from_secs(5);
 const REMOTE_NODE_HEALTH_TEST_CONCURRENCY: usize = 4;
+/// Error message used when a remote-node operation runs before enrollment completed.
 pub const REMOTE_NODE_ENROLLMENT_REQUIRED_MESSAGE: &str =
     "remote node enrollment must be completed before accessing the remote follower";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[serde(rename_all = "snake_case")]
+/// Lifecycle of the master-driven enrollment flow for a remote node,
+/// derived from its latest follower enrollment session.
 pub enum RemoteNodeEnrollmentStatus {
+    /// No enrollment session exists, or the latest one was invalidated.
     NotStarted,
+    /// A session exists but has not been redeemed within its TTL.
     Pending,
+    /// The follower redeemed the token but has not acked yet.
     Redeemed,
+    /// The follower acked; enrollment is finished and cannot run again.
     Completed,
+    /// The latest session expired without being redeemed.
     Expired,
 }
 
+/// Master-side view of a remote node for administration: identity and
+/// transport configuration, enrollment lifecycle state, latest capability
+/// probe result, and reverse-tunnel telemetry.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct RemoteNodeInfo {
@@ -99,34 +110,59 @@ impl RemoteNodeInfo {
     }
 }
 
+/// Input for registering a remote node on the master; credentials are
+/// generated server-side and are not part of the input.
 #[derive(Debug, Clone)]
 pub struct CreateRemoteNodeInput {
+    /// Administrative display name; unique across remote nodes.
     pub name: String,
+    /// Direct transport base URL; ignored (normalized to empty) for
+    /// reverse-tunnel nodes.
     pub base_url: String,
+    /// Configured transport choice; `auto` resolves against `base_url`.
     pub transport_mode: RemoteNodeTransportMode,
+    /// Whether the node participates in administration and transport.
     pub is_enabled: bool,
 }
 
+/// Partial update for a remote node: fields left as `None` keep their
+/// current value. Changing name, enabled state, or the resolved transport
+/// bumps the node's binding revision so followers pick up the new state.
 #[derive(Debug, Clone, Default)]
 pub struct UpdateRemoteNodeInput {
+    /// New display name; blank values are rejected.
     pub name: Option<String>,
+    /// New direct transport base URL.
     pub base_url: Option<String>,
+    /// New transport selection.
     pub transport_mode: Option<RemoteNodeTransportMode>,
+    /// New enabled state.
     pub is_enabled: Option<bool>,
 }
 
+/// Credentials for probing a remote node before it is registered (or after
+/// manual edits): the caller supplies the base URL and internal keypair
+/// directly instead of using the stored record.
 #[derive(Debug, Clone)]
 pub struct TestRemoteNodeInput {
+    /// Direct transport base URL to probe.
     pub base_url: String,
+    /// Internal access key presented to the follower.
     pub access_key: String,
+    /// Internal secret used to sign the probe request.
     pub secret_key: String,
 }
 
+/// Aggregate outcome of one health sweep over all remote nodes.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RemoteNodeHealthTestStats {
+    /// Nodes actually probed: the sum of `healthy` and `failed`.
     pub checked: u64,
+    /// Probes that returned a valid capability snapshot with no probe error.
     pub healthy: u64,
+    /// Probes that failed with a probe or compatibility error.
     pub failed: u64,
+    /// Nodes not probed (disabled, not enrolled, or direct without base URL).
     pub skipped: u64,
 }
 
@@ -142,6 +178,8 @@ enum RemoteNodeHealthTestOutcome {
     Failed,
 }
 
+/// Lists remote nodes offset-paginated with enrollment status attached to
+/// each entry, for the admin remote-node table.
 pub async fn list_paginated<S: RemoteProtocolRuntimeState>(
     state: &S,
     limit: u64,
@@ -177,11 +215,16 @@ pub async fn list_paginated<S: RemoteProtocolRuntimeState>(
     Ok(OffsetPage::new(items, page.total, page.limit, page.offset))
 }
 
+/// Returns one remote node with its current enrollment status and telemetry.
 pub async fn get<S: RemoteProtocolRuntimeState>(state: &S, id: i64) -> Result<RemoteNodeInfo> {
     let model = managed_follower_repo::find_by_id(state.writer_db(), id).await?;
     remote_node_info(state, model).await
 }
 
+/// Registers a remote node: validates the transport configuration, stores
+/// server-generated internal credentials, refreshes the driver registry,
+/// and publishes a topology reload. No probe runs here; capabilities stay
+/// empty until the first connection test.
 pub async fn create<S: RemoteProtocolRuntimeState>(
     state: &S,
     input: CreateRemoteNodeInput,
@@ -228,6 +271,11 @@ pub async fn create<S: RemoteProtocolRuntimeState>(
     remote_node_info(state, created).await
 }
 
+/// Applies a partial update and bumps the binding revision when the name,
+/// enabled state, or resolved transport changes. Followers on the legacy
+/// push protocol additionally receive the new binding state over their
+/// previous transport; newer followers pull the state themselves, so a
+/// sync failure here only logs a warning and never fails the update.
 pub async fn update<S: RemoteProtocolRuntimeState>(
     state: &S,
     id: i64,
@@ -334,6 +382,9 @@ fn transport_available(node: &managed_follower::Model) -> bool {
     !node.transport_mode.requires_direct_base_url() || !node.base_url.trim().is_empty()
 }
 
+/// Deletes a remote node; rejected while any storage policy still
+/// references it. The driver registry refresh and topology reload follow
+/// the successful delete.
 pub async fn delete<S: RemoteProtocolRuntimeState>(state: &S, id: i64) -> Result<()> {
     tracing::debug!(remote_node_id = id, "deleting remote node");
     let policy_refs = policy_requirements_for_node(state, id).await?.len();
@@ -355,6 +406,10 @@ pub async fn delete<S: RemoteProtocolRuntimeState>(state: &S, id: i64) -> Result
     Ok(())
 }
 
+/// Runs an explicit capability probe against the enrolled remote node and
+/// persists the result, including the binding-relevant policy compatibility
+/// check. The returned info carries the refreshed probe state; a probe
+/// error is returned as `Err` after being persisted.
 pub async fn test_connection<S: RemoteProtocolRuntimeState>(
     state: &S,
     id: i64,
@@ -367,6 +422,9 @@ pub async fn test_connection<S: RemoteProtocolRuntimeState>(
     remote_node_info(state, probed.model).await
 }
 
+/// Loads a remote node and requires its enrollment to be completed;
+/// operations that talk to the follower's data or storage-target planes
+/// fail with `RemoteNodeEnrollmentRequired` otherwise.
 pub async fn require_completed_enrollment<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node_id: i64,
@@ -381,6 +439,9 @@ pub async fn require_completed_enrollment<S: RemoteProtocolRuntimeState>(
     Ok(node)
 }
 
+/// Probes a remote node from caller-supplied credentials (pre-registration
+/// connection test) and returns the capability snapshot without persisting
+/// anything.
 pub async fn test_connection_params(
     input: TestRemoteNodeInput,
 ) -> Result<RemoteStorageCapabilities> {
@@ -480,6 +541,9 @@ fn enrollment_status_from_latest(
     RemoteNodeEnrollmentStatus::Pending
 }
 
+/// Periodic health sweep: probes every eligible remote node with bounded
+/// concurrency, pushing binding config to legacy followers first. Disabled,
+/// un-enrolled, or direct-mode nodes without a base URL are skipped.
 pub async fn run_health_tests<S: RemoteProtocolRuntimeState>(
     state: &S,
 ) -> Result<RemoteNodeHealthTestStats> {
@@ -515,10 +579,14 @@ pub async fn run_health_tests<S: RemoteProtocolRuntimeState>(
     Ok(stats)
 }
 
+/// Parses a stored capability snapshot JSON; blank or invalid values
+/// degrade to conservative defaults instead of failing.
 pub fn parse_capabilities(raw: &str) -> RemoteStorageCapabilities {
     RemoteStorageCapabilities::from_stored_json(raw)
 }
 
+/// Serializes a capability snapshot for persistence; a serialization
+/// failure stores `{}` rather than propagating an error.
 pub fn serialize_capabilities(capabilities: &RemoteStorageCapabilities) -> String {
     serde_json::to_string(capabilities).unwrap_or_else(|_| "{}".to_string())
 }
@@ -535,6 +603,9 @@ pub(crate) fn remote_storage_client_for_node<S: RemoteProtocolRuntimeState>(
     state.remote_protocol().client_for_node(node)
 }
 
+/// Follower control-plane pull endpoint: returns the node's binding desired
+/// state and, for monotonic revisions the follower has not yet acknowledged,
+/// records the acknowledged revision before responding.
 pub async fn binding_desired_state<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node: &managed_follower::Model,

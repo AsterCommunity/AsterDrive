@@ -21,9 +21,11 @@ const BASE62: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123
 const DIRECT_LINK_SIG_LEN: usize = 6;
 const DIRECT_LINK_V2_PREFIX: &str = "v2";
 
+/// Direct-link token returned after minting a public download link.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct DirectLinkTokenInfo {
+    /// Opaque signed token to append to a public direct-link URL.
     pub token: String,
 }
 

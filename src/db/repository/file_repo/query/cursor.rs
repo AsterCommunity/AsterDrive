@@ -75,6 +75,8 @@ pub(crate) async fn find_by_folder_cursor_in_scope<C: ConnectionTrait>(
     Ok((items, total))
 }
 
+/// 个人空间文件夹的稳定 cursor 分页：scope + folder 过滤，按 `sort_by`/`sort_order`
+/// 排序并以 (列值, id) 作 cursor；返回当前页和匹配总数。
 pub async fn find_by_folder_cursor<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -99,6 +101,7 @@ pub async fn find_by_folder_cursor<C: ConnectionTrait>(
     .await
 }
 
+/// 团队空间版本的 [`find_by_folder_cursor`]。
 pub async fn find_by_team_folder_cursor<C: ConnectionTrait>(
     db: &C,
     team_id: i64,

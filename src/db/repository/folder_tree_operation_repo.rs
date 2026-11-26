@@ -13,6 +13,10 @@ use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::{file, folder, folder_tree_operation_member as member};
 use aster_drive_model::types::EntityType;
 
+/// Stages a batch of resource ids for a tree operation task. The caller holds
+/// the task's serialization guard, so the inserted count is computed from this
+/// batch only (deduplicated first); returns how many of the given ids were
+/// newly staged, with duplicates across batches silently ignored.
 pub async fn stage_ids<C: ConnectionTrait>(
     db: &C,
     task_id: i64,
@@ -54,6 +58,7 @@ pub async fn stage_ids<C: ConnectionTrait>(
     Ok(inserted)
 }
 
+/// Counts all staged resources (files and folders) attached to a task.
 pub async fn count<C: ConnectionTrait>(db: &C, task_id: i64) -> Result<u64> {
     member::Entity::find()
         .filter(member::Column::TaskId.eq(task_id))
@@ -62,6 +67,7 @@ pub async fn count<C: ConnectionTrait>(db: &C, task_id: i64) -> Result<u64> {
         .map_err(AsterError::from)
 }
 
+/// Removes every staged resource of a task once the operation completes or aborts.
 pub async fn clear<C: ConnectionTrait>(db: &C, task_id: i64) -> Result<()> {
     member::Entity::delete_many()
         .filter(member::Column::TaskId.eq(task_id))
@@ -71,6 +77,8 @@ pub async fn clear<C: ConnectionTrait>(db: &C, task_id: i64) -> Result<()> {
     Ok(())
 }
 
+/// Soft-deletes every file and folder staged on the task by stamping
+/// `deleted_at`. Returns the number of files and folders affected as a pair.
 pub async fn apply_delete<C: ConnectionTrait>(
     db: &C,
     task_id: i64,
@@ -95,6 +103,8 @@ pub async fn apply_delete<C: ConnectionTrait>(
     Ok((files, folders))
 }
 
+/// Clears `deleted_at` on every file and folder staged on the task, undoing a
+/// staged delete. Returns the number of files and folders affected as a pair.
 pub async fn apply_restore<C: ConnectionTrait>(db: &C, task_id: i64) -> Result<(u64, u64)> {
     let file_ids = member_ids_subquery(task_id, EntityType::File);
     let folder_ids = member_ids_subquery(task_id, EntityType::Folder);
@@ -149,6 +159,9 @@ pub async fn staged_files<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Returns a bounded window of the folders staged on the task (ids strictly
+/// greater than `after`, ascending, at most 256 rows); callers page through
+/// with `after` until exhaustion.
 pub async fn staged_folders<C: ConnectionTrait>(
     db: &C,
     task_id: i64,

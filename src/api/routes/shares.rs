@@ -22,6 +22,8 @@ use aster_forge_api::LimitOffsetQuery;
 use aster_forge_api::OffsetPage;
 use aster_forge_middleware::actix::rate_limit::RateLimit;
 
+/// Builds the personal `/api/v1/shares` route scope behind JWT auth and the API
+/// rate limiter.
 pub fn routes(
     rl: &RateLimitConfig,
     network_trust: &NetworkTrustConfig,
@@ -38,6 +40,7 @@ pub fn routes(
         .route("/{id}", web::delete().to(delete_share))
 }
 
+/// Builds the team share route scope mounted under `/api/v1/teams/{team_id}/shares`.
 pub fn team_routes() -> actix_web::Scope {
     web::scope("/{team_id}/shares")
         .route("", web::post().to(team_create_share))
@@ -47,6 +50,8 @@ pub fn team_routes() -> actix_web::Scope {
         .route("/{id}", web::delete().to(team_delete_share))
 }
 
+/// Creates a share link for a personal file or folder, with optional password,
+/// expiry, and download limits.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/shares",
@@ -78,6 +83,7 @@ pub async fn create_share(
     .await
 }
 
+/// Lists the current user's own shares with pagination.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/shares",
@@ -105,6 +111,7 @@ pub async fn list_shares(
     .await
 }
 
+/// Updates a share's password, expiry, or download limit.
 #[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/shares/{id}",
@@ -141,6 +148,7 @@ pub async fn update_share(
     .await
 }
 
+/// Deletes one of the current user's shares.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/shares/{id}",
@@ -172,6 +180,7 @@ pub async fn delete_share(
     .await
 }
 
+/// Batch-deletes shares owned by the current user.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/shares/batch-delete",
@@ -204,6 +213,8 @@ pub async fn batch_delete_shares(
     .await
 }
 
+/// Creates a share link for a team file or folder, with optional password, expiry,
+/// and download limits.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/shares",
@@ -237,6 +248,7 @@ pub(crate) async fn team_create_share(
     .await
 }
 
+/// Lists the current user's shares within a team workspace with pagination.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/shares",
@@ -262,6 +274,7 @@ pub(crate) async fn team_list_shares(
     list_shares_response(state.get_ref(), team_scope(*path, claims.user_id), &query).await
 }
 
+/// Updates a team share's password, expiry, or download limit.
 #[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/teams/{team_id}/shares/{id}",
@@ -301,6 +314,7 @@ pub(crate) async fn team_update_share(
     .await
 }
 
+/// Deletes a share within a team workspace.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/teams/{team_id}/shares/{id}",
@@ -335,6 +349,7 @@ pub(crate) async fn team_delete_share(
     .await
 }
 
+/// Batch-deletes shares within a team workspace.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/shares/batch-delete",

@@ -12,19 +12,27 @@ use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
+/// Container format version of persisted placement JSON payloads.
 pub const PLACEMENT_PAYLOAD_FORMAT_VERSION: u32 = 1;
+/// Payload schema version accepted by the placement snapshot compiler.
 pub const PLACEMENT_PAYLOAD_SCHEMA_VERSION: u32 = 1;
+/// Byte budget for a serialized admission or matcher payload, enforced on write.
 pub const MAX_PLACEMENT_PAYLOAD_BYTES: usize = 4_000;
 
+/// Versioned JSON envelope persisted in placement columns.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PlacementPayloadEnvelope<T> {
+    /// Envelope container format version.
     pub format_version: u32,
+    /// Wrapped payload schema version.
     pub schema_version: u32,
+    /// Payload itself, such as a rule matcher or admission constraints.
     pub values: T,
 }
 
 impl<T> PlacementPayloadEnvelope<T> {
+    /// Wraps `values` with the current format and schema versions.
     pub fn new(values: T) -> Self {
         Self {
             format_version: PLACEMENT_PAYLOAD_FORMAT_VERSION,
@@ -34,17 +42,24 @@ impl<T> PlacementPayloadEnvelope<T> {
     }
 }
 
+/// Profile-level admission checks applied before rule matching.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageAdmissionConstraints {
+    /// Extension allowlist, normalized (lowercase, no leading dot) and unique;
+    /// empty allows all extensions.
     #[serde(default)]
     pub allowed_extensions: Vec<String>,
+    /// Denied extensions checked first, including against the compound extension.
     #[serde(default)]
     pub denied_extensions: Vec<String>,
+    /// Whether files without an extension pass admission.
     #[serde(default = "default_true")]
     pub accept_extensionless: bool,
+    /// File category allowlist; empty allows all categories.
     #[serde(default)]
     pub allowed_categories: Vec<FileCategory>,
+    /// Admission size limit in bytes; `0` means unlimited.
     #[serde(default)]
     pub max_file_size: i64,
 }
@@ -61,33 +76,48 @@ impl Default for StorageAdmissionConstraints {
     }
 }
 
+/// Rule-level file predicate deciding whether a rule applies to an upload.
+///
+/// An empty matcher is a catch-all. Extension filters accept either the
+/// simple or the compound extension of the classified filename.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PlacementMatcher {
+    /// Inclusive minimum file size in bytes; `0` means no minimum.
     #[serde(default)]
     pub min_file_size: i64,
+    /// Exclusive maximum file size in bytes; `0` means unlimited.
     #[serde(default)]
     pub max_file_size: i64,
+    /// Accepted extensions, normalized and unique; empty means no constraint.
     #[serde(default)]
     pub extensions: Vec<String>,
+    /// Accepted compound extensions such as `tar.gz`; empty means no constraint.
     #[serde(default)]
     pub compound_extensions: Vec<String>,
+    /// `Some(true)` restricts to extension-less files, `Some(false)` to files
+    /// with an extension, `None` leaves it unconstrained.
     #[serde(default)]
     pub extensionless: Option<bool>,
+    /// File category allowlist; empty allows all categories.
     #[serde(default)]
     pub categories: Vec<FileCategory>,
 }
 
+/// How a matched rule picks one of its eligible targets.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum PlacementSelectionMode {
+    /// Select the eligible target with the lowest `stable_order`.
     #[default]
     FirstAvailable,
+    /// Draw an eligible target proportionally to its `weight`.
     WeightedRandom,
 }
 
 impl PlacementSelectionMode {
+    /// Snake_case identifier persisted in the `selection_mode` column.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::FirstAvailable => "first_available",
@@ -96,25 +126,32 @@ impl PlacementSelectionMode {
     }
 }
 
+/// Behavior when a matched rule has no eligible target left.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum PlacementUnavailableBehavior {
+    /// Continue evaluating later rules.
     #[default]
     NextRule,
+    /// Reject placement immediately with `NoEligibleTarget`.
     Reject,
 }
 
+/// How uploads routed through a profile are executed.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum UploadExecutionPreference {
+    /// Keep the transport resolved from the connector capabilities.
     #[default]
     Automatic,
+    /// Force the upload to stream through the server, overriding client-direct strategies.
     ForceServerStream,
 }
 
 impl UploadExecutionPreference {
+    /// Snake_case identifier persisted in the `upload_execution_preference` column.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Automatic => "automatic",
@@ -123,6 +160,7 @@ impl UploadExecutionPreference {
     }
 }
 
+/// Parses a persisted `upload_execution_preference` string; `None` when unknown.
 pub(crate) fn parse_execution_preference(value: &str) -> Option<UploadExecutionPreference> {
     match value {
         "automatic" => Some(UploadExecutionPreference::Automatic),
@@ -131,24 +169,32 @@ pub(crate) fn parse_execution_preference(value: &str) -> Option<UploadExecutionP
     }
 }
 
+/// Why a placement target could not be selected.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum TargetExclusionReason {
+    /// The target is draining and no longer accepts new writes.
     #[serde(rename = "target_draining")]
     Draining,
+    /// The target's remote node is missing or disabled (compile-time exclusion).
     #[serde(rename = "target_unavailable")]
     Unavailable,
+    /// The target cannot serve the upload, e.g. zero weight or an unresolved transport.
     #[serde(rename = "target_incompatible")]
     Incompatible,
+    /// The file exceeds the target policy's max file size.
     #[serde(rename = "policy_max_file_size_exceeded")]
     PolicyFileSizeExceeded,
+    /// The live capacity probe found fewer available bytes than the upload requires.
     #[serde(rename = "capacity_insufficient")]
     CapacityInsufficient,
+    /// The capacity probe failed or returned no usable byte count.
     #[serde(rename = "capacity_unavailable")]
     CapacityUnavailable,
 }
 
 impl TargetExclusionReason {
+    /// Stable snake_case code surfaced in routing diagnostics and API responses.
     pub const fn code(self) -> &'static str {
         match self {
             Self::Draining => "target_draining",
@@ -161,49 +207,75 @@ impl TargetExclusionReason {
     }
 }
 
+/// Per-upload facts consumed by admission checks and rule matchers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoragePlacementContext {
+    /// Policy group (placement profile) the upload belongs to.
     pub profile_id: i64,
+    /// Filename as provided by the client.
     pub filename: String,
+    /// File size in bytes.
     pub file_size: i64,
+    /// Lowercase simple extension; empty when the filename has none.
     pub extension: String,
+    /// Compound extension such as `tar.gz`, when detected.
     pub compound_extension: Option<String>,
+    /// Classified file category.
     pub category: FileCategory,
 }
 
+/// Draft upload facts submitted to the admin placement simulation endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StoragePlacementSimulationInput {
+    /// Filename to classify.
     pub filename: String,
+    /// File size in bytes.
     pub file_size: i64,
+    /// MIME hint used by classification; empty means unknown.
     #[serde(default)]
     pub mime_type: String,
+    /// Folder override policy to simulate against, when set.
     #[serde(default)]
     pub folder_policy_id: Option<i64>,
 }
 
+/// Classification outcome shared between resolution and simulation output.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StoragePlacementClassification {
+    /// Filename that was classified.
     pub filename: String,
+    /// File size in bytes.
     pub file_size: i64,
+    /// Lowercase simple extension; empty when the filename has none.
     pub extension: String,
+    /// Compound extension such as `tar.gz`, when detected.
     pub compound_extension: Option<String>,
+    /// Classified file category.
     pub category: FileCategory,
 }
 
+/// Dry-run placement outcome with the full evaluation trace.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StoragePlacementSimulationResult {
+    /// Classification derived from the simulated upload facts.
     pub classification: StoragePlacementClassification,
+    /// Whether the profile's admission constraints accept the file.
     pub admitted: bool,
+    /// Routing decision when placement succeeded.
     pub decision: Option<StorageRoutingDecision>,
+    /// Stable rejection code when placement failed.
     pub rejection_code: Option<String>,
+    /// Per-rule match trace gathered during resolution.
     pub evaluated_rules: Vec<PlacementRuleEvaluation>,
+    /// Targets skipped during evaluation, with their exclusion reasons.
     pub excluded_targets: Vec<(i64, TargetExclusionReason)>,
 }
 
 impl StoragePlacementContext {
+    /// Classifies a filename (with a MIME hint) into a context for `profile_id`.
     pub fn from_filename(profile_id: i64, filename: &str, file_size: i64, mime_type: &str) -> Self {
         let classification = classify_file(filename, mime_type);
         Self {
@@ -217,18 +289,30 @@ impl StoragePlacementContext {
     }
 }
 
+/// Compiled placement target as consumed by the resolver.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlacementTarget {
+    /// Placement target row id.
     pub id: i64,
+    /// Storage policy this target routes to.
     pub policy_id: i64,
+    /// Weighted-random weight; zero makes the target ineligible.
     pub weight: u32,
+    /// Deterministic tiebreak order for first-available selection.
     pub stable_order: u32,
+    /// When false the target is draining and skipped for new writes.
     pub accepting_new_writes: bool,
+    /// Target policy upload limit in bytes; `0` means unlimited.
     pub policy_max_file_size: i64,
+    /// Compile-time exclusion reason, when the target was compiled as unusable.
     pub exclusion: Option<TargetExclusionReason>,
 }
 
 impl PlacementTarget {
+    /// Checks draining, compile-time exclusion and size invariants for a file.
+    ///
+    /// Returns the exclusion reason when the target must be skipped for a file
+    /// of `file_size` bytes.
     pub fn eligible_for(&self, file_size: i64) -> Result<(), TargetExclusionReason> {
         if !self.accepting_new_writes {
             return Err(TargetExclusionReason::Draining);
@@ -246,72 +330,118 @@ impl PlacementTarget {
     }
 }
 
+/// Compiled placement rule with its candidate targets.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlacementRule {
+    /// Placement rule row id.
     pub id: i64,
+    /// Rule display name.
     pub name: String,
+    /// Optional rule description.
     pub description: String,
+    /// Unique positive evaluation priority within the profile.
     pub priority: i32,
+    /// Disabled rules are skipped during resolution.
     pub is_enabled: bool,
+    /// File predicate deciding whether the rule applies.
     pub matcher: PlacementMatcher,
+    /// How one of the eligible targets is picked.
     pub selection_mode: PlacementSelectionMode,
+    /// What happens when the rule has no eligible target.
     pub unavailable_behavior: PlacementUnavailableBehavior,
+    /// Candidate targets of this rule.
     pub targets: Vec<PlacementTarget>,
 }
 
+/// Placement profile compiled from a policy group during topology reload.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompiledPlacementProfile {
+    /// Policy group id the profile was compiled from.
     pub id: i64,
+    /// Group `routing_revision` at compile time.
     pub revision: i64,
+    /// Disabled profiles reject every upload.
     pub is_enabled: bool,
+    /// Admission constraints applied before rule matching.
     pub admission: StorageAdmissionConstraints,
+    /// Upload execution preference for routed uploads.
     pub execution_preference: UploadExecutionPreference,
+    /// Compiled rules; the resolver evaluates them in `priority` order.
     pub rules: Vec<PlacementRule>,
 }
 
+/// Folder-pinned policy that bypasses rule matching when present.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FolderPlacementOverride {
+    /// Policy pinned on the folder.
     pub policy_id: i64,
+    /// Folder policy upload limit in bytes; `0` means unlimited.
     pub policy_max_file_size: i64,
+    /// False when the pinned policy cannot serve uploads.
     pub is_available: bool,
 }
 
+/// Routing outcome of a successful placement resolution.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageRoutingDecision {
+    /// Policy group (placement profile) that resolved the upload.
     pub profile_id: i64,
+    /// Profile `routing_revision` the decision was made against.
     pub revision: i64,
+    /// Matched placement rule; `None` for folder overrides.
     pub rule_id: Option<i64>,
+    /// Storage policy the upload routes to.
     pub policy_id: i64,
+    /// Selection mode of the matched rule.
     pub selection_mode: PlacementSelectionMode,
+    /// Whether the decision came from a folder policy override.
     pub folder_override: bool,
+    /// Upload execution preference carried from the profile.
     pub execution_preference: UploadExecutionPreference,
+    /// Targets skipped during evaluation, with their exclusion reasons.
     pub excluded_targets: Vec<(i64, TargetExclusionReason)>,
+    /// Per-rule match trace gathered during resolution.
     pub evaluated_rules: Vec<PlacementRuleEvaluation>,
 }
 
+/// One rule's outcome in the placement evaluation trace.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PlacementRuleEvaluation {
+    /// Evaluated placement rule id.
     pub rule_id: i64,
+    /// Whether the rule's matcher accepted the upload.
     pub matched: bool,
+    /// Stable explanation code when the rule did not match, e.g. `matcher_mismatch`.
     pub reason_code: Option<String>,
 }
 
+/// Stable failure taxonomy of the placement resolver.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlacementRejection {
+    /// The policy group is disabled.
     ProfileDisabled,
+    /// The extension is denied or not in the admission allowlist.
     AdmissionExtensionDenied,
+    /// The file category is not in the admission allowlist.
     AdmissionCategoryDenied,
+    /// Extension-less files are not accepted by this profile.
     AdmissionExtensionlessDenied,
+    /// The file exceeds the profile's admission max file size.
     AdmissionFileTooLarge,
+    /// No enabled rule's matcher accepted the upload.
     NoMatchingRule,
+    /// A rule matched but had no eligible target.
     NoEligibleTarget,
+    /// The folder override policy cannot serve uploads.
     FolderPolicyUnavailable,
+    /// The file exceeds the folder override policy's max file size.
     FolderPolicyFileTooLarge,
 }
 
 impl PlacementRejection {
+    /// Stable snake_case code surfaced in API responses and diagnostics.
     pub const fn code(&self) -> &'static str {
         match self {
             Self::ProfileDisabled => "placement_profile_disabled",
@@ -338,6 +468,7 @@ impl PlacementRejection {
     }
 }
 
+/// Internal result carrying the evaluation trace for rejections too.
 enum PlacementResolution {
     Selected(StorageRoutingDecision),
     Rejected {
@@ -347,6 +478,9 @@ enum PlacementResolution {
     },
 }
 
+/// Normalizes admission extension filters and validates categories and sizes.
+///
+/// Returns the compiled constraints or a human-readable validation error.
 pub fn compile_admission(
     admission: StorageAdmissionConstraints,
 ) -> Result<StorageAdmissionConstraints, String> {
@@ -360,6 +494,10 @@ pub fn compile_admission(
     Ok(compiled)
 }
 
+/// Normalizes matcher extension filters and validates categories and sizes.
+///
+/// Requires `max_file_size` to be strictly greater than `min_file_size` when
+/// both are set; returns the compiled matcher or a validation error.
 pub fn compile_matcher(matcher: PlacementMatcher) -> Result<PlacementMatcher, String> {
     let mut compiled = matcher;
     compiled.extensions = normalize_unique_extensions(&compiled.extensions)?;
@@ -374,6 +512,10 @@ pub fn compile_matcher(matcher: PlacementMatcher) -> Result<PlacementMatcher, St
     Ok(compiled)
 }
 
+/// Resolves placement for an upload without injected randomness.
+///
+/// Weighted-random rules draw from the runtime RNG; see
+/// [`resolve_placement_with_random`] for deterministic selection.
 pub fn resolve_placement(
     profile: &CompiledPlacementProfile,
     context: &StoragePlacementContext,
@@ -442,6 +584,10 @@ pub(crate) fn maximum_admitted_file_size(
     Err(rejection)
 }
 
+/// Resolves placement with an explicit weighted-random draw.
+///
+/// `random_draw` replaces the runtime RNG so weighted selection stays
+/// deterministic; it is ignored by first-available rules.
 pub fn resolve_placement_with_random(
     profile: &CompiledPlacementProfile,
     context: &StoragePlacementContext,
@@ -452,6 +598,10 @@ pub fn resolve_placement_with_random(
 }
 
 /// Resolve placement while excluding targets discovered to be unsuitable by an outer
+/// admission phase (for example, a live capacity probe). The placement engine remains
+/// deterministic and free of driver I/O; callers may repeat this function after adding
+/// exclusions to obtain rule/target fallback behavior.
+/// Resolves placement while excluding targets discovered to be unsuitable by an outer
 /// admission phase (for example, a live capacity probe). The placement engine remains
 /// deterministic and free of driver I/O; callers may repeat this function after adding
 /// exclusions to obtain rule/target fallback behavior.
@@ -474,6 +624,10 @@ pub fn resolve_placement_with_exclusions(
     }
 }
 
+/// Dry-runs placement and returns the outcome with its evaluation trace.
+///
+/// Admission-only failures mark the result as not admitted; rule/target
+/// failures keep `admitted` true and surface the stable rejection code.
 pub fn simulate_placement(
     profile: &CompiledPlacementProfile,
     context: &StoragePlacementContext,
@@ -510,6 +664,7 @@ pub fn simulate_placement(
     }
 }
 
+/// Shared resolution core behind the public resolver entry points.
 fn resolve_placement_internal(
     profile: &CompiledPlacementProfile,
     context: &StoragePlacementContext,
@@ -642,6 +797,7 @@ fn resolve_placement_internal(
     }
 }
 
+/// Applies extension, compound-extension, extension-less and category checks.
 fn apply_admission(
     admission: &StorageAdmissionConstraints,
     context: &StoragePlacementContext,
@@ -682,6 +838,7 @@ fn apply_admission(
     Ok(())
 }
 
+/// Evaluates a rule matcher against the classified upload context.
 fn matches_matcher(matcher: &PlacementMatcher, context: &StoragePlacementContext) -> bool {
     if context.file_size < matcher.min_file_size
         || (matcher.max_file_size > 0 && context.file_size >= matcher.max_file_size)
@@ -717,6 +874,7 @@ fn matches_matcher(matcher: &PlacementMatcher, context: &StoragePlacementContext
     matcher.categories.is_empty() || matcher.categories.contains(&context.category)
 }
 
+/// Normalizes an extension filter list, preserving the first occurrence of duplicates.
 fn normalize_unique_extensions(values: &[String]) -> Result<Vec<String>, String> {
     let mut result = Vec::with_capacity(values.len());
     for value in values {
@@ -728,6 +886,7 @@ fn normalize_unique_extensions(values: &[String]) -> Result<Vec<String>, String>
     Ok(result)
 }
 
+/// Rejects duplicate entries in a category allowlist.
 fn validate_categories(categories: &[FileCategory]) -> Result<(), String> {
     let mut seen = HashSet::new();
     for category in categories {

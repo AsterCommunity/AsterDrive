@@ -36,58 +36,89 @@ const VIDEO_PARSER_NAME: &str = "ffprobe";
 const VIDEO_UNSUPPORTED_PARSER_NAME: &str = "unsupported";
 const CACHE_ERROR_MAX_LEN: usize = 512;
 
+/// API-facing summary of the cached media metadata for one blob.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct MediaMetadataInfo {
+    /// Blob the metadata was extracted from.
     pub blob_id: i64,
+    /// Blob hash at extraction time; a mismatch marks the record stale.
     pub blob_hash: String,
+    /// Media category the metadata belongs to.
     pub kind: MediaMetadataKind,
+    /// Extraction status of the cached record.
     pub status: MediaMetadataStatus,
+    /// Parsed metadata payload; present only for `Ready` records.
     pub metadata: Option<MediaMetadataPayload>,
+    /// Failure or unsupported reason; present when the status is not `Ready`.
     pub error: Option<String>,
+    /// Name of the parser (or storage-native source) that produced the metadata.
     pub parser: String,
+    /// Version tag of the metadata payload schema.
     pub parser_version: String,
+    /// Time the cached record was last written.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: DateTime<Utc>,
 }
 
+/// Result of resolving media metadata for a file.
 #[expect(
     clippy::large_enum_variant,
     reason = "one-shot service-to-route result; boxing would add a heap allocation without shrinking retained state"
 )]
 pub enum MediaMetadataLookup {
+    /// Metadata is available now, including explicit `Unsupported`/`Failed` summaries.
     Ready(MediaMetadataInfo),
+    /// No usable metadata yet; a background extraction task has been ensured.
     Pending,
 }
 
+/// Serialized payload of a background media metadata extraction task.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct MediaMetadataExtractTaskPayload {
+    /// Blob to extract metadata from.
     pub blob_id: i64,
+    /// Blob hash captured at enqueue time.
     pub blob_hash: String,
+    /// Original file name used to select the media processor.
     pub source_file_name: String,
+    /// Original MIME type of the source file.
     pub source_mime_type: String,
+    /// Media category to extract; also accepted under the legacy `kind` key.
     #[serde(alias = "kind")]
     pub media_kind: MediaMetadataKind,
 }
 
+/// Serialized result recorded when a media metadata extraction task finishes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct MediaMetadataExtractTaskResult {
+    /// Blob the extraction ran against.
     pub blob_id: i64,
+    /// Media category that was extracted; also accepted under the legacy `kind` key.
     #[serde(alias = "kind")]
     pub media_kind: MediaMetadataKind,
+    /// Final extraction status.
     pub status: MediaMetadataStatus,
+    /// Parser name attributed to the stored record.
     pub parser: String,
 }
 
+/// In-memory outcome of a single metadata extraction attempt, before persistence.
 #[derive(Debug, Clone)]
 pub struct ExtractedMediaMetadata {
+    /// Media category that was extracted.
     pub kind: MediaMetadataKind,
+    /// Outcome of the attempt: `Ready`, `Failed`, or `Unsupported`.
     pub status: MediaMetadataStatus,
+    /// Parsed metadata payload; empty for `Failed` and most `Unsupported` outcomes.
     pub metadata: Option<MediaMetadataPayload>,
+    /// Truncated error or unsupported reason stored in the cache record.
     pub error_message: Option<String>,
+    /// Parser name attributed to this result.
     pub parser: String,
+    /// Version tag of the metadata payload schema.
     pub parser_version: String,
 }
 
@@ -101,6 +132,11 @@ pub(crate) async fn get_for_file_in_scope(
     get_for_file(state, &f).await
 }
 
+/// Resolves cached metadata for a file, or ensures a background extraction task.
+///
+/// Verifies read access, resolves the media kind and processor, then serves the
+/// cached record when it matches the current blob hash and kind; otherwise
+/// schedules extraction and returns [`MediaMetadataLookup::Pending`].
 pub async fn get_for_file(state: &PrimaryAppState, f: &file::Model) -> Result<MediaMetadataLookup> {
     if !operations::media_metadata_enabled(state.runtime_config()) {
         return Ok(MediaMetadataLookup::Ready(disabled_metadata_info(f)));
@@ -172,6 +208,11 @@ fn should_use_cached_metadata(
     true
 }
 
+/// Extracts metadata for a blob without consulting or writing the cache.
+///
+/// Prefers the storage driver's native metadata when available, then falls back
+/// to the configured image/audio/video parser. Returns an `Unsupported` result
+/// (not an error) when no processor matches the file name.
 pub async fn extract_for_blob(
     state: &PrimaryAppState,
     blob: &file_blob::Model,
@@ -309,6 +350,7 @@ async fn try_extract_storage_native_metadata(
     }))
 }
 
+/// Serializes and upserts an extraction result as the blob's cached metadata record.
 pub async fn persist_extracted(
     state: &PrimaryAppState,
     blob: &file_blob::Model,
@@ -343,6 +385,10 @@ pub async fn persist_extracted(
     .await
 }
 
+/// Maps a file to its media metadata kind from the classified category,
+/// falling back to the `image/`/`audio/`/`video/` MIME type prefix.
+///
+/// Returns `None` for files that carry no media metadata.
 pub fn metadata_kind_for_file(f: &file::Model) -> Option<MediaMetadataKind> {
     match f.file_category {
         FileCategory::Image => Some(MediaMetadataKind::Image),
@@ -603,6 +649,7 @@ fn ensure_media_metadata_source_size_supported(
     Ok(())
 }
 
+/// Human-readable task step text for a metadata extraction status.
 pub fn result_status_text(status: MediaMetadataStatus) -> &'static str {
     match status {
         MediaMetadataStatus::Ready => "Media metadata ready",
@@ -611,10 +658,12 @@ pub fn result_status_text(status: MediaMetadataStatus) -> &'static str {
     }
 }
 
+/// Stable display name used to deduplicate media metadata extraction tasks per blob and kind.
 pub fn task_display_name(blob_id: i64, kind: MediaMetadataKind) -> String {
     format!("Extract {} metadata for blob #{blob_id}", kind.as_str())
 }
 
+/// Truncates an extraction error to the cacheable length so it fits the metadata record.
 pub fn cache_error_message(error: &AsterError) -> String {
     aster_forge_validation::filename::truncate_utf8_to_max_bytes(
         error.message(),

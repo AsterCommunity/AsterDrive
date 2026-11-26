@@ -50,6 +50,9 @@ const STORAGE_KEY_ENCODE_SET: &AsciiSet = &CONTROLS
 const STORAGE_TARGET_KEY_ENCODE_SET: &AsciiSet = &STORAGE_KEY_ENCODE_SET.add(b'/');
 const REMOTE_LIST_PAGE_SIZE_QUERY_VALUE: &str = "1000";
 
+/// 远端节点内部存储协议客户端。底层传输（直连 HTTP 或反向隧道）由构造入口
+/// 决定；全部请求自动签名与计量，对象面请求需经 [`Self::with_policy_context`]
+/// 绑定策略归属的 target key。
 #[derive(Clone)]
 pub struct RemoteStorageClient {
     transport: Arc<dyn RemoteTransport>,
@@ -60,6 +63,8 @@ pub struct RemoteStorageClient {
 }
 
 impl RemoteStorageClient {
+    /// 创建直连 HTTP 传输客户端：`base_url` 为远端节点地址，`access_key` /
+    /// `secret_key` 为远端节点签发的内部凭据。
     pub fn new(base_url: &str, access_key: &str, secret_key: &str) -> Result<Self> {
         Ok(Self {
             transport: Arc::new(DirectHttpTransport::new(base_url, access_key, secret_key)?),
@@ -91,6 +96,9 @@ impl RemoteStorageClient {
         self
     }
 
+    /// 派生绑定到存储 target 的对象面客户端：后续对象请求自动携带
+    /// `target_key` 与策略侧 `max_file_size`（字节，负值按 0 处理）。控制面
+    /// 调用应继续使用未绑定 target 的基础客户端。
     pub fn with_policy_context(&self, target_key: &str, max_file_size: i64) -> Self {
         Self {
             transport: self.transport.clone(),
@@ -103,6 +111,8 @@ impl RemoteStorageClient {
         }
     }
 
+    /// 拉取远端节点内部存储协议能力快照，并校验其声明的协议版本区间与本地
+    /// 兼容（不重叠即报协议错误）。
     pub async fn probe_capabilities(&self) -> Result<RemoteStorageCapabilities> {
         let path = format!("{INTERNAL_STORAGE_BASE_PATH}/capabilities");
         let response = self
@@ -137,6 +147,7 @@ impl RemoteStorageClient {
         Ok(capabilities)
     }
 
+    /// 整段上传对象，签名覆盖完整 body digest，follower 收完即完成对账。
     pub async fn put_bytes(&self, key: &str, data: &[u8]) -> Result<()> {
         let mut path = self.object_path(key);
         self.append_policy_max_file_size(&mut path);
@@ -182,6 +193,7 @@ impl RemoteStorageClient {
         Ok(object_body_sha256)
     }
 
+    /// 读取完整对象内容到内存。
     pub async fn get_bytes(&self, key: &str) -> Result<Vec<u8>> {
         let path = self.object_path(key);
         let response = self
@@ -190,6 +202,8 @@ impl RemoteStorageClient {
         ensure_success(response, "get remote storage object").await
     }
 
+    /// 流式读取对象；`offset`/`length`（字节）为可选区间读参数，远端不支持
+    /// 时由其按能力协商拒绝。
     pub async fn get_stream(
         &self,
         key: &str,
@@ -213,6 +227,7 @@ impl RemoteStorageClient {
         Ok(response_stream(response))
     }
 
+    /// 删除对象；key 不存在时的行为由远端底层 connector 的 delete 语义决定。
     pub async fn delete(&self, key: &str) -> Result<()> {
         let path = self.object_path(key);
         let response = self
@@ -221,6 +236,8 @@ impl RemoteStorageClient {
         ensure_success_without_body(response, "delete remote storage object").await
     }
 
+    /// HEAD 探测对象是否存在：`200` 返回 `true`，`404` 返回 `false`，其余
+    /// 状态按传输错误处理。
     pub async fn exists(&self, key: &str) -> Result<bool> {
         let path = self.object_path(key);
         let response = self
@@ -237,6 +254,7 @@ impl RemoteStorageClient {
         }
     }
 
+    /// 读取对象元数据（大小与 content type）。
     pub async fn metadata(&self, key: &str) -> Result<BlobMetadata> {
         let path = self.object_metadata_path(key);
         let response = self
@@ -273,6 +291,7 @@ impl RemoteStorageClient {
         })
     }
 
+    /// 枚举 `prefix`（可选）下全部对象 key，内部自动翻页聚合为完整列表。
     pub async fn list_paths(&self, prefix: Option<&str>) -> Result<Vec<String>> {
         let mut items = Vec::new();
         let mut visitor = VecVisitor(&mut items);
@@ -280,6 +299,9 @@ impl RemoteStorageClient {
         Ok(items)
     }
 
+    /// 按游标分页扫描对象 key 并逐个交给 `visitor`；visitor 返回
+    /// [`StoragePathVisitControl::Stop`] 时提前结束。游标不前进视为远端
+    /// 配置错误。
     pub async fn scan_paths(
         &self,
         prefix: Option<&str>,
@@ -354,6 +376,7 @@ impl RemoteStorageClient {
         Ok(())
     }
 
+    /// 查询远端存储容量信息（总量/可用/已用，字节）。
     pub async fn capacity_info(&self) -> Result<StorageCapacityInfo> {
         let mut path = format!("{INTERNAL_STORAGE_BASE_PATH}/capacity");
         self.append_storage_target_key(&mut path);
@@ -390,6 +413,7 @@ impl RemoteStorageClient {
             })
     }
 
+    /// 向远端推送 binding 期望状态（启用状态、传输模式与期望 revision）。
     pub async fn sync_binding(&self, binding: &RemoteBindingSyncRequest) -> Result<()> {
         let path = format!("{INTERNAL_STORAGE_BASE_PATH}/binding");
         let body = serde_json::to_vec(binding).map_err(|e| {
@@ -410,6 +434,7 @@ impl RemoteStorageClient {
         ensure_success_without_body(response, "sync remote binding state").await
     }
 
+    /// 列出远端节点已配置的存储 target。
     pub async fn list_storage_targets(&self) -> Result<Vec<RemoteStorageTargetInfo>> {
         let path = format!("{INTERNAL_STORAGE_BASE_PATH}/targets");
         let response = self
@@ -442,6 +467,7 @@ impl RemoteStorageClient {
         })
     }
 
+    /// 拉取远端节点支持的 connector 目录及其本地化描述，`locale` 指定语言。
     pub async fn list_storage_target_connector_catalog(
         &self,
         locale: &LocaleTag,
@@ -481,6 +507,7 @@ impl RemoteStorageClient {
         })
     }
 
+    /// 在远端节点创建存储 target，返回远端视角的 target 信息。
     pub async fn create_storage_target(
         &self,
         target: &RemoteCreateStorageTargetRequest,
@@ -504,6 +531,7 @@ impl RemoteStorageClient {
         parse_storage_target_response(response, "create remote storage target").await
     }
 
+    /// 更新远端节点上的存储 target（`target_key` 定位），返回更新后的 target 信息。
     pub async fn update_storage_target(
         &self,
         target_key: &str,
@@ -528,6 +556,7 @@ impl RemoteStorageClient {
         parse_storage_target_response(response, "update remote storage target").await
     }
 
+    /// 删除远端节点上的存储 target。
     pub async fn delete_storage_target(&self, target_key: &str) -> Result<()> {
         let path = self.storage_target_path(target_key);
         let response = self
@@ -536,12 +565,16 @@ impl RemoteStorageClient {
         ensure_success_without_body(response, "delete remote storage target").await
     }
 
+    /// 生成浏览器直传对象的 presigned PUT URL，`expires` 为有效时长。反向
+    /// 隧道传输不支持 presigned URL，返回 `Unsupported`。
     pub fn presigned_put_url(&self, key: &str, expires: Duration) -> Result<String> {
         let mut path = self.object_path(key);
         self.append_policy_max_file_size(&mut path);
         self.transport.presigned_url(Method::PUT, &path, expires)
     }
 
+    /// 生成浏览器直读对象的 presigned GET URL；`options` 中的响应覆盖项
+    /// 转成 query 参数随 URL 下发。
     pub fn presigned_url(
         &self,
         key: &str,
@@ -566,6 +599,8 @@ impl RemoteStorageClient {
         self.transport.presigned_url(Method::GET, &path, expires)
     }
 
+    /// 服务端合并多个分片对象为一个对象；`expected_size` 为调用方声明的
+    /// 合并后总字节数（参与远端 ingress 上限校验），返回实际写入字节数。
     pub async fn compose_objects(
         &self,
         target_key: &str,

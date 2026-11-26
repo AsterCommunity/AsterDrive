@@ -8,6 +8,8 @@ use crate::api::response::{ApiErrorDiagnostic, ApiErrorInfo};
 use aster_drive_storage::error::infer_storage_error_kind;
 use aster_drive_storage::{StorageError, StorageErrorContext, StorageErrorKind};
 
+/// 错误响应载荷：人类可读消息加可选的结构化上下文
+/// （API 错误码覆盖、存储错误种类与上下文、数据库错误分类）。
 #[derive(Debug, Clone)]
 pub struct AsterErrorPayload {
     message: String,
@@ -105,9 +107,14 @@ macro_rules! define_errors {
     ($(
         $variant:ident($code:literal, $type_name:literal)
     ),* $(,)?) => {
+        /// 统一业务错误类型；变体由 `define_errors!` 调用处逐个生成，
+        /// 每个变体绑定字符串内部错误码（如 "E001"）和错误类型名称。
         #[derive(Debug, Clone)]
         pub enum AsterError {
-            $($variant(AsterErrorPayload),)*
+            $(
+                /// 生成的错误变体；消息与结构化上下文保存在 payload 中。
+                $variant(AsterErrorPayload),
+            )*
         }
 
         /// 变体总数，用于内部错误映射穷举检查。
@@ -157,6 +164,7 @@ macro_rules! define_errors {
                 }
             }
 
+            /// 附加结构化 API 错误码覆盖；响应序列化优先使用它而非变体的默认映射。
             pub fn with_api_error_code(self, api_code: ApiErrorCode) -> Self {
                 match self {
                     $(AsterError::$variant(payload) => {
@@ -223,6 +231,7 @@ macro_rules! define_errors {
         paste::paste! {
             impl AsterError {
                 $(
+                    /// 生成变体的 snake_case 构造函数，以给定消息创建对应错误。
                     pub fn [<$variant:snake>](msg: impl Into<String>) -> Self {
                         Self::$variant(AsterErrorPayload::new(msg))
                     }
@@ -311,6 +320,9 @@ define_errors! {
 }
 
 impl AsterError {
+    /// Structured [`StorageErrorKind`] carried by storage-related variants:
+    /// `StorageDriverError` (with fallback inference from the message),
+    /// `PreconditionFailed`, and `UnsupportedDriver`; `None` otherwise.
     pub fn storage_error_kind(&self) -> Option<StorageErrorKind> {
         match self {
             Self::StorageDriverError(message) => Some(
@@ -323,6 +335,8 @@ impl AsterError {
         }
     }
 
+    /// Response-envelope extras: whether clients may retry, plus an optional
+    /// structured diagnostic for storage and connector validation failures.
     pub fn api_error_info(&self) -> ApiErrorInfo {
         ApiErrorInfo {
             retryable: self.api_error_retryable(),
@@ -330,6 +344,8 @@ impl AsterError {
         }
     }
 
+    /// Stable API error code for the response envelope: the structured
+    /// override when one was attached, otherwise the variant's default mapping.
     pub fn api_error_code(&self) -> ApiErrorCode {
         if let Some(code) = self.api_error_code_override() {
             return code;
@@ -777,6 +793,9 @@ impl AsterError {
 }
 
 impl ApiErrorDiagnostic {
+    /// Extracts a client-facing diagnostic from storage driver failures and
+    /// connector validation errors; returns `None` when the error carries no
+    /// such structured detail.
     pub fn from_error(error: &AsterError) -> Option<Self> {
         let storage_kind = error.storage_error_kind();
         let field = connector_validation_field(error.message());
@@ -1040,8 +1059,11 @@ impl AsterError {
     }
 }
 
+/// Crate-wide result alias with [`AsterError`] as the error type.
 pub type Result<T> = std::result::Result<T, AsterError>;
 
+/// Formats any `Display` value into a `String`; small helper for call sites
+/// that only need the rendered message.
 pub fn display_error(err: impl std::fmt::Display) -> String {
     err.to_string()
 }
@@ -1054,6 +1076,7 @@ pub(crate) fn task_error_display_message(raw_message: &str) -> &str {
     raw_message
 }
 
+/// Builds a validation error carrying an explicit API error code override.
 pub fn validation_error_with_code(
     api_code: ApiErrorCode,
     message: impl Into<String>,
@@ -1061,10 +1084,12 @@ pub fn validation_error_with_code(
     AsterError::validation_error(message).with_api_error_code(api_code)
 }
 
+/// Builds a forbidden error carrying an explicit API error code override.
 pub fn auth_forbidden_with_code(api_code: ApiErrorCode, message: impl Into<String>) -> AsterError {
     AsterError::auth_forbidden(message).with_api_error_code(api_code)
 }
 
+/// Builds an invalid-credentials error carrying an explicit API error code override.
 pub fn auth_invalid_credentials_with_code(
     api_code: ApiErrorCode,
     message: impl Into<String>,
@@ -1072,10 +1097,12 @@ pub fn auth_invalid_credentials_with_code(
     AsterError::auth_invalid_credentials(message).with_api_error_code(api_code)
 }
 
+/// Builds an MFA failure error carrying an explicit API error code override.
 pub fn auth_mfa_failed_with_code(api_code: ApiErrorCode, message: impl Into<String>) -> AsterError {
     AsterError::auth_mfa_failed(message).with_api_error_code(api_code)
 }
 
+/// Builds a precondition-failed error carrying an explicit API error code override.
 pub fn precondition_failed_with_code(
     api_code: ApiErrorCode,
     message: impl Into<String>,
@@ -1083,6 +1110,7 @@ pub fn precondition_failed_with_code(
     AsterError::precondition_failed(message).with_api_error_code(api_code)
 }
 
+/// Builds an upload failure error carrying an explicit API error code override.
 pub fn file_upload_error_with_code(
     api_code: ApiErrorCode,
     message: impl Into<String>,
@@ -1090,6 +1118,7 @@ pub fn file_upload_error_with_code(
     AsterError::file_upload_failed(message).with_api_error_code(api_code)
 }
 
+/// Builds a payload-too-large error carrying an explicit API error code override.
 pub fn payload_too_large_with_code(
     api_code: ApiErrorCode,
     message: impl Into<String>,
@@ -1097,6 +1126,7 @@ pub fn payload_too_large_with_code(
     AsterError::payload_too_large(message).with_api_error_code(api_code)
 }
 
+/// Builds a chunk upload failure error carrying an explicit API error code override.
 pub fn chunk_upload_error_with_code(
     api_code: ApiErrorCode,
     message: impl Into<String>,
@@ -1104,6 +1134,7 @@ pub fn chunk_upload_error_with_code(
     AsterError::chunk_upload_failed(message).with_api_error_code(api_code)
 }
 
+/// Builds an upload assembly failure error carrying an explicit API error code override.
 pub fn upload_assembly_error_with_code(
     api_code: ApiErrorCode,
     message: impl Into<String>,
@@ -1111,6 +1142,7 @@ pub fn upload_assembly_error_with_code(
     AsterError::upload_assembly_failed(message).with_api_error_code(api_code)
 }
 
+/// Builds a thumbnail generation failure error carrying an explicit API error code override.
 pub fn thumbnail_generation_error_with_code(
     api_code: ApiErrorCode,
     message: impl Into<String>,
@@ -1118,6 +1150,8 @@ pub fn thumbnail_generation_error_with_code(
     AsterError::thumbnail_generation_failed(message).with_api_error_code(api_code)
 }
 
+/// Builds a storage driver error from kind and message, carrying an explicit
+/// API error code override.
 pub fn storage_driver_error_with_code(
     kind: StorageErrorKind,
     api_code: ApiErrorCode,

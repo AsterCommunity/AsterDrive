@@ -4,38 +4,54 @@ use base64::{
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
+/// One buffered HTTP request the primary hands a follower for local replay.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct RemoteTunnelRequest {
+    /// Identifier the follower echoes back when completing the request.
     pub request_id: String,
+    /// HTTP method to replay locally.
     pub method: String,
+    /// Request target the follower authenticates and dispatches against.
     pub path_and_query: String,
+    /// Header pairs to replay, including the primary's authentication headers.
     pub headers: Vec<(String, String)>,
+    /// Request body, base64 on the wire for JSON framing.
     #[serde(with = "base64_bytes_body")]
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub body: Bytes,
 }
 
+/// A follower's replayed response for one [`RemoteTunnelRequest`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct RemoteTunnelResponse {
+    /// Identifier of the request this response answers.
     pub request_id: String,
+    /// HTTP status produced by the follower's local replay.
     pub status: u16,
+    /// Response header pairs to forward to the original caller.
     pub headers: Vec<(String, String)>,
+    /// Response body, base64 on the wire; legacy array encoding still decodes.
     #[serde(with = "base64_body")]
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub body: Vec<u8>,
 }
 
+/// Follower poll request body.
 #[derive(Debug, Clone, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct RemoteTunnelPollRequest {
+    /// Access key identifying the polling follower; must match the request's
+    /// signed credentials.
     pub access_key: String,
 }
 
+/// Follower poll response body.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct RemoteTunnelPollResponse {
+    /// The next queued tunnel request, or `None` when nothing is pending.
     pub request: Option<RemoteTunnelRequest>,
 }
 

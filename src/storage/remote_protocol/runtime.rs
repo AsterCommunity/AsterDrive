@@ -12,6 +12,8 @@ use super::tunnel::server::{
     ClusterRemoteTunnelBroker, RemoteTunnelBroker, RemoteTunnelOwnerDirectory, RemoteTunnelRegistry,
 };
 
+/// Shared runtime state for the remote node protocol: metric wiring, the
+/// follower reverse-tunnel registry, and the cluster tunnel owner directory.
 #[derive(Clone)]
 pub struct RemoteProtocolRuntime {
     metrics: Arc<parking_lot::RwLock<Option<aster_drive_metrics::SharedMetricsRecorder>>>,
@@ -20,6 +22,8 @@ pub struct RemoteProtocolRuntime {
 }
 
 impl RemoteProtocolRuntime {
+    /// Creates a runtime with no metrics, registry persistence, or owner directory;
+    /// wire those up through the setters before serving remote traffic.
     pub fn new() -> Self {
         Self {
             metrics: Arc::new(parking_lot::RwLock::new(None)),
@@ -28,24 +32,32 @@ impl RemoteProtocolRuntime {
         }
     }
 
+    /// Installs the metrics recorder used by protocol clients and the tunnel registry.
     pub fn set_metrics(&self, metrics: aster_drive_metrics::SharedMetricsRecorder) {
         self.tunnel_registry.set_metrics(metrics.clone());
         *self.metrics.write() = Some(metrics);
     }
 
+    /// Installs the database the tunnel registry uses to persist handshake and
+    /// error state.
     pub fn set_persistence_db(&self, db: DatabaseConnection) {
         self.tunnel_registry.set_persistence_db(db);
     }
 
+    /// Installs the runtime config consulted before the registry writes
+    /// connection lifecycle audit entries.
     pub fn set_audit_runtime_config(&self, runtime_config: Arc<crate::config::RuntimeConfig>) {
         self.tunnel_registry
             .set_audit_runtime_config(runtime_config);
     }
 
+    /// Shared follower connection registry backing both poll and stream transports.
     pub fn tunnel_registry(&self) -> &Arc<RemoteTunnelRegistry> {
         &self.tunnel_registry
     }
 
+    /// Builds the cluster tunnel owner directory from deployment config; a
+    /// no-op (leaving it `None`) when the internal proxy is disabled.
     pub fn configure_tunnel_owner_directory(
         &self,
         db: DatabaseConnection,
@@ -58,6 +70,8 @@ impl RemoteProtocolRuntime {
         Ok(())
     }
 
+    /// Cluster owner directory, `None` when unconfigured or the internal proxy
+    /// is disabled.
     pub fn tunnel_owner_directory(&self) -> Option<Arc<RemoteTunnelOwnerDirectory>> {
         self.tunnel_owner_directory.read().clone()
     }
@@ -72,6 +86,9 @@ impl RemoteProtocolRuntime {
         })
     }
 
+    /// Builds a signed protocol client for one follower, resolving the node's
+    /// transport mode (`Auto` falls back to reverse tunnel when no base URL is
+    /// set) and attaching the configured metrics recorder.
     pub fn client_for_node(&self, node: &managed_follower::Model) -> Result<RemoteStorageClient> {
         match node.transport_mode {
             RemoteNodeTransportMode::Direct => {
@@ -98,6 +115,8 @@ impl RemoteProtocolRuntime {
         })
     }
 
+    /// Builds a remote storage driver for one follower from the given driver
+    /// config, wiring in a client created by [`Self::client_for_node`].
     pub(crate) fn driver_for_config(
         &self,
         config: &crate::storage::drivers::remote::RemoteDriverConfig,

@@ -6,9 +6,15 @@ use std::task::{Context, Poll};
 
 use tokio::io::{AsyncRead, ReadBuf};
 
+/// Wraps an `AsyncRead + Unpin + Send` reader to make it `Sync`.
+///
+/// Needed by stream-upload contracts that require `Box<dyn AsyncRead + Unpin + Send + Sync>`:
+/// `AsyncRead` polling only ever holds exclusive access, so the mutex is
+/// uncontended in practice and never blocks waiting on another task.
 pub struct SyncReader(Mutex<Box<dyn AsyncRead + Unpin + Send>>);
 
 impl SyncReader {
+    /// Takes ownership of the reader and guards it behind the mutex.
     pub fn new(reader: Box<dyn AsyncRead + Unpin + Send>) -> Self {
         Self(Mutex::new(reader))
     }

@@ -4,8 +4,12 @@ use crate::storage::remote_protocol::RemoteStorageTargetInfo;
 use aster_drive_model::entities::remote_storage_target;
 use aster_drive_storage::StorageDriver;
 
+/// A follower storage target that passed its readiness checks, carrying the
+/// driver built for it; returned by [`super::target::resolve_target_by_key`]
+/// for master-authorized ingress requests.
 #[derive(Clone)]
 pub struct ResolvedRemoteStorageTarget {
+    /// Storage driver built from the target's connector configuration.
     pub driver: Arc<dyn StorageDriver>,
 }
 

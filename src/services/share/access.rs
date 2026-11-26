@@ -16,6 +16,11 @@ use super::shared::{
     load_usable_share_ignoring_download_limit, load_valid_share, resolve_share_name,
 };
 
+/// Loads the public share info exposed for a share token.
+///
+/// The token must resolve to an unexpired share whose download limit is not
+/// exhausted. The view count is incremented best-effort before the info is
+/// assembled, and the owner summary is resolved for display.
 pub async fn get_share_info(
     state: &impl SharedRuntimeState,
     token: &str,
@@ -102,6 +107,10 @@ async fn resolve_share_owner_info(
     })
 }
 
+/// Returns the share owner's avatar image bytes at the requested pixel size.
+///
+/// The share token must pass the same public-validity checks as
+/// `get_share_info` before the owner avatar is served.
 pub async fn get_share_avatar_bytes(
     state: &PrimaryAppState,
     token: &str,
@@ -136,6 +145,11 @@ pub struct ShareCookieBinding {
 }
 
 impl ShareCookieBinding {
+    /// Builds a client binding from the request's User-Agent and IP address.
+    ///
+    /// A missing value is recorded as `"none"`; IP addresses are reduced to
+    /// subnets (IPv4 /24, IPv6 /64) so minor network changes do not
+    /// invalidate an issued cookie.
     pub fn from_request_parts(user_agent: Option<&str>, ip_address: Option<&str>) -> Self {
         Self {
             user_agent_hash: user_agent
@@ -255,6 +269,11 @@ pub fn verify_share_cookie(
     .is_ok()
 }
 
+/// Enforces password protection on a share using the verification cookie.
+///
+/// No-op for shares without a password. For protected shares a missing or
+/// invalid cookie yields a password-required error. The share is loaded with
+/// the full public-validity checks (expiry and download limit) applied.
 pub async fn check_share_password_cookie(
     state: &impl SharedRuntimeState,
     token: &str,
@@ -312,7 +331,10 @@ pub(crate) async fn check_share_password_cookie_ignoring_download_limit(
     Ok(())
 }
 
+/// Result of a successful share password verification with cookie issuance.
 pub struct PasswordVerified {
+    /// Signed cookie value to hand back to the client for subsequent
+    /// password-protected access to this share.
     pub cookie_signature: String,
 }
 
@@ -347,6 +369,11 @@ async fn verify_share_password_effective_hash(
     Ok(pw_hash.to_string())
 }
 
+/// Verifies a cleartext password against a password-protected share.
+///
+/// Fails for shares without a password or with a wrong password. On success,
+/// a stored hash that no longer matches the active hashing policy is
+/// transparently upgraded.
 pub async fn verify_password(
     state: &impl SharedRuntimeState,
     token: &str,
@@ -413,6 +440,11 @@ async fn upgrade_share_password_hash(
     }
 }
 
+/// Verifies the share password and signs a password-verification cookie.
+///
+/// On success the returned cookie is bound to the effective password hash
+/// (after any rehash upgrade), the client binding, and an issue timestamp, so
+/// changing the share password immediately invalidates cookies already issued.
 pub async fn verify_password_and_sign(
     state: &impl SharedRuntimeState,
     token: &str,

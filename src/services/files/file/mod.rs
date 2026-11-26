@@ -529,6 +529,7 @@ fn scope_team_id(scope: WorkspaceStorageScope) -> Option<i64> {
     }
 }
 
+/// Records the download metric for a completed outcome under `source`.
 pub fn record_download_metric(
     state: &impl SharedRuntimeState,
     source: &'static str,
@@ -539,12 +540,15 @@ pub fn record_download_metric(
         .record_file_download(source, outcome.metrics_outcome(), outcome.has_range());
 }
 
+/// Records a generic download failure metric under `source`.
 pub fn record_download_failure_metric(state: &impl SharedRuntimeState, source: &'static str) {
     state
         .metrics()
         .record_file_download(source, "failure", false);
 }
 
+/// Records a download failure metric classified by `reason`, so callers
+/// that fail before an outcome exists still produce a useful label.
 pub fn record_download_failure_metric_with_reason(
     state: &impl SharedRuntimeState,
     source: &'static str,
@@ -556,6 +560,10 @@ pub fn record_download_failure_metric_with_reason(
         .record_file_download(source, download_failure_outcome(reason), has_range);
 }
 
+/// Awaits a download future, stamps the transfer source onto stream
+/// outcomes, and records the resulting download metric.
+///
+/// Failures are mapped to failure metrics and re-raised unchanged.
 pub async fn record_download_result<Fut>(
     state: &impl SharedRuntimeState,
     source: &'static str,

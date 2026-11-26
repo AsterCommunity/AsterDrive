@@ -9,8 +9,11 @@ use crate::storage::StorageConnectorCredentialInfo;
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct StoragePolicyCredentialValidationResult {
+    /// Sanitized credential state persisted for the policy after validation.
     pub credential: StorageConnectorCredentialInfo,
+    /// Remote root folder id the provider bound this credential to.
     pub root_item_id: String,
+    /// Display name of the bound root folder, when the provider reports one.
     pub root_item_name: Option<String>,
 }
 

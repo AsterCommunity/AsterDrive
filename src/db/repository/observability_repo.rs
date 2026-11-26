@@ -10,13 +10,20 @@ use sea_orm::{
     ColumnTrait, ConnectionTrait, EntityTrait, ExprTrait, FromQueryResult, QueryFilter, QuerySelect,
 };
 
+/// One upload backlog bucket grouped by session kind, status, and expiration state.
 #[derive(Debug, FromQueryResult)]
 pub struct UploadBacklog {
+    /// Session kind of the bucket.
     pub session_kind: UploadSessionKind,
+    /// Session status of the bucket.
     pub status: UploadSessionStatus,
+    /// Number of sessions in the bucket.
     pub count: i64,
+    /// Creation time of the bucket's oldest session.
     pub oldest: Option<DateTime<Utc>>,
+    /// Whether the bucket's sessions were expired as of the query time.
     pub expired: bool,
+    /// Sum of reserved `total_size` across the bucket's sessions, in bytes.
     pub reserved: Option<i64>,
 }
 
@@ -57,6 +64,10 @@ fn upload_backlog_query(
         ))
 }
 
+/// Aggregates unfinished upload sessions into backlog buckets as of `now`.
+///
+/// Only uploading, assembling, failed, and presigned sessions are included; completed
+/// sessions never appear.
 pub async fn upload_backlog<C: ConnectionTrait>(
     db: &C,
     now: DateTime<Utc>,
@@ -67,12 +78,18 @@ pub async fn upload_backlog<C: ConnectionTrait>(
         .await?)
 }
 
+/// Aggregate over stored blobs awaiting cleanup.
 #[derive(Debug, FromQueryResult)]
 pub struct BlobBacklog {
+    /// Number of stored blobs whose reference count has dropped to zero or below.
     pub count: i64,
+    /// Earliest time a blob was marked pending cleanup, if any.
     pub oldest: Option<DateTime<Utc>>,
 }
 
+/// Aggregates stored blobs with a non-positive reference count into the cleanup backlog.
+///
+/// Returns zeroed values when no blob is awaiting cleanup.
 pub async fn blob_backlog<C: ConnectionTrait>(db: &C) -> Result<BlobBacklog> {
     use file_blob::Column as C;
     Ok(file_blob::Entity::find()
@@ -90,12 +107,19 @@ pub async fn blob_backlog<C: ConnectionTrait>(db: &C) -> Result<BlobBacklog> {
         }))
 }
 
+/// One remote node health bucket grouped by derived status.
 #[derive(Debug, FromQueryResult)]
 pub struct RemoteNodeCount {
+    /// Derived health status: `disabled`, `unknown`, `probe_failed`, or `probe_ok`.
     pub status: String,
+    /// Number of remote nodes in the bucket.
     pub count: i64,
 }
 
+/// Groups remote nodes by derived health status.
+///
+/// Disabled nodes win over probe state; otherwise nodes without a probe or with a probe
+/// error are bucketed before healthy ones.
 pub async fn remote_node_counts<C: ConnectionTrait>(db: &C) -> Result<Vec<RemoteNodeCount>> {
     use managed_follower::Column as C;
     let status = sea_orm::sea_query::Expr::Case(Box::new(

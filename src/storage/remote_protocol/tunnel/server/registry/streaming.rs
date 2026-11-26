@@ -197,6 +197,11 @@ impl RemoteTunnelRegistry {
 }
 
 impl RemoteTunnelRegistry {
+    /// Sends one request over a streaming lane: claims an idle lane, opens
+    /// with a `RequestStart` frame, pumps the request body in chunks, and
+    /// returns once the follower's `ResponseStart` frame arrives, exposing the
+    /// response body as a stream. Tunnel errors are recorded on the
+    /// follower's registry state.
     pub async fn send_stream(
         self: &Arc<Self>,
         remote_node: &managed_follower::Model,
@@ -371,6 +376,8 @@ impl RemoteTunnelRegistry {
         .await
     }
 
+    /// Waits until any streaming lane for the follower is connected, bounded
+    /// by the connect wait timeout.
     pub async fn wait_for_stream_lane(
         self: &Arc<Self>,
         remote_node: &managed_follower::Model,
@@ -548,6 +555,7 @@ impl RemoteTunnelRegistry {
         }
     }
 
+    /// Whether any streaming lane to this follower is currently registered.
     pub fn has_stream_lane(&self, remote_node: &managed_follower::Model) -> bool {
         self.stream_lanes
             .get(&remote_node.access_key)

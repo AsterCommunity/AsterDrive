@@ -4,7 +4,10 @@ use crate::errors::Result;
 use crate::runtime::FollowerAppState;
 use std::sync::Arc;
 
+/// Follower runtime assembled by [`prepare_follower`], ready to be handed to
+/// the assembly entry point.
 pub struct PreparedFollowerRuntime {
+    /// Shared follower application state consumed by all follower services.
     pub state: FollowerAppState,
 }
 

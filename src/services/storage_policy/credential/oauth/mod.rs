@@ -19,31 +19,42 @@ use audit::{
     StorageCredentialOauthAuditDetails, log_storage_credential_oauth_audit,
 };
 
+/// Consent hand-off returned when an OAuth authorization flow starts.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct StorageAuthorizationStartResponse {
+    /// Provider-hosted consent URL the administrator must open.
     pub authorization_url: String,
+    /// Seconds the persisted flow stays consumable before it expires.
     pub expires_in: u64,
 }
 
+/// Query parameters a storage provider sends to the authorization callback.
 #[derive(Debug, Deserialize)]
 #[cfg_attr(
     all(debug_assertions, feature = "openapi"),
     derive(utoipa::IntoParams, utoipa::ToSchema)
 )]
 pub struct StorageAuthorizationCallbackQuery {
+    /// Authorization code issued by the provider; required for a successful flow.
     pub code: Option<String>,
+    /// One-time flow state used to look up and consume the pending flow row.
     pub state: Option<String>,
+    /// Provider error code set when consent was denied or the request failed.
     pub error: Option<String>,
+    /// Human-readable provider detail accompanying `error`.
     pub error_description: Option<String>,
 }
 
+/// Result of a completed storage credential authorization callback.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct StorageAuthorizationCallbackOutcome {
+    /// Sanitized credential info persisted for the policy.
     pub credential: StorageConnectorCredentialInfo,
 }
 
+/// Callback failure carrying the audit reason the authorization flow failed for.
 #[derive(Debug)]
 pub(crate) struct StorageAuthorizationCallbackError {
     reason: crate::storage::connectors::StorageAuthorizationFailureReason,
@@ -73,6 +84,11 @@ impl fmt::Display for StorageAuthorizationCallbackError {
 
 impl std::error::Error for StorageAuthorizationCallbackError {}
 
+/// Starts an OAuth authorization flow for a policy's storage credential.
+///
+/// Asks the connector for a consent URL and PKCE material, cancels any pending
+/// flow for the policy, and persists the new flow so exactly one callback with
+/// the matching state can consume it. Audits a successful start.
 pub async fn start_authorization(
     state: &(impl StorageConnectorRuntimeState + Sync),
     req: &actix_web::HttpRequest,
@@ -146,6 +162,13 @@ pub async fn start_authorization(
     })
 }
 
+/// Consumes the provider callback and persists the authorized credential.
+///
+/// Validates the provider error/code/state parameters, atomically consumes the
+/// pending flow by state hash, then exchanges the code with the connector
+/// outside the transaction so a failed exchange still leaves the flow spent.
+/// On success the credential is encrypted, reloaded into the driver registry,
+/// a storage topology reload is published, and the flow is audited.
 pub(crate) async fn finish_authorization_callback(
     state: &(impl SharedRuntimeState + Sync),
     query: &StorageAuthorizationCallbackQuery,
@@ -351,12 +374,14 @@ pub(crate) async fn finish_authorization_callback(
     })
 }
 
+/// Serializes the consented OAuth scopes into the flow row's JSON form.
 fn serialize_scopes(scopes: &[String]) -> Result<String> {
     serde_json::to_string(scopes).map_err(|error| {
         AsterError::internal_error(format!("serialize storage authorization scopes: {error}"))
     })
 }
 
+/// Wraps an infrastructure failure as a `ServerError` callback error.
 fn storage_authorization_callback_server_error(
     error: AsterError,
 ) -> StorageAuthorizationCallbackError {
@@ -366,6 +391,11 @@ fn storage_authorization_callback_server_error(
     )
 }
 
+/// Builds the absolute public redirect URI the provider must call back.
+///
+/// Derived from the request's scheme and host against the configured public
+/// site URL; fails when the site URL is unconfigured (relative result) because
+/// OAuth providers require an absolute redirect URI.
 fn callback_redirect_uri(
     state: &impl StorageConnectorRuntimeState,
     req: &actix_web::HttpRequest,

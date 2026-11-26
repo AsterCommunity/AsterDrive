@@ -8,6 +8,7 @@ use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::background_task::{self, Entity as BackgroundTask};
 use aster_drive_model::types::{BackgroundTaskKind, BackgroundTaskStatus};
 
+/// Inserts a new background task row.
 pub async fn create<C: ConnectionTrait>(
     db: &C,
     model: background_task::ActiveModel,
@@ -15,6 +16,9 @@ pub async fn create<C: ConnectionTrait>(
     model.insert(db).await.map_err(AsterError::from)
 }
 
+/// Clears the dedupe key of a failed or canceled task so the key can be reused.
+///
+/// The update only applies when the row still carries the given dedupe key.
 pub async fn clear_unsuccessful_dedupe_key<C: ConnectionTrait>(
     db: &C,
     id: i64,
@@ -37,16 +41,28 @@ pub async fn clear_unsuccessful_dedupe_key<C: ConnectionTrait>(
     Ok(())
 }
 
+/// Values for refreshing a `SystemRuntime` task row that is already succeeded.
 pub struct SystemRuntimeSuccessRefresh<'a> {
+    /// Id of the background task row to refresh.
     pub id: i64,
+    /// JSON payload recorded as the task result.
     pub result_json: &'a str,
+    /// Optional human-readable status text.
     pub status_text: Option<&'a str>,
+    /// Next scheduled run time.
     pub next_run_at: DateTime<Utc>,
+    /// Run start time recorded on the row.
     pub started_at: DateTime<Utc>,
+    /// Run finish time recorded on the row.
     pub finished_at: DateTime<Utc>,
+    /// Time at which the result expires.
     pub expires_at: DateTime<Utc>,
 }
 
+/// Refreshes an already succeeded `SystemRuntime` task with a new run's result and schedule.
+///
+/// Progress is normalized to 1/1, processing and lease bookkeeping is cleared, and the
+/// recorded error is dropped. Returns `false` when no matching succeeded row was updated.
 pub async fn refresh_system_runtime_success<C: ConnectionTrait>(
     db: &C,
     refresh: SystemRuntimeSuccessRefresh<'_>,
@@ -116,17 +132,30 @@ pub async fn refresh_system_runtime_success<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// Progress and lease renewal values for a task currently being processed.
 pub struct TaskProgressUpdate<'a> {
+    /// Id of the background task row.
     pub id: i64,
+    /// Processing token leased by the worker; must match the row.
     pub processing_token: i64,
+    /// Current time used for the heartbeat and update timestamp.
     pub now: DateTime<Utc>,
+    /// New lease expiry time.
     pub lease_expires_at: DateTime<Utc>,
+    /// Current progress value.
     pub current: i64,
+    /// Total progress value.
     pub total: i64,
+    /// Optional human-readable status text.
     pub status_text: Option<&'a str>,
+    /// Optional step breakdown JSON to persist.
     pub steps_json: Option<&'a str>,
 }
 
+/// Records progress for a task in `Processing` state and renews its lease and heartbeat.
+///
+/// Returns `false` when the row is not in `Processing` state or the processing token does
+/// not match.
 pub async fn mark_progress<C: ConnectionTrait>(
     db: &C,
     update: TaskProgressUpdate<'_>,
@@ -166,6 +195,10 @@ pub async fn mark_progress<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// Replaces the runtime JSON of a task in `Processing` state.
+///
+/// Returns `false` when the row is not in `Processing` state or the processing token does
+/// not match.
 pub async fn set_runtime_json<C: ConnectionTrait>(
     db: &C,
     id: i64,
@@ -188,6 +221,10 @@ pub async fn set_runtime_json<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// Sets the display name of a task in `Processing` state.
+///
+/// Returns `false` when the row is not in `Processing` state or the processing token does
+/// not match.
 pub async fn set_display_name<C: ConnectionTrait>(
     db: &C,
     id: i64,
@@ -210,18 +247,33 @@ pub async fn set_display_name<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// Values for transitioning a leased task to the succeeded state.
 pub struct TaskSuccessUpdate<'a> {
+    /// Id of the background task row.
     pub id: i64,
+    /// Processing token leased by the worker; must match the row.
     pub processing_token: i64,
+    /// Optional JSON payload recorded as the task result.
     pub result_json: Option<&'a str>,
+    /// Optional step breakdown JSON to persist.
     pub steps_json: Option<&'a str>,
+    /// Final progress value.
     pub current: i64,
+    /// Final progress total.
     pub total: i64,
+    /// Optional human-readable status text.
     pub status_text: Option<&'a str>,
+    /// Completion time recorded on the row.
     pub finished_at: DateTime<Utc>,
+    /// Time at which the result expires.
     pub expires_at: DateTime<Utc>,
 }
 
+/// Transitions a leased task in `Processing` state to `Succeeded`.
+///
+/// Records the result, final progress, and finish time and clears processing and lease
+/// bookkeeping. Returns `false` when the row is not in `Processing` state or the
+/// processing token does not match.
 pub async fn mark_succeeded<C: ConnectionTrait>(
     db: &C,
     success: TaskSuccessUpdate<'_>,
@@ -284,6 +336,11 @@ pub async fn mark_succeeded<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// Transitions a leased task in `Processing` state back to `Retry` with a next run time.
+///
+/// Records the attempt count and last error, clears processing and lease bookkeeping and
+/// the status text, and optionally persists a step breakdown. Returns `false` when the
+/// row is not in `Processing` state or the processing token does not match.
 pub async fn mark_retry<C: ConnectionTrait>(
     db: &C,
     id: i64,
@@ -337,6 +394,12 @@ pub async fn mark_retry<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// Hands a leased task row back to the dispatcher during cooperative shutdown.
+///
+/// The released status must be `Pending` or `Retry`; the lease is returned without
+/// spending retry budget or recording a business failure. Crashes and stale workers are
+/// still handled by normal lease expiry and reclaim. Returns `false` when the row is not
+/// in `Processing` state or the processing token does not match.
 pub async fn release_processing<C: ConnectionTrait>(
     db: &C,
     id: i64,
@@ -344,10 +407,6 @@ pub async fn release_processing<C: ConnectionTrait>(
     now: DateTime<Utc>,
     status: BackgroundTaskStatus,
 ) -> Result<bool> {
-    // This is only for cooperative shutdown. It gives the exact leased worker
-    // row back to the dispatcher without spending retry budget or recording a
-    // business failure. Crashes and stale workers are still handled by normal
-    // lease expiry and reclaim.
     if !matches!(
         status,
         BackgroundTaskStatus::Pending | BackgroundTaskStatus::Retry
@@ -389,17 +448,31 @@ pub async fn release_processing<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// Values for transitioning a leased task to the failed state.
 pub struct TaskFailureUpdate<'a> {
+    /// Id of the background task row.
     pub id: i64,
+    /// Processing token leased by the worker; must match the row.
     pub processing_token: i64,
+    /// Attempt count to record.
     pub attempt_count: i32,
+    /// Error message recorded as the failure reason.
     pub last_error: &'a str,
+    /// Failure time recorded on the row.
     pub finished_at: DateTime<Utc>,
+    /// Time at which the failure record expires.
     pub expires_at: DateTime<Utc>,
+    /// Optional step breakdown JSON to persist.
     pub steps_json: Option<&'a str>,
+    /// Whether the failure still allows the task to be retried.
     pub failure_can_retry: bool,
 }
 
+/// Transitions a leased task in `Processing` state to `Failed`.
+///
+/// Records the attempt count, last error, and retry permission, clears processing and
+/// lease bookkeeping, and stamps the finish time. Returns `false` when the row is not in
+/// `Processing` state or the processing token does not match.
 pub async fn mark_failed<C: ConnectionTrait>(
     db: &C,
     update: TaskFailureUpdate<'_>,
@@ -462,6 +535,11 @@ pub async fn mark_failed<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// Resets a failed or canceled task for another manual run.
+///
+/// Restores `Pending` state with a fresh attempt count and progress, the given max
+/// attempts and run schedule, and clears all run bookkeeping, results, and errors.
+/// Returns `false` when the row is not in `Failed` or `Canceled` state.
 pub async fn reset_for_manual_retry<C: ConnectionTrait>(
     db: &C,
     id: i64,

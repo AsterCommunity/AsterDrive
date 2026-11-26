@@ -12,13 +12,21 @@ pub use crate::config::definitions::{
     CORS_ALLOW_CREDENTIALS_KEY, CORS_ALLOWED_ORIGINS_KEY, CORS_ENABLED_KEY, CORS_MAX_AGE_SECS_KEY,
 };
 
+/// Default for `cors_enabled`: cross-origin browser access is off.
 pub const DEFAULT_CORS_ENABLED: bool = false;
+/// Default for `cors_allow_credentials`: cookies/credentials are not allowed.
 pub const DEFAULT_CORS_ALLOW_CREDENTIALS: bool = false;
+/// Default `Access-Control-Max-Age` for preflight caching, in seconds.
 pub const DEFAULT_CORS_MAX_AGE_SECS: u64 = 3600;
 
 pub(crate) const BROWSER_EXTENSION_ORIGIN_SCHEMES: &[&str] =
     &["chrome-extension", "moz-extension", "safari-web-extension"];
 
+/// Builds the effective CORS policy from the runtime config.
+///
+/// Invalid values fall back to the safe defaults; when the stored origin list
+/// is unparseable or the wildcard/credentials combination is invalid, the
+/// policy degrades to denying cross-origin requests instead of failing startup.
 pub fn runtime_cors_policy(runtime_config: &RuntimeConfig) -> RuntimeCorsPolicy {
     let enabled = match runtime_config.get(CORS_ENABLED_KEY) {
         Some(raw) => match parse_bool_str(&raw) {
@@ -111,6 +119,7 @@ pub fn runtime_cors_policy(runtime_config: &RuntimeConfig) -> RuntimeCorsPolicy 
     }
 }
 
+/// Normalizes the `cors_enabled` value to `"true"`/`"false"`.
 pub fn normalize_enabled_config_value(value: &str) -> Result<String> {
     match parse_bool_str(value) {
         Some(value) => Ok(if value { "true" } else { "false" }.to_string()),
@@ -120,11 +129,15 @@ pub fn normalize_enabled_config_value(value: &str) -> Result<String> {
     }
 }
 
+/// Validates a `cors_allowed_origins` JSON array and returns its canonical
+/// form: trimmed, deduplicated, sorted, origin-only entries.
 pub fn normalize_allowed_origins_config_value(value: &str) -> Result<String> {
     let parsed = parse_allowed_origins_value(value)?;
     serialize_allowed_origins(&parsed)
 }
 
+/// Normalizes an already-stored `cors_allowed_origins` value, migrating the
+/// legacy comma-separated format to the canonical JSON array form.
 pub fn normalize_existing_allowed_origins_config_value(value: &str) -> Result<String> {
     if value.trim().starts_with('[') {
         return normalize_allowed_origins_config_value(value);
@@ -142,6 +155,7 @@ pub fn normalize_existing_allowed_origins_config_value(value: &str) -> Result<St
     normalize_allowed_origins_config_value(&legacy_json)
 }
 
+/// Normalizes the `cors_allow_credentials` value to `"true"`/`"false"`.
 pub fn normalize_allow_credentials_config_value(value: &str) -> Result<String> {
     match parse_bool_str(value) {
         Some(value) => Ok(if value { "true" } else { "false" }.to_string()),
@@ -151,6 +165,8 @@ pub fn normalize_allow_credentials_config_value(value: &str) -> Result<String> {
     }
 }
 
+/// Validates the `cors_max_age_secs` value as a non-negative integer and
+/// returns its canonical decimal form.
 pub fn normalize_max_age_config_value(value: &str) -> Result<String> {
     let trimmed = value.trim();
     let max_age = trimmed.parse::<u64>().map_aster_err_with(|| {
@@ -159,6 +175,11 @@ pub fn normalize_max_age_config_value(value: &str) -> Result<String> {
     Ok(max_age.to_string())
 }
 
+/// Parses a `cors_allowed_origins` JSON array into the policy value.
+///
+/// An empty array yields `None`, `["*"]` yields `Any`, otherwise entries are
+/// normalized into a sorted deduplicated list. Mixing `*` with explicit
+/// origins is rejected.
 pub fn parse_allowed_origins_value(value: &str) -> Result<CorsAllowedOrigins> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -211,10 +232,16 @@ fn serialize_allowed_origins(origins: &CorsAllowedOrigins) -> Result<String> {
         .map_aster_err_with(|| AsterError::internal_error("failed to serialize CORS origins"))
 }
 
+/// Normalizes a strict CORS origin: http/https only, no path, query, or
+/// userinfo, lowercased scheme and authority. `*` is accepted only when
+/// `allow_wildcard` is true.
 pub fn normalize_origin(origin: &str, allow_wildcard: bool) -> Result<String> {
     normalize_origin_with_schemes(origin, allow_wildcard, &[])
 }
 
+/// Like [`normalize_origin`], but additionally accepts browser extension
+/// schemes (Chrome, Firefox, Safari) so extension-based clients can be
+/// allowlisted explicitly.
 pub fn normalize_cors_origin(origin: &str, allow_wildcard: bool) -> Result<String> {
     normalize_origin_with_schemes(origin, allow_wildcard, BROWSER_EXTENSION_ORIGIN_SCHEMES)
 }
@@ -279,6 +306,8 @@ fn normalize_origin_with_schemes(
     ))
 }
 
+/// Rejects the unsafe combination of wildcard origins (`Any`) with credentialed
+/// CORS responses; browsers forbid it and it would leak authenticated content.
 pub fn validate_runtime_cors_combination(
     allowed_origins: &CorsAllowedOrigins,
     allow_credentials: bool,

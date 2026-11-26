@@ -7,26 +7,31 @@ use utoipa::ToSchema;
 
 macro_rules! define_api_error_codes {
     ($($variant:ident => $value:literal),+ $(,)?) => {
+        /// Stable product error codes exchanged by the REST envelope.
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
         pub enum ApiErrorCode {
             $(
+                /// Stable error code variant paired with a fixed wire string.
                 #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(rename = $value))]
                 $variant,
             )+
         }
 
         impl ApiErrorCode {
+            /// All variants in declaration order.
             pub const ALL: &'static [Self] = &[
                 $(Self::$variant,)+
             ];
 
+            /// Returns the stable wire string for this code, for example `"auth.failed"`.
             pub const fn as_str(self) -> &'static str {
                 match self {
                     $(Self::$variant => $value,)+
                 }
             }
 
+            /// Parses a stable wire string back into a code; exact inverse of [`Self::as_str`].
             pub fn parse(value: &str) -> Option<Self> {
                 match value {
                     $($value => Some(Self::$variant),)+
@@ -417,6 +422,7 @@ impl<'de> Deserialize<'de> for ApiErrorCode {
     }
 }
 
+/// Error returned when a string is not a stable API error code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ParseApiErrorCodeError;
 

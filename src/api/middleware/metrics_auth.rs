@@ -13,6 +13,8 @@ pub struct MetricsAuth {
 }
 
 impl MetricsAuth {
+    /// Creates an authenticator bound to one basic-auth snapshot; rotation
+    /// requires constructing a new instance.
     pub fn new(config: MetricsBasicAuthConfig) -> Self {
         Self {
             config,
@@ -20,6 +22,9 @@ impl MetricsAuth {
         }
     }
 
+    /// Returns `true` when the request may read metrics. Disabled config
+    /// authorizes everything; otherwise both the username and the password
+    /// hash must match.
     pub async fn authorize(&self, request: &HttpRequest) -> bool {
         if !self.config.enabled {
             return true;
@@ -57,6 +62,8 @@ fn credentials(request: &HttpRequest) -> Option<(String, String)> {
     Some((username.to_owned(), password.to_owned()))
 }
 
+/// Builds the `401` challenge response with the metrics basic-auth realm and
+/// a `no-store` cache header.
 pub fn unauthorized() -> HttpResponse {
     HttpResponse::Unauthorized()
         .insert_header((
@@ -67,6 +74,8 @@ pub fn unauthorized() -> HttpResponse {
         .finish()
 }
 
+/// Actix middleware that gates the metrics exposition on [`MetricsAuth::authorize`],
+/// answering with [`unauthorized`] and forcing `no-store` on forwarded responses.
 pub async fn middleware(
     request: actix_web::dev::ServiceRequest,
     next: actix_web::middleware::Next<impl actix_web::body::MessageBody>,

@@ -46,6 +46,8 @@ async fn write_local_avatar(path: &std::path::Path, data: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// Deletes the stored avatar upload objects for a user without changing the
+/// profile row; used e.g. before force-deleting an account.
 pub async fn cleanup_avatar_upload(state: &impl SharedRuntimeState, user_id: i64) -> Result<()> {
     let _publish_guard = state
         .runtime_config()
@@ -59,6 +61,12 @@ pub async fn cleanup_avatar_upload(state: &impl SharedRuntimeState, user_id: i64
     Ok(())
 }
 
+/// Handles a multipart avatar upload for a user: stages the source file,
+/// renders size variants, publishes them under a new avatar version, and
+/// updates the profile row in one transaction.
+///
+/// A concurrent avatar change since staging marks the submission as
+/// superseded instead of applying it; stale objects are cleaned up either way.
 pub async fn upload_avatar(
     state: &PrimaryAppState,
     user_id: i64,
@@ -374,6 +382,11 @@ async fn publish_staged_avatar(
     }
 }
 
+/// Switches the avatar source to a non-upload one (`Gravatar` or `None`),
+/// bumping the avatar version and dropping any stored upload objects.
+///
+/// Upload sources must go through [`upload_avatar`]; a `None` source on a
+/// user without a profile row is a no-op.
 pub async fn set_avatar_source(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -442,6 +455,10 @@ fn validate_avatar_size(size: u32) -> Result<u32> {
     }
 }
 
+/// Reads the stored avatar variant of the requested size (512 or 1024) for a
+/// user with an uploaded avatar.
+///
+/// Fails with not-found when the user, profile, or upload object is missing.
 pub async fn get_avatar_bytes(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -476,6 +493,8 @@ pub async fn get_avatar_bytes(
     })
 }
 
+/// Wraps rendered avatar bytes into a WebP response with a one-year
+/// immutable cache policy; versioned URLs bust the cache on change.
 pub fn avatar_image_response(bytes: Vec<u8>) -> HttpResponse {
     HttpResponse::Ok()
         .content_type("image/webp")

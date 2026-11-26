@@ -12,5 +12,7 @@ use validator::Validate;
     derive(IntoParams, ToSchema)
 )]
 pub struct WopiAccessQuery {
+    /// WOPI access token; the `X-WOPI-Token` header takes precedence when
+    /// both are present.
     pub access_token: Option<String>,
 }

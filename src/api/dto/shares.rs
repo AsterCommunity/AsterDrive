@@ -9,14 +9,18 @@ use validator::{Validate, ValidationError};
 #[derive(Deserialize, Validate)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct CreateShareReq {
+    /// File or folder the share points at.
     #[validate(nested)]
     pub target: crate::services::share::ShareTarget,
+    /// Access password; `None` creates the share without password protection.
     pub password: Option<String>,
+    /// Expiry time (UTC); `None` means the share never expires.
     #[cfg_attr(
         all(debug_assertions, feature = "openapi"),
         schema(value_type = Option<String>)
     )]
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Maximum downloads before the share stops working; `0` = unlimited.
     #[serde(default)]
     #[validate(range(min = 0, message = "max_downloads cannot be negative"))]
     pub max_downloads: i64,
@@ -33,7 +37,9 @@ pub struct UpdateShareReq {
         all(debug_assertions, feature = "openapi"),
         schema(value_type = Option<String>)
     )]
+    /// New expiry time (UTC); `None` removes the expiry.
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Maximum downloads before the share stops working; `0` = unlimited.
     #[validate(range(min = 0, message = "max_downloads cannot be negative"))]
     pub max_downloads: i64,
 }
@@ -42,6 +48,7 @@ pub struct UpdateShareReq {
 #[derive(Deserialize, Validate)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct BatchDeleteSharesReq {
+    /// Share IDs to delete.
     #[serde(default)]
     #[validate(custom(function = "validate_batch_share_ids"))]
     pub share_ids: Vec<i64>,

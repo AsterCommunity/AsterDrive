@@ -16,6 +16,8 @@ use super::{
     truncate_status_text,
 };
 
+/// Builds the stored payload JSON for a system runtime task of the given
+/// kind.
 pub(crate) fn system_runtime_payload_json(
     task_name: SystemRuntimeTaskKind,
 ) -> Result<StoredTaskPayload> {
@@ -24,6 +26,8 @@ pub(crate) fn system_runtime_payload_json(
     })
 }
 
+/// Finds the most recent `background_task` row recorded for the given system
+/// runtime task kind, or `None` when the task has never run.
 pub(crate) async fn find_latest_system_runtime_by_task_name(
     state: &impl SharedRuntimeState,
     task_name: SystemRuntimeTaskKind,
@@ -33,23 +37,49 @@ pub(crate) async fn find_latest_system_runtime_by_task_name(
         .await
 }
 
+/// Identifies a Drive-owned system runtime task known to the background task
+/// runtime.
+///
+/// Every variant is registered with a stable wire value, display name, and
+/// presentation code; the scheduled definitions that execute them live in
+/// [`crate::runtime::tasks`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SystemRuntimeTaskKind {
+    /// Periodically claims and sends queued mail outbox messages.
     MailOutboxDispatch,
+    /// Runs the background task consumer loop that claims and executes due
+    /// tasks across all lanes.
     BackgroundTaskDispatch,
+    /// Removes upload sessions whose expiry timestamp has passed.
     UploadCleanup,
+    /// Purges completed upload sessions and their file-create idempotency
+    /// records once they expire.
     CompletedUploadCleanup,
+    /// Reconciles blob reference counts and removes orphaned blobs.
     BlobReconcile,
+    /// Runs the Primary system health checks and records the resulting report.
     SystemHealthCheck,
+    /// Probes managed remote follower nodes for health as part of the
+    /// remote-nodes diagnostics component.
     RemoteNodeHealthTest,
+    /// Purges trash entries that exceeded their retention window.
     TrashCleanup,
+    /// Removes archived teams past their archive retention window.
     TeamArchiveCleanup,
+    /// Removes file locks that reached their expiry.
     LockCleanup,
+    /// Removes expired local authentication sessions.
     AuthSessionCleanup,
+    /// Removes expired external authentication flows.
     ExternalAuthFlowCleanup,
+    /// Removes expired multi-factor authentication flows.
     MfaFlowCleanup,
+    /// Removes expired workspace activity records and audit log entries.
     AuditCleanup,
+    /// Removes expired background task artifact directories from the temp
+    /// roots.
     TaskCleanup,
+    /// Removes expired WOPI sessions.
     WopiSessionCleanup,
 }
 
@@ -146,23 +176,32 @@ aster_forge_tasks::runtime_task_registry! {
 }
 
 impl SystemRuntimeTaskKind {
+    /// Returns the stable wire value of this task kind, as stored in task
+    /// payloads and used by the runtime registry.
     pub const fn as_str(self) -> &'static str {
         system_runtime_task_registry::as_str(self)
     }
 
+    /// Returns the human-readable display name of this task kind.
     pub const fn display_name(self) -> &'static str {
         system_runtime_task_registry::display_name(self)
     }
 
+    /// Returns the presentation code used to render this task kind to API
+    /// consumers.
     pub const fn presentation_code(self) -> TaskPresentationCode {
         system_runtime_task_registry::presentation_code(self)
     }
 
+    /// Parses a wire value back into a task kind, returning `None` for values
+    /// that no registered kind uses.
     pub fn from_wire_value(value: &str) -> Option<Self> {
         system_runtime_task_registry::from_wire_value(value)
     }
 }
 
+/// Returns every registered system runtime task definition in declaration
+/// order.
 pub fn registered_system_runtime_tasks() -> &'static [SystemRuntimeTaskDefinition] {
     system_runtime_task_registry::DEFINITIONS
 }
@@ -187,25 +226,41 @@ impl std::fmt::Display for SystemRuntimeTaskKind {
     }
 }
 
+/// Outcome of one system runtime task execution.
+///
+/// The outcome decides whether a `background_task` row is written and which
+/// status it receives. `Quiet` runs leave no record behind.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeTaskRunOutcome {
+    /// The run found nothing to do and should not be recorded in the task
+    /// table.
     Quiet,
+    /// The run completed successfully.
     Succeeded {
+        /// Optional run summary stored as the task's status text.
         summary: Option<String>,
+        /// Optional system health report captured alongside the run.
         system_health: Option<RuntimeSystemHealthResult>,
     },
+    /// The run failed.
     Failed {
+        /// Optional run summary stored as the task's status text.
         summary: Option<String>,
+        /// Description of the failure stored as the task's last error.
         error: String,
+        /// Optional system health report captured alongside the run.
         system_health: Option<RuntimeSystemHealthResult>,
     },
 }
 
 impl RuntimeTaskRunOutcome {
+    /// Creates a `Quiet` outcome for a run that did nothing worth recording.
     pub fn quiet() -> Self {
         Self::Quiet
     }
 
+    /// Creates a successful outcome with an optional summary and no health
+    /// report.
     pub fn succeeded(summary: Option<String>) -> Self {
         Self::Succeeded {
             summary,
@@ -213,6 +268,7 @@ impl RuntimeTaskRunOutcome {
         }
     }
 
+    /// Creates a successful outcome that carries a system health report.
     pub fn succeeded_with_system_health(
         summary: Option<String>,
         system_health: RuntimeSystemHealthResult,
@@ -223,6 +279,8 @@ impl RuntimeTaskRunOutcome {
         }
     }
 
+    /// Creates a failed outcome with an optional summary and an error
+    /// description, without a health report.
     pub fn failed(summary: Option<String>, error: impl Into<String>) -> Self {
         Self::Failed {
             summary,
@@ -231,6 +289,7 @@ impl RuntimeTaskRunOutcome {
         }
     }
 
+    /// Creates a failed outcome that carries a system health report.
     pub fn failed_with_system_health(
         summary: Option<String>,
         error: impl Into<String>,
@@ -278,6 +337,10 @@ impl RuntimeTaskRunOutcome {
     }
 }
 
+/// Records one manual runtime task run in the `background_task` table.
+///
+/// `Quiet` outcomes are not recorded and return `None`. Runs recorded through
+/// this helper carry no dedupe key, so repeated calls always insert new rows.
 pub async fn record_runtime_task_run(
     state: &impl SharedRuntimeState,
     task_name: SystemRuntimeTaskKind,
@@ -296,6 +359,13 @@ pub async fn record_runtime_task_run(
     .await
 }
 
+/// Records one scheduler-driven runtime task run in the `background_task`
+/// table.
+///
+/// The run is deduplicated per scheduler firing: `scheduled_at` derives a
+/// dedupe key, so a second record for the same firing updates the existing row
+/// instead of inserting a new one. `Quiet` outcomes are not recorded and
+/// return `None`.
 pub async fn record_scheduled_runtime_task_run(
     state: &impl SharedRuntimeState,
     task_name: SystemRuntimeTaskKind,

@@ -1,3 +1,5 @@
+//! 本地账号邮箱 allowlist/blocklist 策略：注册、改绑等流程的邮箱准入判定。
+
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::RuntimeConfig;
 use crate::errors::{AsterError, Result, validation_error_with_code};
@@ -9,6 +11,11 @@ pub use crate::config::definitions::{
     AUTH_LOCAL_EMAIL_ALLOWLIST_KEY, AUTH_LOCAL_EMAIL_BLOCKLIST_KEY,
 };
 
+/// Local-account email admission policy built from the runtime config.
+///
+/// The blocklist always denies matching addresses; the allowlist only applies
+/// when it is non-empty. Matching is on the normalized address and its domain,
+/// including subdomains of allowlisted/blocklisted domains.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalEmailPolicy {
     allowlist: EmailPolicyList,
@@ -16,6 +23,8 @@ pub struct LocalEmailPolicy {
 }
 
 impl LocalEmailPolicy {
+    /// Builds the policy from the allowlist/blocklist runtime config values;
+    /// missing or invalid stored lists degrade to empty with a warning.
     pub fn from_runtime_config(runtime_config: &RuntimeConfig) -> Self {
         let allowlist = read_policy_list(runtime_config, AUTH_LOCAL_EMAIL_ALLOWLIST_KEY);
         let blocklist = read_policy_list(runtime_config, AUTH_LOCAL_EMAIL_BLOCKLIST_KEY);
@@ -25,6 +34,9 @@ impl LocalEmailPolicy {
         }
     }
 
+    /// Full admission check for account registration/contact changes: the
+    /// address must not be blocked and, when an allowlist is configured, must
+    /// be allowlisted.
     pub fn check(&self, email: &str) -> Result<()> {
         let (normalized, domain) = normalized_email_and_domain(email)?;
 
@@ -42,6 +54,10 @@ impl LocalEmailPolicy {
         Ok(())
     }
 
+    /// Checks that the address is not blocklisted, ignoring the allowlist.
+    ///
+    /// Used for flows that must not require allowlist membership, such as
+    /// verifying an already-registered contact address.
     pub fn check_not_blocked(&self, email: &str) -> Result<()> {
         let (normalized, domain) = normalized_email_and_domain(email)?;
 
@@ -60,6 +76,9 @@ fn email_blocked_error() -> AsterError {
     )
 }
 
+/// Normalizes a stored allowlist/blocklist value (identified by `key`): items
+/// are lowercased, deduplicated, and sorted; reject-listed or malformed
+/// entries fail validation.
 pub fn normalize_local_email_policy_config_value(key: &str, value: &str) -> Result<String> {
     let raw_items = serde_json::from_str::<Vec<String>>(value).map_err(|error| {
         AsterError::validation_error(format!("{key} must be a JSON array of strings: {error}"))

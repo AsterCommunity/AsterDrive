@@ -8,16 +8,23 @@ pub use crate::config::definitions::{
     BRANDING_WORDMARK_DARK_URL_KEY, BRANDING_WORDMARK_LIGHT_URL_KEY,
 };
 
+/// Default site title shown in the UI and page metadata.
 pub const DEFAULT_BRANDING_TITLE: &str = "AsterDrive";
+/// Default site description shown in page metadata.
 pub const DEFAULT_BRANDING_DESCRIPTION: &str = "Self-hosted cloud storage";
+/// Default favicon URL: a static asset served from this deployment.
 pub const DEFAULT_BRANDING_FAVICON_URL: &str = "/favicon.svg";
+/// Default dark-theme wordmark URL: a static asset served from this deployment.
 pub const DEFAULT_BRANDING_WORDMARK_DARK_URL: &str = "/static/asterdrive/asterdrive-dark.svg";
+/// Default light-theme wordmark URL: a static asset served from this deployment.
 pub const DEFAULT_BRANDING_WORDMARK_LIGHT_URL: &str = "/static/asterdrive/asterdrive-light.svg";
 
 const MAX_BRANDING_TITLE_LEN: usize = 120;
 const MAX_BRANDING_DESCRIPTION_LEN: usize = 300;
 const MAX_BRANDING_ASSET_URL_LEN: usize = 2048;
 
+/// Normalizes a stored branding title: trims, strips control characters, and
+/// enforces the 120-character display bound. Empty resets to the default.
 pub fn normalize_title_config_value(value: &str) -> Result<String> {
     aster_forge_validation::display::normalize_bounded_display_text(
         "branding_title",
@@ -27,6 +34,8 @@ pub fn normalize_title_config_value(value: &str) -> Result<String> {
     .map_err(AsterError::from)
 }
 
+/// Normalizes a stored branding description: trims, strips control characters,
+/// and enforces the 300-character display bound.
 pub fn normalize_description_config_value(value: &str) -> Result<String> {
     aster_forge_validation::display::normalize_bounded_display_text(
         "branding_description",
@@ -36,18 +45,24 @@ pub fn normalize_description_config_value(value: &str) -> Result<String> {
     .map_err(AsterError::from)
 }
 
+/// Normalizes a stored favicon URL as a public asset URL (absolute path or
+/// http/https origin-only URL, no scripts or relative references).
 pub fn normalize_favicon_url_config_value(value: &str) -> Result<String> {
     normalize_asset_url_config_value(BRANDING_FAVICON_URL_KEY, value)
 }
 
+/// Normalizes a stored dark-theme wordmark URL as a public asset URL.
 pub fn normalize_wordmark_dark_url_config_value(value: &str) -> Result<String> {
     normalize_asset_url_config_value(BRANDING_WORDMARK_DARK_URL_KEY, value)
 }
 
+/// Normalizes a stored light-theme wordmark URL as a public asset URL.
 pub fn normalize_wordmark_light_url_config_value(value: &str) -> Result<String> {
     normalize_asset_url_config_value(BRANDING_WORDMARK_LIGHT_URL_KEY, value)
 }
 
+/// Effective branding title: the normalized runtime value, or
+/// [`DEFAULT_BRANDING_TITLE`] when it is missing, blank, or invalid.
 pub fn title_or_default(runtime_config: &RuntimeConfig) -> String {
     aster_forge_validation::display::display_text_or_default(
         runtime_config.get(BRANDING_TITLE_KEY),
@@ -57,6 +72,8 @@ pub fn title_or_default(runtime_config: &RuntimeConfig) -> String {
     )
 }
 
+/// Effective branding description: the normalized runtime value, or
+/// [`DEFAULT_BRANDING_DESCRIPTION`] when it is missing, blank, or invalid.
 pub fn description_or_default(runtime_config: &RuntimeConfig) -> String {
     aster_forge_validation::display::display_text_or_default(
         runtime_config.get(BRANDING_DESCRIPTION_KEY),
@@ -66,6 +83,8 @@ pub fn description_or_default(runtime_config: &RuntimeConfig) -> String {
     )
 }
 
+/// Effective favicon URL, or [`DEFAULT_BRANDING_FAVICON_URL`] when the runtime
+/// value is missing, blank, or invalid.
 pub fn favicon_url_or_default(runtime_config: &RuntimeConfig) -> String {
     asset_url_or_default(
         runtime_config,
@@ -74,6 +93,9 @@ pub fn favicon_url_or_default(runtime_config: &RuntimeConfig) -> String {
     )
 }
 
+/// Effective dark-theme wordmark URL, or
+/// [`DEFAULT_BRANDING_WORDMARK_DARK_URL`] when the runtime value is missing,
+/// blank, or invalid.
 pub fn wordmark_dark_url_or_default(runtime_config: &RuntimeConfig) -> String {
     asset_url_or_default(
         runtime_config,
@@ -82,6 +104,9 @@ pub fn wordmark_dark_url_or_default(runtime_config: &RuntimeConfig) -> String {
     )
 }
 
+/// Effective light-theme wordmark URL, or
+/// [`DEFAULT_BRANDING_WORDMARK_LIGHT_URL`] when the runtime value is missing,
+/// blank, or invalid.
 pub fn wordmark_light_url_or_default(runtime_config: &RuntimeConfig) -> String {
     asset_url_or_default(
         runtime_config,

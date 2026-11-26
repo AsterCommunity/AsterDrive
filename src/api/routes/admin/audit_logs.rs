@@ -11,6 +11,7 @@ use aster_forge_api::LimitOffsetQuery;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use aster_forge_api::OffsetPage;
 
+/// Lists system audit log entries with pagination, filtering, and sorting.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/audit-logs",
@@ -44,6 +45,7 @@ pub async fn list_audit_logs(
     Ok(HttpResponse::Ok().json(crate::api::response::success(page)))
 }
 
+/// Streams system audit log entries as a UTF-8 CSV export, capped at 100000 rows.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/audit-logs/export",

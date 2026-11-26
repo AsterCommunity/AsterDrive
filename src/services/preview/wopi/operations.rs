@@ -37,10 +37,14 @@ use super::types::{
 /// WOPI GetFile 的服务层结果，包含文件流下载数据和协议专用的 item version header。
 /// 路由层负责把这些字段组装成 HttpResponse，同时附加 X-WOPI-ItemVersion 响应头。
 pub struct WopiGetFileResult {
+    /// 文件下载结果；WOPI 约定 inline disposition，304/302 变体同样会带上版本头。
     pub outcome: file::DownloadOutcome,
+    /// 当前 revision 的 ETag，用作 `X-WOPI-ItemVersion` 响应头值。
     pub item_version: String,
 }
 
+/// WOPI CheckFileInfo: resolves the access token and reports file metadata,
+/// permission bits and the protocol capabilities this host supports.
 pub async fn check_file_info(
     state: &PrimaryAppState,
     file_id: i64,
@@ -81,6 +85,8 @@ pub async fn check_file_info(
     })
 }
 
+/// WOPI GetFile: streams the current file contents, honoring `If-None-Match`
+/// and the `X-WOPI-MaxExpectedSize` upper bound.
 pub async fn get_file_contents(
     state: &PrimaryAppState,
     file_id: i64,
@@ -136,6 +142,10 @@ pub async fn get_file_contents(
     })
 }
 
+/// WOPI PutFile: replaces the file contents.
+///
+/// Per protocol rules, existing files require a matching `X-WOPI-Lock`; only
+/// an unlocked zero-byte file may receive its first write without a lock.
 pub async fn put_file_contents(
     state: &PrimaryAppState,
     req: WopiPutFileRequest<'_>,
@@ -191,6 +201,10 @@ pub async fn put_file_contents(
     })
 }
 
+/// WOPI PutRelativeFile: stores the request body as a new file next to the
+/// source file, honoring the SuggestedTarget/RelativeTarget semantics —
+/// suggested names never overwrite, relative names only overwrite existing
+/// targets when allowed and unlocked.
 pub async fn put_relative_file(
     state: &PrimaryAppState,
     req: WopiPutRelativeRequest<'_>,
@@ -381,6 +395,8 @@ pub async fn put_relative_file(
     Ok(WopiPutRelativeResult::Success(response))
 }
 
+/// WOPI RenameFile: renames the file after checking its lock, falling back to
+/// a suggested available name when the requested one is taken or invalid.
 pub async fn rename_file(
     state: &PrimaryAppState,
     file_id: i64,
@@ -467,6 +483,8 @@ pub async fn rename_file(
     }))
 }
 
+/// WOPI PutUserInfo: stores the app-provided ASCII user info string (bounded
+/// by [`MAX_WOPI_USER_INFO_LEN`]) on the acting user's profile.
 pub async fn put_user_info(
     state: &PrimaryAppState,
     file_id: i64,

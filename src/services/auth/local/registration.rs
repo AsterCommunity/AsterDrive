@@ -24,17 +24,28 @@ use super::{
     AuthUserInfo, UserAuditInfo, ensure_password_login_enabled, is_email_verified, user_audit_info,
 };
 
+/// Result of attempting to re-send a registration activation email.
+///
+/// Every skip reason collapses to a non-error outcome so the endpoint cannot reveal whether an
+/// identifier exists or which state it is in beyond what metrics already record.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RegisterActivationResendOutcome {
+    /// Activation mail issued and enqueued; carries the auditable identity.
     Sent(UserAuditInfo),
+    /// No account matches the identifier (or it is not in pending-activation state).
     EmailNotFound,
+    /// The account already completed activation.
     AlreadyActive,
+    /// The account is disabled and cannot be activated.
     AccountDisabled,
+    /// Skipped: a token was requested too recently or one is still active.
     Cooldown,
+    /// Skipped: the destination address violates the current local email policy.
     EmailPolicyRejected,
 }
 
 impl RegisterActivationResendOutcome {
+    /// Metric `reason` label for `record_auth_event("register_activation_resend", ..)`.
     pub fn metric_reason(&self) -> &'static str {
         match self {
             Self::Sent(_) => "pending_activation",
@@ -46,6 +57,7 @@ impl RegisterActivationResendOutcome {
         }
     }
 
+    /// Metric `status` label: `sent` for real mail, `skipped` for every other outcome.
     pub fn metric_status(&self) -> &'static str {
         match self {
             Self::Sent(_) => "sent",
@@ -58,6 +70,13 @@ impl RegisterActivationResendOutcome {
     }
 }
 
+/// Administrator-created user account, active and email-verified from birth.
+///
+/// An optional forced password change can be attached; policy-group binding is published for
+/// runtime reload after the insert commits.
+///
+/// # Errors
+/// Returns validation or persistence errors (duplicate username/email, invalid password).
 pub async fn create_user_by_admin(
     state: &impl SharedRuntimeState,
     username: &str,
@@ -94,6 +113,14 @@ pub async fn create_user_by_admin(
     Ok(AuthUserInfo::from(user))
 }
 
+/// Self-service registration, gated by the runtime registration and activation switches.
+///
+/// With activation enabled the account starts email-unverified and a single-use activation
+/// token is enqueued in the same transaction as the insert; with activation disabled the
+/// account is created already verified. Policy-group binding is published after commit.
+///
+/// # Errors
+/// Returns forbidden-when-disabled, email-policy, validation, or persistence errors.
 pub async fn register(
     state: &impl SharedRuntimeState,
     username: &str,
@@ -174,6 +201,14 @@ pub async fn register(
     Ok(AuthUserInfo::from(user))
 }
 
+/// Re-issues a registration activation token for an unverified account.
+///
+/// Applies cooldown and email-policy checks before touching the database; a raced active token
+/// also reports [`RegisterActivationResendOutcome::Cooldown`] so concurrent requests cannot
+/// mint parallel tokens.
+///
+/// # Errors
+/// Returns policy or persistence errors; state-based skips are reported as outcomes instead.
 pub async fn resend_register_activation(
     state: &impl SharedRuntimeState,
     identifier: &str,
@@ -248,12 +283,21 @@ pub async fn resend_register_activation(
     )))
 }
 
+/// Reports the system setup/initialization state used by frontend auth routing.
 pub async fn check_auth_state(
     state: &impl SharedRuntimeState,
 ) -> Result<crate::services::system_setup::SystemSetupStatus> {
     crate::services::system_setup::inspect(state.writer_db()).await
 }
 
+/// Creates the first administrator account during initial system setup.
+///
+/// Single-shot by construction: the requirement is re-checked inside the transaction while
+/// holding the setup lock, so two racing setup calls cannot both create an admin.
+///
+/// # Errors
+/// Returns `ValidationSystemAlreadyInitialized` once an admin exists, plus validation or
+/// persistence errors.
 pub async fn setup(
     state: &impl SharedRuntimeState,
     username: &str,

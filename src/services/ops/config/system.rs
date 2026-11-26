@@ -1,3 +1,6 @@
+//! 系统配置的管理端读写入口：upsert/delete、注册表元数据投影、登录方式与邮件
+//! 依赖联动、公开缓存失效、reload 通知发布以及配置变更审计。
+
 use crate::config::definitions::CONFIG_REGISTRY;
 use crate::config::media_processing::MEDIA_PROCESSING_REGISTRY_JSON_KEY;
 use crate::config::operations::{MEDIA_METADATA_ENABLED_KEY, MEDIA_METADATA_MAX_SOURCE_BYTES_KEY};
@@ -17,22 +20,36 @@ use serde::Serialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
+/// Admin-facing presentation of one stored system config entry.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct SystemConfig {
+    /// Stored row ID.
     pub id: i64,
+    /// Unique config key.
     pub key: String,
+    /// Presented value; invalid stored values degrade to an empty presentation.
     pub value: ConfigValue,
+    /// Storage/validation type of the value.
     pub value_type: ConfigValueType,
+    /// Whether a change requires a process restart to take effect.
     pub requires_restart: bool,
+    /// Whether the value is a credential that must be redacted in listings and audit logs.
     pub is_sensitive: bool,
+    /// Where the current value came from, e.g. system default or admin edit.
     pub source: ConfigSource,
+    /// Whether the entry is exposed through public (unauthenticated) endpoints.
     pub visibility: ConfigVisibility,
+    /// Namespace grouping the entry; empty for built-in keys.
     pub namespace: String,
+    /// Settings page category this entry is grouped under.
     pub category: String,
+    /// Plain-text description from the registry definition.
     pub description: String,
+    /// Timestamp of the last change.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: chrono::DateTime<chrono::Utc>,
+    /// ID of the user who last changed the entry; `None` for seeded defaults.
     pub updated_by: Option<i64>,
 }
 
@@ -70,6 +87,8 @@ impl From<system_config::Model> for SystemConfig {
     }
 }
 
+/// Lists config entries ordered by key with registry definition metadata applied;
+/// `limit` is clamped to 1..=100.
 pub async fn list_paginated(
     state: &impl SharedRuntimeState,
     limit: u64,
@@ -85,6 +104,8 @@ pub async fn list_paginated(
     Ok(OffsetPage::new(items, total, limit, offset))
 }
 
+/// Returns one config entry with registry definition metadata applied, or a
+/// record-not-found error when the key is absent.
 pub async fn get_by_key(state: &impl SharedRuntimeState, key: &str) -> Result<SystemConfig> {
     config_repo::find_by_key(state.reader_db(), key)
         .await?
@@ -93,12 +114,16 @@ pub async fn get_by_key(state: &impl SharedRuntimeState, key: &str) -> Result<Sy
         .ok_or_else(|| AsterError::record_not_found(format!("config key '{key}'")))
 }
 
+/// Returns the runtime readiness status of the configured media processing CLI tools.
 pub fn get_media_processing_runtime_status(
     state: &impl SharedRuntimeState,
 ) -> crate::config::media_processing::MediaProcessingRuntimeStatus {
     crate::config::media_processing::media_processing_runtime_status(state.runtime_config())
 }
 
+/// Upserts a config value with the entry's default visibility handling, applies
+/// dependent config changes, invalidates dependent public caches, and publishes
+/// a reload notification.
 pub async fn set(
     state: &impl SharedRuntimeState,
     key: &str,
@@ -108,6 +133,8 @@ pub async fn set(
     set_with_visibility(state, key, value, None, updated_by).await
 }
 
+/// Same as [`set`], but additionally overrides the entry visibility; only custom
+/// (non-registry) keys accept a visibility change.
 pub async fn set_with_visibility(
     state: &impl SharedRuntimeState,
     key: &str,
@@ -140,6 +167,8 @@ pub async fn set_with_visibility(
     Ok(config.into())
 }
 
+/// Deletes the config entry, evicts it from the runtime config, invalidates
+/// dependent public caches, and publishes a reload notification.
 pub async fn delete(state: &impl SharedRuntimeState, key: &str) -> Result<()> {
     let result: Result<()> = async {
         config_repo::delete_by_key(state.writer_db(), key).await?;
@@ -161,6 +190,8 @@ pub async fn delete(state: &impl SharedRuntimeState, key: &str) -> Result<()> {
     Ok(())
 }
 
+/// Same as [`delete`], plus an `AdminDeleteConfig` audit entry with the acting
+/// admin's context.
 pub async fn delete_with_audit(
     state: &impl SharedRuntimeState,
     key: &str,
@@ -181,6 +212,7 @@ pub async fn delete_with_audit(
     Ok(())
 }
 
+/// Same as [`set`], plus a `ConfigUpdate` audit entry with the acting admin's context.
 pub async fn set_with_audit(
     state: &impl SharedRuntimeState,
     key: &str,
@@ -191,6 +223,8 @@ pub async fn set_with_audit(
     set_with_audit_and_visibility(state, key, value, None, updated_by, audit_ctx).await
 }
 
+/// Same as [`set_with_audit`], but additionally overrides the entry visibility;
+/// only custom (non-registry) keys accept a visibility change.
 pub async fn set_with_audit_and_visibility(
     state: &impl SharedRuntimeState,
     key: &str,

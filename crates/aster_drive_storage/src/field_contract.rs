@@ -9,15 +9,23 @@ use std::path::{Component, Path, PathBuf};
 
 use crate::error::{Result, StorageErrorKind, storage_driver_error};
 
+/// Input and validation class of one storage descriptor field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorageDescriptorFieldKind {
+    /// Free-form single-line text value.
     Text,
+    /// Secret credential value; edit behavior follows
+    /// [`StorageSecretEditSemantics`].
     Secret,
+    /// One value chosen from the fixed options the descriptor declares.
     Select,
+    /// A `true`/`false` switch.
     Boolean,
+    /// A numeric value such as a count, limit, or size.
     Number,
 }
 
+/// Contract for how a secret descriptor field behaves when its resource is edited.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorageSecretEditSemantics {
     /// A secret is required while creating the resource, but an omitted value
@@ -25,15 +33,25 @@ pub enum StorageSecretEditSemantics {
     RequiredOnCreatePreserveWhenOmittedOnEdit,
 }
 
+/// Shared meaning of one storage descriptor field.
+///
+/// Storage policy connectors and managed ingress targets embed these bits in
+/// their own DTOs so admin UIs and validators interpret the same field
+/// identically on both surfaces.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StorageDescriptorFieldSemantics {
+    /// Widget and validation class of the field.
     pub kind: StorageDescriptorFieldKind,
+    /// Whether configuration cannot be saved while this field is blank.
     pub required: bool,
+    /// Whether the field holds secret credential material.
     pub secret: bool,
+    /// Edit-time contract for secret fields; `None` for non-secret fields.
     pub secret_edit_semantics: Option<StorageSecretEditSemantics>,
 }
 
 impl StorageDescriptorFieldSemantics {
+    /// Text field with the given requiredness and no secret behavior.
     pub const fn text(required: bool) -> Self {
         Self {
             kind: StorageDescriptorFieldKind::Text,
@@ -43,6 +61,8 @@ impl StorageDescriptorFieldSemantics {
         }
     }
 
+    /// Secret field: credential material that keeps its stored value when an
+    /// edit omits it.
     pub const fn secret(required: bool) -> Self {
         Self {
             kind: StorageDescriptorFieldKind::Secret,
@@ -54,6 +74,7 @@ impl StorageDescriptorFieldSemantics {
         }
     }
 
+    /// Boolean switch with the given requiredness and no secret behavior.
     pub const fn boolean(required: bool) -> Self {
         Self {
             kind: StorageDescriptorFieldKind::Boolean,
@@ -63,6 +84,11 @@ impl StorageDescriptorFieldSemantics {
         }
     }
 
+    /// Builds semantics from the raw descriptor bit flags stored by a caller.
+    ///
+    /// A `true` secret flag automatically installs
+    /// [`StorageSecretEditSemantics::RequiredOnCreatePreserveWhenOmittedOnEdit`],
+    /// matching [`Self::secret`]; a `false` flag leaves edit semantics unset.
     pub const fn from_descriptor_bits(
         kind: StorageDescriptorFieldKind,
         required: bool,
@@ -82,12 +108,21 @@ impl StorageDescriptorFieldSemantics {
     }
 }
 
+/// Why a relative local target path was rejected by
+/// [`normalize_relative_local_target_path`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RelativeLocalPathNormalizationError {
+    /// The input is empty or only whitespace.
     Blank,
+    /// The path contains a parent (`..`), root, or Windows prefix component
+    /// and would escape the configured root.
     EscapesRoot,
 }
 
+/// Trims a required storage configuration field and rejects blank values.
+///
+/// Returns the trimmed value, or a `Misconfigured` storage error naming
+/// `field` when the trimmed input is empty.
 pub fn normalize_required_storage_field(field: &str, value: &str) -> Result<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -99,6 +134,11 @@ pub fn normalize_required_storage_field(field: &str, value: &str) -> Result<Stri
     Ok(trimmed.to_string())
 }
 
+/// Applies the "omitted secret keeps the stored value" edit contract.
+///
+/// `Some(replacement)` is normalized like any required field (trimmed, blank
+/// rejected); `None` returns `existing` unchanged, so edits that leave the
+/// secret input blank never erase the stored credential.
 pub fn preserve_secret_when_omitted(
     field: &str,
     existing: &str,
@@ -110,10 +150,20 @@ pub fn preserve_secret_when_omitted(
     }
 }
 
+/// Trims outer whitespace and leading/trailing slashes from an object storage
+/// key prefix.
+///
+/// Interior slashes are preserved, and an all-slash or empty input becomes the
+/// empty string (no prefix). Used to keep tenant/path prefixes canonical
+/// before they are joined with object keys.
 pub fn normalize_object_storage_prefix(value: &str) -> String {
     value.trim().trim_matches('/').to_string()
 }
 
+/// Validates the storage policy `max_file_size` limit.
+///
+/// Zero means "no limit"; negative values are rejected as `Misconfigured`.
+/// Positive values are returned unchanged (bytes).
 pub fn normalize_storage_policy_max_file_size(value: i64) -> Result<i64> {
     if value < 0 {
         return Err(storage_driver_error(
@@ -124,6 +174,15 @@ pub fn normalize_storage_policy_max_file_size(value: i64) -> Result<i64> {
     Ok(value)
 }
 
+/// Normalizes a relative target path under a local storage volume root.
+///
+/// Whitespace is trimmed, backslashes are treated as separators, `.` segments
+/// are dropped, and the result is rejoined with `/`. A path that reduces to
+/// nothing becomes `"."` (the root itself). Blank input returns
+/// [`RelativeLocalPathNormalizationError::Blank`]; any `..`, absolute, or
+/// Windows-prefix component returns
+/// [`RelativeLocalPathNormalizationError::EscapesRoot`] so the caller can
+/// reject it before touching the filesystem.
 pub fn normalize_relative_local_target_path(
     value: &str,
 ) -> std::result::Result<String, RelativeLocalPathNormalizationError> {

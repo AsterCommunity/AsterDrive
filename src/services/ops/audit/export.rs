@@ -16,7 +16,12 @@ use aster_forge_api::SortOrder;
 
 use super::AuditLogFilters;
 
+/// Inclusive upper bound on the number of rows a single audit CSV export may
+/// contain; matching result sets larger than this are rejected before any
+/// bytes are streamed.
 pub const AUDIT_CSV_EXPORT_MAX_ROWS: u64 = 100_000;
+/// Number of audit rows fetched from the database per streaming batch while
+/// a CSV export is being produced.
 pub const AUDIT_CSV_EXPORT_BATCH_SIZE: u64 = 500;
 
 const CSV_HEADERS: [&str; 16] = [
@@ -40,10 +45,16 @@ const CSV_HEADERS: [&str; 16] = [
 
 pub type AuditCsvStream = Pin<Box<dyn Stream<Item = Result<Bytes>> + Send + 'static>>;
 
+/// Scope of an audit CSV export: either the system-wide log or one team's log.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuditExportKind {
+    /// Export the system-wide audit log (admin endpoint).
     System,
-    Team { team_id: i64 },
+    /// Export the audit log of the team identified by `team_id`.
+    Team {
+        /// Id of the team whose audit log is exported.
+        team_id: i64,
+    },
 }
 
 impl AuditExportKind {
@@ -55,9 +66,16 @@ impl AuditExportKind {
     }
 }
 
+/// Result of preparing an audit CSV export: scope, row count, and the
+/// ready-to-stream CSV body.
 pub struct PreparedAuditCsvExport {
+    /// Scope this export was prepared for, used in progress logging.
     pub kind: AuditExportKind,
+    /// Snapshot row count matched by the filters; may drift from the number
+    /// of rows actually streamed if the log changes mid-export.
     pub total: u64,
+    /// Byte stream starting with the CSV header record, followed by row
+    /// chunks fetched in [`AUDIT_CSV_EXPORT_BATCH_SIZE`] batches.
     pub stream: AuditCsvStream,
 }
 
@@ -339,6 +357,13 @@ async fn usernames_for_batch(
         .collect())
 }
 
+/// Prepares a streaming CSV export of audit log rows under `filters`.
+///
+/// Flushes buffered audit records first so the export is taken from a
+/// consistent snapshot, and rejects result sets larger than
+/// [`AUDIT_CSV_EXPORT_MAX_ROWS`] before streaming begins. Sensitive detail
+/// keys are redacted, share entity names are dropped, and text fields are
+/// neutralized against CSV formula injection.
 pub async fn prepare_csv_export(
     state: PrimaryAppState,
     kind: AuditExportKind,

@@ -39,18 +39,22 @@ use std::sync::OnceLock;
 
 static CONFIG: OnceLock<Arc<Config>> = OnceLock::new();
 
+/// 从进程当前目录加载静态配置并写入全局快照，返回加载报告供启动日志使用。
 pub fn init_config() -> crate::errors::Result<ConfigLoadReport> {
     let loaded = loader::load()?;
     CONFIG.get_or_init(|| Arc::new(loaded.config));
     Ok(loaded.report)
 }
 
+/// 在显式 [`ConfigLocation`]（--config-file / --data-dir）下加载配置并写入
+/// 全局快照；运行时路径按该位置解析，不依赖调用方 cwd。
 pub fn init_config_at(location: &ConfigLocation) -> crate::errors::Result<ConfigLoadReport> {
     let loaded = location.initialize()?;
     CONFIG.get_or_init(|| Arc::new(loaded.config));
     Ok(loaded.report)
 }
 
+/// 获取全局静态配置快照；必须在 `init_config`/`init_config_at` 之后调用。
 #[expect(
     clippy::expect_used,
     reason = "runtime entry points initialize CONFIG before accessing the required global snapshot"

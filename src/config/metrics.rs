@@ -25,6 +25,11 @@ where
     ObservabilityConfig::deserialize(deserializer).map(effective_config)
 }
 
+/// Creates the metrics provider for this process.
+///
+/// Exporters that are not compiled into this build are stripped before
+/// activation, and the provider is stamped with the AsterDrive identity
+/// (service name/version, serve role, node mode, and instance id).
 pub fn create_provider(
     config: &ObservabilityConfig,
     node_mode: NodeRuntimeMode,

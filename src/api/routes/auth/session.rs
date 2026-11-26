@@ -137,6 +137,9 @@ async fn wait_for_shutdown_signal(shutdown_token: Option<CancellationToken>) {
     }
 }
 
+/// SSE endpoint streaming storage change events for the current user. Emits 15s
+/// heartbeats, revalidates the account and team visibility before each delivery,
+/// and closes the stream on credential expiry or revocation.
 pub async fn get_storage_events(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
@@ -298,6 +301,8 @@ pub async fn get_storage_events(
         .streaming(stream))
 }
 
+/// Logs in with identifier (username or email) and password; on success sets the
+/// session tokens in HttpOnly cookies, or returns an MFA challenge when required.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/login",
@@ -337,6 +342,8 @@ pub async fn login(
     response
 }
 
+/// Rotates the refresh token and issues new session tokens in HttpOnly cookies,
+/// guarded by CSRF double-submit.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/refresh",
@@ -382,6 +389,8 @@ pub async fn refresh(state: web::Data<PrimaryAppState>, req: HttpRequest) -> Res
         })))
 }
 
+/// Logs out the current session: durably revokes the refresh token (failing closed
+/// on writer errors) and clears the auth cookies.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/logout",
@@ -439,6 +448,8 @@ pub async fn logout(state: web::Data<PrimaryAppState>, req: HttpRequest) -> Http
         .json(crate::api::response::empty_success())
 }
 
+/// Returns the current user's profile, settings, quota, and team memberships;
+/// supports field selection for lighter responses.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/auth/me",
@@ -476,6 +487,8 @@ pub async fn me(
     }
 }
 
+/// Lists the current user's active login devices, marking the one matching the
+/// caller's refresh session.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/auth/sessions",
@@ -501,6 +514,8 @@ pub async fn list_sessions(
     Ok(HttpResponse::Ok().json(crate::api::response::success(sessions)))
 }
 
+/// Revokes all of the current user's sessions except the caller's own, and records
+/// the action in the audit log.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/auth/sessions/others",
@@ -546,6 +561,8 @@ pub async fn delete_other_sessions(
     )
 }
 
+/// Revokes one of the current user's sessions by ID; clearing the caller's own
+/// cookies when it revokes the current session.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/auth/sessions/{id}",
@@ -603,6 +620,8 @@ pub async fn delete_session(
     Ok(response.json(crate::api::response::empty_success()))
 }
 
+/// Changes the current user's password after verifying the current one; issues new
+/// session tokens and records the change in the audit log.
 #[aster_forge_api_docs_macros::path(
     put,
     path = "/api/v1/auth/password",

@@ -7,6 +7,9 @@ use aster_drive_model::entities::master_binding;
 use super::driver::build_driver_from_target;
 use super::models::ResolvedRemoteStorageTarget;
 
+/// Resolves a master-authorized request's `target_key` against the binding's
+/// follower-owned targets. Fails when the target is unknown, marked with a
+/// reconciliation error, or still pending its desired revision.
 pub async fn resolve_target_by_key<S: FollowerRuntimeState>(
     state: &S,
     binding: &master_binding::Model,

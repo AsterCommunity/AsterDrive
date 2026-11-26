@@ -1,3 +1,5 @@
+//! 文件夹展示图标类型。
+
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
@@ -11,11 +13,14 @@ use utoipa::ToSchema;
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(16))")]
 #[serde(rename_all = "lowercase")]
 pub enum FolderIconKind {
+    /// Render the standard folder icon; no `icon_value` payload.
     #[default]
     #[sea_orm(string_value = "default")]
     Default,
+    /// Icon chosen from the product's built-in icon set.
     #[sea_orm(string_value = "builtin")]
     Builtin,
+    /// Icon rendered from a user-selected emoji stored in `icon_value`.
     #[sea_orm(string_value = "emoji")]
     Emoji,
 }

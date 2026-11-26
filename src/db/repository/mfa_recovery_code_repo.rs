@@ -9,6 +9,8 @@ use sea_orm::{
 use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::mfa_recovery_code::{self, Entity as MfaRecoveryCode};
 
+/// Inserts a batch of recovery codes one by one, returning the persisted rows
+/// in input order.
 pub async fn create_many<C: ConnectionTrait>(
     db: &C,
     models: Vec<mfa_recovery_code::ActiveModel>,
@@ -20,6 +22,7 @@ pub async fn create_many<C: ConnectionTrait>(
     Ok(created)
 }
 
+/// Lists the user's still-unused recovery codes in creation order.
 pub async fn list_unused_for_user<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -33,6 +36,7 @@ pub async fn list_unused_for_user<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Counts the user's still-unused recovery codes; drives the low-balance warning.
 pub async fn count_unused_for_user<C: ConnectionTrait>(db: &C, user_id: i64) -> Result<u64> {
     MfaRecoveryCode::find()
         .filter(mfa_recovery_code::Column::UserId.eq(user_id))
@@ -42,6 +46,9 @@ pub async fn count_unused_for_user<C: ConnectionTrait>(db: &C, user_id: i64) -> 
         .map_err(AsterError::from)
 }
 
+/// One-shot redemption: marks a code used only when its id, owner and code
+/// hash all match and it is still unused, so a code can never be redeemed
+/// twice. Returns `true` when this call spent the code.
 pub async fn mark_used_if_current<C: ConnectionTrait>(
     db: &C,
     id: i64,
@@ -61,6 +68,8 @@ pub async fn mark_used_if_current<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// Removes every recovery code of a user (used and unused), returning the
+/// number of deleted rows; called when codes are regenerated or MFA is reset.
 pub async fn delete_all_for_user<C: ConnectionTrait>(db: &C, user_id: i64) -> Result<u64> {
     let result = MfaRecoveryCode::delete_many()
         .filter(mfa_recovery_code::Column::UserId.eq(user_id))

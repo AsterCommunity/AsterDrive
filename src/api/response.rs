@@ -16,6 +16,7 @@ impl ApiResponseCode for ApiErrorCode {
     }
 }
 
+/// Forge 错误元数据容器（可重试标记 + 类型化诊断）绑定 Drive 的诊断类型。
 pub type ApiErrorInfo = ForgeApiErrorInfo<ApiErrorDiagnostic>;
 
 /// Drive's REST adapter binds product-owned code and diagnostic types to Forge's envelope.
@@ -50,10 +51,16 @@ impl<T: Serialize + ToSchema> utoipa::__dev::ComposeSchema for ApiResponse<T> {
     }
 }
 
+/// Typed storage/connector diagnostics attached to an API error.
+///
+/// Populated only for storage-driver failures and connector-config validation
+/// errors; `kind` holds the storage failure kind or `"connector_validation"`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ApiErrorDiagnostic {
+    /// Diagnostic classification: a storage failure kind or `"connector_validation"`.
     pub kind: String,
+    /// Sanitized, client-safe diagnostic message.
     pub message: String,
     /// Connector-owned field that caused a configuration validation failure.
     ///
@@ -104,35 +111,47 @@ pub fn failure_with_details(
     adapt_envelope(ForgeApiResponse::error_with_details(code, message, error))
 }
 
+/// Liveness response body.
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct HealthResponse {
+    /// Service health status string, for example `"ok"` or `"initializing_or_worker_stopped"`.
     pub status: String,
 }
 
+/// Build and runtime metadata reported by the system information endpoints.
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct SystemInfoResponse {
+    /// Crate version of the running build.
     pub version: String,
+    /// Build timestamp recorded at compile time.
     pub build_time: String,
 }
 
+/// Heap memory statistics from the allocator runtime.
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct MemoryStatsResponse {
+    /// Current heap allocation in MiB, formatted with two decimal places.
     pub heap_allocated_mb: String,
+    /// Peak heap allocation in MiB, formatted with two decimal places.
     pub heap_peak_mb: String,
 }
 
+/// Response body carrying the number of items permanently purged.
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PurgedCountResponse {
+    /// Number of purged items.
     pub purged: u32,
 }
 
+/// Response body carrying the number of removed entries.
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct RemovedCountResponse {
+    /// Number of removed entries, for example revoked sessions or expired locks.
     pub removed: u64,
 }
 

@@ -11,6 +11,7 @@ pub(crate) struct IconQuery {
     v: Option<String>,
 }
 
+/// Builds the `/api/v1/storage/connectors` asset route scope (connector icons).
 pub fn routes() -> actix_web::Scope {
     web::scope("/storage/connectors")
         .route("/{connector_id}/icon", web::get().to(get_connector_icon))

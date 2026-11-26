@@ -9,6 +9,8 @@ use sea_orm::{
     sea_query::{Expr, OnConflict},
 };
 
+/// Loads the encrypted connector credential of one remote storage target.
+/// Returns `None` when the target has no credential row.
 pub async fn find_by_target<C: ConnectionTrait>(
     db: &C,
     target_id: i64,
@@ -20,6 +22,10 @@ pub async fn find_by_target<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Writes the target's credential in one statement: inserts with revision 1,
+/// or on conflict replaces connector id, schema version and ciphertext while
+/// incrementing the revision atomically. Returns the reloaded row; errors if
+/// it cannot be reloaded afterwards.
 pub async fn upsert<C: ConnectionTrait>(
     db: &C,
     target_id: i64,
@@ -61,6 +67,7 @@ pub async fn upsert<C: ConnectionTrait>(
     })
 }
 
+/// Removes the target's credential, if any; succeeds even when absent.
 pub async fn delete_by_target<C: ConnectionTrait>(db: &C, target_id: i64) -> Result<()> {
     RemoteStorageTargetCredential::delete_many()
         .filter(remote_storage_target_credential::Column::TargetId.eq(target_id))

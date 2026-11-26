@@ -11,6 +11,11 @@ use crate::errors::Result;
 use aster_forge_auth::PasswordHashRuntime;
 use aster_forge_db::system_config;
 
+/// Shared runtime configuration state for a running process.
+///
+/// Holds the system_config snapshot plus instance-owned resources (refresh
+/// coordination, password hashing, avatar rendering) that survive
+/// configuration reloads.
 pub struct RuntimeConfig {
     // Instance-owned resource shared by requests and preserved across configuration reloads.
     refresh_coordinator: aster_forge_auth::RefreshCoordinator,
@@ -21,6 +26,7 @@ pub struct RuntimeConfig {
 }
 
 impl RuntimeConfig {
+    /// Creates an empty runtime config with default instance resources.
     pub fn new() -> Self {
         Self {
             refresh_coordinator: aster_forge_auth::RefreshCoordinator::default(),
@@ -31,6 +37,8 @@ impl RuntimeConfig {
         }
     }
 
+    /// Like [`RuntimeConfig::new`], but caps concurrent password hashing at
+    /// `max_concurrency`.
     pub fn with_password_hash_max_concurrency(max_concurrency: usize) -> Result<Self> {
         Self::with_password_hash_policy(
             max_concurrency,
@@ -38,6 +46,8 @@ impl RuntimeConfig {
         )
     }
 
+    /// Like [`RuntimeConfig::with_password_hash_max_concurrency`], but also
+    /// pins the Argon2 password hashing policy used for verification.
     pub fn with_password_hash_policy(
         max_concurrency: usize,
         policy: aster_forge_crypto::PasswordHashPolicy,
@@ -56,6 +66,9 @@ impl RuntimeConfig {
         &self.refresh_coordinator
     }
 
+    /// Reloads the snapshot from the `system_config` table, rebuilding the
+    /// precompiled audit scope. Existing keys not present in the database are
+    /// dropped; instance-owned resources are untouched.
     pub async fn reload<C: ConnectionTrait>(&self, db: &C) -> Result<()> {
         let configs = config_repo::find_all(db).await?;
         let next_snapshot = SyncConfigSnapshot::from_configs(configs.clone());
@@ -65,34 +78,47 @@ impl RuntimeConfig {
         Ok(())
     }
 
+    /// Full stored config row for `key`, including metadata such as value
+    /// type, visibility, and the `requires_restart` flag.
     pub fn get_model(&self, key: &str) -> Option<system_config::Model> {
         self.snapshot.get_model(key)
     }
 
+    /// Raw stored string value for `key`, without type conversion.
     pub fn get(&self, key: &str) -> Option<String> {
         self.snapshot.get(key)
     }
 
+    /// Stored value for `key` parsed as a boolean; `None` when missing or not
+    /// a valid boolean.
     pub fn get_bool(&self, key: &str) -> Option<bool> {
         self.snapshot.get_bool(key)
     }
 
+    /// Stored value for `key` parsed as an integer; `None` when missing or
+    /// unparseable.
     pub fn get_i64(&self, key: &str) -> Option<i64> {
         self.snapshot.get_i64(key)
     }
 
+    /// Stored value for `key` parsed as a non-negative integer; `None` when
+    /// missing, negative, or unparseable.
     pub fn get_u64(&self, key: &str) -> Option<u64> {
         self.snapshot.get_u64(key)
     }
 
+    /// String value for `key`, or `default` when the key is missing.
     pub fn get_string_or(&self, key: &str, default: &str) -> String {
         self.snapshot.get_string_or(key, default)
     }
 
+    /// Boolean value for `key`, or `default` when missing or invalid.
     pub fn get_bool_or(&self, key: &str, default: bool) -> bool {
         self.snapshot.get_bool_or(key, default)
     }
 
+    /// Whether the audit hot path should record `action`, using the
+    /// precompiled scope rebuilt on audit config changes.
     pub fn should_record_audit_action(
         &self,
         action: aster_drive_model::types::AuditAction,
@@ -100,22 +126,31 @@ impl RuntimeConfig {
         self.audit_log_settings.read().should_record(action)
     }
 
+    /// Bounded Argon2 hashing runtime shared by all verification requests.
     pub fn password_hash_runtime(&self) -> &PasswordHashRuntime {
         &self.password_hash_runtime
     }
 
+    /// Concurrency-bounded avatar rendering runtime shared by the process.
     pub fn avatar_render_runtime(&self) -> &AvatarRenderRuntime {
         &self.avatar_render_runtime
     }
 
+    /// Integer value for `key`, or `default` when missing or unparseable.
     pub fn get_i64_or(&self, key: &str, default: i64) -> i64 {
         self.snapshot.get_i64_or(key, default)
     }
 
+    /// Non-negative integer value for `key`, or `default` when missing,
+    /// negative, or unparseable.
     pub fn get_u64_or(&self, key: &str, default: u64) -> u64 {
         self.snapshot.get_u64_or(key, default)
     }
 
+    /// Hot-applies one config change (e.g. from a config-sync event).
+    ///
+    /// Rows marked `requires_restart` keep their existing value in the
+    /// snapshot; audit keys additionally rebuild the precompiled audit scope.
     pub fn apply(&self, config: system_config::Model) {
         let is_audit_runtime_key = audit::is_audit_runtime_key(&config.key);
         let changed = self.snapshot.apply(config).is_some();
@@ -124,6 +159,8 @@ impl RuntimeConfig {
         }
     }
 
+    /// Removes `key` from the snapshot, hiding it from all readers; audit
+    /// keys additionally rebuild the precompiled audit scope.
     pub fn remove(&self, key: &str) {
         let removed = self.snapshot.remove(key).is_some();
         if removed && audit::is_audit_runtime_key(key) {

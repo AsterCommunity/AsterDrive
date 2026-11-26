@@ -10,8 +10,10 @@ use validator::{Validate, ValidationError};
 #[validate(schema(function = "validate_batch_delete_req"))]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct BatchDeleteReq {
+    /// File IDs to delete.
     #[serde(default)]
     pub file_ids: Vec<i64>,
+    /// Folder IDs to delete.
     #[serde(default)]
     pub folder_ids: Vec<i64>,
 }
@@ -21,8 +23,10 @@ pub struct BatchDeleteReq {
 #[validate(schema(function = "validate_batch_move_req"))]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct BatchMoveReq {
+    /// File IDs to move.
     #[serde(default)]
     pub file_ids: Vec<i64>,
+    /// Folder IDs to move.
     #[serde(default)]
     pub folder_ids: Vec<i64>,
     /// Target folder ID (`None` = root directory).
@@ -35,8 +39,10 @@ pub struct BatchMoveReq {
 #[validate(schema(function = "validate_batch_copy_req"))]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct BatchCopyReq {
+    /// File IDs to copy.
     #[serde(default)]
     pub file_ids: Vec<i64>,
+    /// Folder IDs to copy.
     #[serde(default)]
     pub folder_ids: Vec<i64>,
     /// Target folder ID (`None` = root directory).
@@ -44,12 +50,18 @@ pub struct BatchCopyReq {
     pub target_folder_id: Option<i64>,
 }
 
+/// Workspace a batch selection reads from or writes to, tagged by `kind`.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum WorkspaceRef {
+    /// The acting user's personal workspace.
     Personal,
-    Team { team_id: i64 },
+    /// A team workspace.
+    Team {
+        /// ID of the team; must be positive.
+        team_id: i64,
+    },
 }
 
 /// Copy files and folders between workspaces.
@@ -57,11 +69,15 @@ pub enum WorkspaceRef {
 #[validate(schema(function = "validate_workspace_transfer_copy_req"))]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct WorkspaceTransferCopyReq {
+    /// Workspace the selected items are copied from.
     pub source_workspace: WorkspaceRef,
+    /// File IDs to copy.
     #[serde(default)]
     pub file_ids: Vec<i64>,
+    /// Folder IDs to copy.
     #[serde(default)]
     pub folder_ids: Vec<i64>,
+    /// Workspace the items are copied into.
     pub destination_workspace: WorkspaceRef,
     /// Destination folder ID (`None` = destination root directory).
     #[validate(range(min = 1, message = "target_folder_id must be greater than 0"))]
@@ -73,11 +89,15 @@ pub struct WorkspaceTransferCopyReq {
 #[validate(schema(function = "validate_workspace_transfer_move_req"))]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct WorkspaceTransferMoveReq {
+    /// Workspace the selected items are moved from.
     pub source_workspace: WorkspaceRef,
+    /// File IDs to move.
     #[serde(default)]
     pub file_ids: Vec<i64>,
+    /// Folder IDs to move.
     #[serde(default)]
     pub folder_ids: Vec<i64>,
+    /// Workspace the items are moved into.
     pub destination_workspace: WorkspaceRef,
     /// Destination folder ID (`None` = destination root directory).
     #[validate(range(min = 1, message = "target_folder_id must be greater than 0"))]
@@ -89,10 +109,13 @@ pub struct WorkspaceTransferMoveReq {
 #[validate(schema(function = "validate_archive_download_req"))]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ArchiveDownloadReq {
+    /// File IDs to include in the archive.
     #[serde(default)]
     pub file_ids: Vec<i64>,
+    /// Folder IDs to include in the archive.
     #[serde(default)]
     pub folder_ids: Vec<i64>,
+    /// Display name of the generated archive; `None` uses a server default.
     pub archive_name: Option<String>,
 }
 
@@ -101,11 +124,16 @@ pub struct ArchiveDownloadReq {
 #[validate(schema(function = "validate_archive_compress_req"))]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ArchiveCompressReq {
+    /// File IDs to include in the archive.
     #[serde(default)]
     pub file_ids: Vec<i64>,
+    /// Folder IDs to include in the archive.
     #[serde(default)]
     pub folder_ids: Vec<i64>,
+    /// Display name of the generated archive; `None` uses a server default.
     pub archive_name: Option<String>,
+    /// Folder to place the resulting archive in; `None` infers the common
+    /// parent of the selection, or the root when there is none.
     #[validate(range(min = 1, message = "target_folder_id must be greater than 0"))]
     pub target_folder_id: Option<i64>,
 }

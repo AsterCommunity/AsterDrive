@@ -9,6 +9,9 @@ use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::background_task::{self, Entity as BackgroundTask};
 use aster_drive_model::types::{BackgroundTaskKind, BackgroundTaskStatus};
 
+/// Lists tasks a worker can claim now: due `Pending`/`Retry` rows and
+/// `Processing`/`Canceling` rows whose lease expired (stale), oldest creation
+/// first, at most `limit` rows.
 pub async fn list_claimable<C: ConnectionTrait>(
     db: &C,
     now: DateTime<Utc>,
@@ -21,6 +24,8 @@ pub async fn list_claimable<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Same as [`list_claimable`], restricted to the given kinds; an empty kind
+/// list or zero limit short-circuits to empty.
 pub async fn list_claimable_by_kinds<C: ConnectionTrait>(
     db: &C,
     now: DateTime<Utc>,
@@ -60,6 +65,11 @@ pub(crate) async fn list_claimable_by_kinds_for_update<C: ConnectionTrait>(
     query.all(db).await.map_err(AsterError::from)
 }
 
+/// try_claim 是一条 compare-and-swap：只有当 id 命中、旧 `processing_token`
+/// 仍匹配、并且任务此刻仍满足 claimable 条件时，才会把任务推进到
+/// `Processing` 并原子地把 token 递增到 `next_processing_token`；正在取消的
+/// 任务保持 `Canceling`。多个 dispatcher 并发捞到同一条任务时，只有一个能
+/// 成功认领——返回 `true` 者胜出，其余拿到 `false`。
 pub async fn try_claim<C: ConnectionTrait>(
     db: &C,
     id: i64,
@@ -69,11 +79,6 @@ pub async fn try_claim<C: ConnectionTrait>(
     next_processing_token: i64,
     lease_expires_at: DateTime<Utc>,
 ) -> Result<bool> {
-    // try_claim 是一条 compare-and-swap：
-    // 只有当 id 命中、旧 processing_token 仍匹配、并且任务此刻仍满足 claimable 条件时，
-    // 才会把任务推进到 Processing，并原子地把 token 递增到 next_processing_token。
-    //
-    // 这样多个 dispatcher 并发捞到同一条任务时，只有一个能成功认领。
     let result = BackgroundTask::update_many()
         .col_expr(
             background_task::Column::Status,
@@ -114,6 +119,9 @@ pub async fn try_claim<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// heartbeat 也带 token 条件：只有仍持有最新 token 的 worker 才能续租。返回
+/// `false` 说明任务虽还在表里，但这条 worker 的 lease 已经过期或任务已被
+/// 改写，worker 应立即停止执行。
 pub async fn touch_heartbeat<C: ConnectionTrait>(
     db: &C,
     id: i64,
@@ -121,8 +129,6 @@ pub async fn touch_heartbeat<C: ConnectionTrait>(
     now: DateTime<Utc>,
     lease_expires_at: DateTime<Utc>,
 ) -> Result<bool> {
-    // heartbeat 也带 token 条件。
-    // 如果返回 false，说明任务虽然还在表里，但这条 worker 的 lease 已经过期了。
     let result = BackgroundTask::update_many()
         .col_expr(
             background_task::Column::LastHeartbeatAt,

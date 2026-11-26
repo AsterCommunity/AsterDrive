@@ -21,30 +21,52 @@ use std::sync::Arc;
 
 const STORAGE_NAMESPACE_ALLOCATION_ATTEMPTS: usize = 8;
 
+/// 已通过签名认证的 master 请求上下文：绑定的 master 记录，加上按请求
+/// `target_key` 解析出的 ingress 存储驱动与策略侧文件大小上限。
 #[derive(Clone)]
 pub struct AuthorizedMasterBinding {
+    /// 认证通过的 master binding 记录。
     pub binding: master_binding::Model,
+    /// 请求 `target_key` 对应的 follower 侧 storage target 的就绪驱动。
     pub ingress_driver: Arc<dyn StorageDriver>,
+    /// 请求方存储策略允许的最大文件字节数；`0` 表示该请求不校验大小
+    /// （读取与容量类请求）。
     pub ingress_max_file_size: i64,
 }
 
+/// Follower-side enrollment 输入：从 master bootstrap payload 建立或更新
+/// 本地 master binding。字段原样对应 master 签发的凭证。
 #[derive(Debug, Clone)]
 pub struct UpsertMasterBindingInput {
+    /// Binding 名称，取自 master 上的远端节点显示名。
     pub name: String,
+    /// Master 公网 base URL。
     pub master_url: String,
+    /// Master 签发的内部 access key；同 key 重复 enrollment 视为更新。
     pub access_key: String,
+    /// 与 access key 配对的 secret；同 key 但不同 secret 会被拒绝。
     pub secret_key: String,
+    /// Binding 建立后是否立即启用。
     pub is_enabled: bool,
 }
 
+/// Master 经控制平面推送的 binding 期望状态，`sync_from_primary` 的输入。
 #[derive(Debug, Clone)]
 pub struct SyncMasterBindingInput {
+    /// 期望的 binding 名称。
     pub name: String,
+    /// 期望的启用状态。
     pub is_enabled: bool,
+    /// 期望的传输方式（direct 或 reverse tunnel）。
     pub resolved_transport: ResolvedRemoteTransport,
+    /// 期望 revision，只增不减；回退的推送被静默忽略。
     pub desired_revision: i64,
 }
 
+/// 按 access key upsert follower 侧的 master binding。已存在且 secret 匹配
+/// 时更新并返回 `updated`；不存在时分配唯一 `mb_` 存储命名空间创建并返回
+/// `created`，命名空间冲突在重试预算内重试。同一 access key 携带不同
+/// secret 会被拒绝，防止跨 master 抢占绑定。
 pub async fn upsert_from_enrollment<C: ConnectionTrait>(
     db: &C,
     input: UpsertMasterBindingInput,
@@ -131,6 +153,8 @@ pub async fn authorize_internal_request<S: FollowerRuntimeState>(
     resolve_authorized_ingress(state, binding, required_remote_storage_target_key(req)?, 0).await
 }
 
+/// 认证内部写请求：除内部签名外还要求 `target_key` 与策略侧
+/// `max_file_size` 查询参数，并解析出用于上传入站的 ingress 驱动。
 pub async fn authorize_internal_write_request<S: FollowerRuntimeState>(
     state: &S,
     req: &actix_web::HttpRequest,
@@ -145,6 +169,8 @@ pub async fn authorize_internal_write_request<S: FollowerRuntimeState>(
     .await
 }
 
+/// 认证内部控制面请求：只验证内部签名并返回绑定记录，不做 storage
+/// target 解析，供绑定状态上报等无对象负载的端点使用。
 pub async fn authorize_internal_binding_request<S: FollowerRuntimeState>(
     state: &S,
     req: &actix_web::HttpRequest,
@@ -152,6 +178,9 @@ pub async fn authorize_internal_binding_request<S: FollowerRuntimeState>(
     authorize_binding_request(state, req, false).await
 }
 
+/// 认证 master 的 legacy 绑定同步（推送）请求。允许已禁用的绑定通过认证
+/// （`allow_disabled`），否则 master 无法推送 `is_enabled = false` 的期望
+/// 状态把绑定关掉。
 pub async fn authorize_binding_sync_request<S: FollowerRuntimeState>(
     state: &S,
     req: &actix_web::HttpRequest,
@@ -159,6 +188,8 @@ pub async fn authorize_binding_sync_request<S: FollowerRuntimeState>(
     authorize_binding_request(state, req, true).await
 }
 
+/// 认证浏览器直传的 presigned PUT：仅接受 PUT 方法，用 query 参数签名
+/// 验证绑定，并要求 `target_key` 与 `max_file_size` 查询参数解析 ingress。
 pub async fn authorize_presigned_put_request<S: FollowerRuntimeState>(
     state: &S,
     req: &actix_web::HttpRequest,
@@ -179,6 +210,8 @@ pub async fn authorize_presigned_put_request<S: FollowerRuntimeState>(
     .await
 }
 
+/// 认证浏览器直连的 presigned GET：仅接受 GET 方法，用 query 参数签名
+/// 验证绑定并要求 `target_key`；读取类请求不携带文件大小上限。
 pub async fn authorize_presigned_get_request<S: FollowerRuntimeState>(
     state: &S,
     req: &actix_web::HttpRequest,
@@ -193,6 +226,9 @@ pub async fn authorize_presigned_get_request<S: FollowerRuntimeState>(
     resolve_authorized_ingress(state, binding, required_remote_storage_target_key(req)?, 0).await
 }
 
+/// 应用 master 推送的 binding 期望状态（legacy 同步路径）。`desired_revision`
+/// 低于现有值的推送按陈旧忽略，避免修订号回退；其余原样落库并重载驱动
+/// registry，使传输方式切换立即生效。
 pub async fn sync_from_primary<S: FollowerRuntimeState>(
     state: &S,
     access_key: &str,
@@ -348,6 +384,9 @@ fn authorize_presigned_binding_request<S: FollowerRuntimeState>(
     Ok(binding)
 }
 
+/// 把 master 侧对象 key 归一到该绑定的 `storage_namespace` 前缀下，实现
+/// 各 master 在共享 follower 存储里的命名空间隔离；指向命名空间根或越界
+/// 的 key 直接报错。
 pub fn provider_storage_path(binding: &master_binding::Model, object_key: &str) -> Result<String> {
     let object_key = aster_drive_storage::object_key::normalize_relative_key(object_key)?;
     if object_key == "." || object_key.is_empty() {
@@ -361,6 +400,8 @@ pub fn provider_storage_path(binding: &master_binding::Model, object_key: &str) 
     ))
 }
 
+/// 同 [`provider_storage_path`]，但空与 `.` 的前缀允许返回命名空间根本身，
+/// 供列表类请求按前缀枚举整个命名空间。
 pub fn provider_storage_prefix(binding: &master_binding::Model, prefix: &str) -> Result<String> {
     let prefix = aster_drive_storage::object_key::normalize_relative_key(prefix)?;
     if prefix == "." || prefix.is_empty() {

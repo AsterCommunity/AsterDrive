@@ -1,3 +1,5 @@
+//! Contract tests for WebDAV provider multi-range accounting and baseline rejection.
+
 #[expect(
     dead_code,
     reason = "the contract test includes the complete benchmark module but exercises only its accounting helpers"

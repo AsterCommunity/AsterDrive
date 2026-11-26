@@ -13,6 +13,8 @@ use crate::services::auth::mfa::{self, PrimaryLoginCompletion};
 
 use super::{AuthUserInfo, is_email_verified};
 
+/// Pure policy check behind [`ensure_password_login_enabled`]; kept total so tests can pin the
+/// exact error code and message for disabled password login.
 fn ensure_password_login_policy(policy: RuntimeAuthPolicy) -> Result<()> {
     if policy.password_login_enabled {
         return Ok(());
@@ -24,12 +26,27 @@ fn ensure_password_login_policy(policy: RuntimeAuthPolicy) -> Result<()> {
     ))
 }
 
+/// Rejects with a stable forbidden error when password login is disabled by runtime policy.
+///
+/// Gate every password-bearing path (login, registration, activation resend, reset) with this so
+/// a mid-flight policy switch cannot complete older flows.
 pub(crate) fn ensure_password_login_enabled(state: &impl SharedRuntimeState) -> Result<()> {
     ensure_password_login_policy(RuntimeAuthPolicy::from_runtime_config(
         state.runtime_config(),
     ))
 }
 
+/// First-factor login by identifier (email or username) plus password.
+///
+/// Every rejection path returns the same generic invalid-credentials error — including unknown
+/// identifiers, which burn a dummy Argon2 verification so timing cannot enumerate accounts.
+/// Disabled and unactivated accounts are also folded into that error while keeping the precise
+/// reason for the login metric. On success the flow hands off to MFA: either session issuance
+/// (no second factor configured) or a pending [`MfaChallengeStart`] challenge.
+///
+/// # Errors
+/// Returns invalid credentials, disabled policy, or rate-limit/session errors; never reveals
+/// which check failed.
 pub async fn login(
     state: &impl SharedRuntimeState,
     identifier: &str,
@@ -135,6 +152,15 @@ fn record_login_metric(
     state.metrics().record_auth_event("login", status, reason);
 }
 
+/// Authenticated self-service password change.
+///
+/// Requires the current password, rejects reuse of the old value, and commits through
+/// [`commit_verified_password_change`], which re-checks account status, password hash,
+/// session version, and session liveness under locks so a concurrent credential change or
+/// revocation aborts the swap.
+///
+/// # Errors
+/// Returns forbidden, invalid-credentials, stale-credential, or persistence errors.
 pub async fn change_password(
     state: &impl SharedRuntimeState,
     claims: &super::Claims,
@@ -215,6 +241,14 @@ async fn commit_verified_password_change(
     .await
 }
 
+/// Sets a new password without requiring the old one (administrator reset and forced-change
+/// completion).
+///
+/// The password update, forced-change flag clear, and revocation of every existing session run
+/// in one transaction; a failure rolls the whole swap back.
+///
+/// # Errors
+/// Returns validation or persistence errors.
 pub async fn set_password(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -257,6 +291,10 @@ pub async fn set_password(
     Ok(AuthUserInfo::from(updated))
 }
 
+/// Verifies a candidate password against the stored hash.
+///
+/// On success with a stale hash parameter it also triggers a transparent rehash upgrade;
+/// verification therefore doubles as the migration hook for the configured hash policy.
 pub(crate) async fn verify_user_password(
     state: &impl SharedRuntimeState,
     user: &aster_drive_model::entities::user::Model,

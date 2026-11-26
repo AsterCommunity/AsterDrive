@@ -10,12 +10,15 @@ use crate::storage::remote_protocol::{
     REMOTE_NODE_BINDING_STATE_PATH, authorize_remote_node_request,
 };
 
+/// Query parameters for the binding-state poll.
 #[derive(Debug, Deserialize)]
 pub struct BindingStateQuery {
+    /// Highest binding revision the follower has already applied; 0 when unknown.
     #[serde(default)]
     pub applied_revision: i64,
 }
 
+/// Builds the follower-polled `/internal/remote-node-control` control-plane scope.
 pub fn routes() -> impl actix_web::dev::HttpServiceFactory + use<> {
     web::scope("/internal/remote-node-control")
         .route("/binding-state", web::get().to(get_binding_state))

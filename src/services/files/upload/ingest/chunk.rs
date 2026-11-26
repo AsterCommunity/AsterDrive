@@ -972,6 +972,7 @@ pub async fn upload_chunk_bytes(
     .await
 }
 
+/// 上传单个分片，从 HTTP body 的 `Payload` 流式读取，避免在内存中整块缓冲后再复制。
 pub async fn upload_chunk_payload(
     state: &PrimaryAppState,
     upload_id: &str,
@@ -989,6 +990,7 @@ pub async fn upload_chunk_payload(
     .await
 }
 
+/// 团队空间上传单个分片，加载走团队 scope，其余语义与 [`upload_chunk`] 一致。
 pub async fn upload_chunk_for_team(
     state: &PrimaryAppState,
     team_id: i64,
@@ -1017,6 +1019,7 @@ pub async fn upload_chunk_for_team(
     .await
 }
 
+/// 团队空间上传单个分片，接收 HTTP body 已持有的 `Bytes`，其余语义与 [`upload_chunk_bytes`] 一致。
 pub async fn upload_chunk_bytes_for_team(
     state: &PrimaryAppState,
     team_id: i64,
@@ -1040,6 +1043,7 @@ pub async fn upload_chunk_bytes_for_team(
     .await
 }
 
+/// 团队空间上传单个分片，从 `Payload` 流式读取 body，其余语义与 [`upload_chunk_payload`] 一致。
 pub async fn upload_chunk_payload_for_team(
     state: &PrimaryAppState,
     team_id: i64,
@@ -1095,12 +1099,16 @@ pub mod test_support {
         overlap_observed: AtomicBool,
     }
 
+    /// RAII handle returned when a hook is installed; dropping it deregisters the hook
+    /// for the upload id, unless a newer hook was installed in the meantime.
     pub struct StagingWriteTestHook {
         upload_id: String,
         state: Arc<StagingWriteTestHookState>,
     }
 
     impl StagingWriteTestHook {
+        /// Whether any two staging writes overlapped in the observed critical section.
+        /// Always `false` in rendezvous mode.
         pub fn overlap_observed(&self) -> bool {
             match &self.state.mode {
                 StagingWriteTestHookMode::Rendezvous(_) => false,
@@ -1110,6 +1118,8 @@ pub mod test_support {
             }
         }
 
+        /// Number of times the staging write path reached the pre-lock rendezvous point.
+        /// Always `0` in rendezvous mode.
         pub fn entry_count(&self) -> usize {
             match &self.state.mode {
                 StagingWriteTestHookMode::Rendezvous(_) => 0,
@@ -1134,6 +1144,8 @@ pub mod test_support {
         }
     }
 
+    /// Block `participants` concurrent chunk writes at the hook point until all arrive,
+    /// forcing interleaved writes to distinct chunks of the same upload.
     pub fn install_distinct_chunk_rendezvous(
         upload_id: &str,
         participants: usize,
@@ -1144,6 +1156,8 @@ pub mod test_support {
         )
     }
 
+    /// Record whether two writers ever enter the staging-write critical section for the
+    /// same chunk at once; expected to stay exclusive while the write lock is held.
     pub fn install_same_chunk_exclusion_observer(upload_id: &str) -> StagingWriteTestHook {
         install_hook(
             upload_id,
@@ -1225,6 +1239,8 @@ pub mod test_support {
         observation.entry_barrier.wait().await;
     }
 
+    /// Re-export the preallocated offset staging file path for a session temp dir,
+    /// so integration tests can read or truncate the file directly.
     pub fn offset_staging_file_path(upload_temp_dir: &str, upload_id: &str) -> String {
         crate::services::files::upload::ingest::staging::file_path_in_upload_temp_dir(
             upload_temp_dir,
@@ -1232,6 +1248,8 @@ pub mod test_support {
         )
     }
 
+    /// Marker ETag stamped on every offset-staging chunk receipt, letting tests assert
+    /// or fabricate receipt rows without duplicating the constant.
     pub fn offset_staging_receipt_etag() -> &'static str {
         crate::services::files::upload::ingest::staging::chunk_receipt_etag()
     }

@@ -8,6 +8,8 @@ use utoipa::ToSchema;
 #[derive(Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct TrashItemPath {
+    /// Trashed entity kind (`file` or `folder`).
     pub entity_type: aster_drive_model::types::EntityType,
+    /// Trashed entity ID.
     pub id: i64,
 }

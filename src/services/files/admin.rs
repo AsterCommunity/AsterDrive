@@ -16,6 +16,11 @@ use crate::services::{files::lock, user::account, user::profile};
 use aster_drive_model::entities::{file, file_blob, file_revision, file_revision_history};
 use aster_forge_api::OffsetPage;
 
+/// Lists files across all workspaces for the admin console, paginated.
+///
+/// Each entry carries its owner/creator summary, blob summary, and the
+/// current lock state, including files already moved to trash when the
+/// query asks for them.
 pub async fn list_files(
     state: &impl SharedRuntimeState,
     limit: u64,
@@ -69,6 +74,11 @@ pub async fn list_files(
     .await
 }
 
+/// Returns the admin detail view of a single file: base info, its blob,
+/// and every revision with its backing blob resolved.
+///
+/// Fails when a listed revision references a blob that no longer exists;
+/// that is treated as an internal inconsistency rather than a missing row.
 pub async fn get_file(state: &impl SharedRuntimeState, file_id: i64) -> Result<AdminFileDetail> {
     let (file, blob) = file_repo::find_admin_file_by_id(state.reader_db(), file_id).await?;
     let versions = revision_repo::find_by_file_id(state.reader_db(), file_id).await?;
@@ -119,6 +129,11 @@ pub async fn get_file(state: &impl SharedRuntimeState, file_id: i64) -> Result<A
     })
 }
 
+/// Lists content-addressed blobs across all storage policies, paginated.
+///
+/// Each entry is enriched with reference counts, uploader summaries, hash
+/// kind, and health derived from comparing the recorded ref count with the
+/// actual file/version references.
 pub async fn list_blobs(
     state: &impl SharedRuntimeState,
     limit: u64,
@@ -152,6 +167,11 @@ pub async fn list_blobs(
     .await
 }
 
+/// Returns the admin detail view of a single blob: base info plus every
+/// file and revision that references it, with uploader summaries.
+///
+/// Version references pointing at the blob as the file's current revision
+/// are counted as the file reference, not the version reference.
 pub async fn get_blob(
     state: &impl SharedRuntimeState,
     blob_id: i64,

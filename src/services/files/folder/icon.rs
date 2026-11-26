@@ -8,20 +8,27 @@ use utoipa::ToSchema;
 
 use crate::errors::{AsterError, Result};
 
+/// Maximum UTF-8 byte length of a persisted folder emoji value.
 pub const MAX_FOLDER_EMOJI_BYTES: usize = 64;
 
 macro_rules! folder_builtin_icons {
     ($($variant:ident => $key:literal),+ $(,)?) => {
+        /// Icon set pre-shipped with Drive, selectable by stable string key.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
         #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
         #[serde(rename_all = "snake_case")]
         pub enum FolderBuiltinIcon {
-            $($variant),+
+            $(
+            /// Builtin icon selectable by its stable string key.
+            $variant
+            ),+
         }
 
         impl FolderBuiltinIcon {
+            /// Every builtin icon, in declaration order.
             pub const ALL: &'static [Self] = &[$(Self::$variant),+];
 
+            /// Stable string key persisted for this icon.
             pub const fn as_str(self) -> &'static str {
                 match self {
                     $(Self::$variant => $key),+
@@ -56,22 +63,38 @@ folder_builtin_icons! {
     Ideas => "ideas",
 }
 
+/// Icon shown for a folder: the Drive default or one of the builtin keys.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
 pub enum FolderIcon {
+    /// Drive's default folder icon.
     Default {},
-    Builtin { key: FolderBuiltinIcon },
-    Emoji { value: String },
+    /// One of the pre-shipped builtin icons.
+    Builtin {
+        /// Stable key identifying the builtin icon.
+        key: FolderBuiltinIcon,
+    },
+    /// A single RGI emoji supplied by the user.
+    Emoji {
+        /// The emoji character or sequence as submitted.
+        value: String,
+    },
 }
 
 impl Default for FolderIcon {
+    /// Falls back to Drive's default folder icon.
     fn default() -> Self {
         Self::Default {}
     }
 }
 
 impl FolderIcon {
+    /// Validates the icon and converts it to the persisted
+    /// (kind, value) pair.
+    ///
+    /// Emoji values must be exactly one RGI emoji of 1 to
+    /// [`MAX_FOLDER_EMOJI_BYTES`] UTF-8 bytes.
     pub fn normalize(self) -> Result<(FolderIconKind, Option<String>)> {
         match self {
             Self::Default {} => Ok((FolderIconKind::Default, None)),
@@ -90,6 +113,10 @@ impl FolderIcon {
         }
     }
 
+    /// Rebuilds the icon from its persisted (kind, value) pair.
+    ///
+    /// Fails when the pair violates the persistence contract, e.g. a
+    /// builtin kind without a key or an invalid stored emoji.
     pub fn from_persisted(kind: FolderIconKind, value: Option<&str>) -> Result<Self> {
         match (kind, value) {
             (FolderIconKind::Default, None) => Ok(Self::Default {}),
@@ -112,6 +139,8 @@ impl FolderIcon {
         }
     }
 
+    /// Reads the icon from a folder entity, falling back to
+    /// [`FolderIcon::Default`] when the persisted pair is invalid.
     pub fn from_model(model: &folder::Model) -> Self {
         Self::from_persisted(model.icon_kind, model.icon_value.as_deref()).unwrap_or_else(|error| {
             tracing::error!(folder_id = model.id, %error, "invalid persisted folder icon");

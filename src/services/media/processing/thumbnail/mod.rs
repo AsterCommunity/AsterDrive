@@ -25,6 +25,10 @@ pub(crate) use preview::generate_and_store_image_preview_with_processor;
 pub use preview::{generate_and_store_image_preview, load_image_preview_if_exists};
 pub use probe::probe_ffmpeg_cli_command;
 
+/// Loads the cached thumbnail for a blob if it exists.
+///
+/// Tries the persisted thumbnail metadata first, then the path computed from
+/// the resolved processor; returns `None` on cache miss.
 pub async fn load_thumbnail_if_exists(
     state: &PrimaryAppState,
     blob: &file_blob::Model,
@@ -43,6 +47,10 @@ pub async fn load_thumbnail_if_exists(
     cache::load_thumbnail_if_exists_with_context(state, blob, &ctx).await
 }
 
+/// Returns the cached thumbnail, rendering and caching it synchronously on miss.
+///
+/// Storage failures while persisting the rendered bytes are logged and do not
+/// fail the request.
 pub async fn get_or_generate_thumbnail(
     state: &PrimaryAppState,
     blob: &file_blob::Model,
@@ -92,6 +100,10 @@ pub async fn get_or_generate_thumbnail(
     })
 }
 
+/// Renders the thumbnail on cache miss, stores it, and persists the metadata.
+///
+/// Reuses an existing cache entry when present; the returned
+/// [`StoredThumbnail`] reports whether rendering was skipped.
 pub async fn generate_and_store_thumbnail(
     state: &PrimaryAppState,
     blob: &file_blob::Model,

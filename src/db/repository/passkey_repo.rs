@@ -10,6 +10,8 @@ use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::passkey::{self, Entity as Passkey};
 use aster_drive_model::types::StoredPasskeyCredential;
 
+/// Lists the user's registered passkeys, most recently used first, then newest
+/// created for never-used credentials.
 pub async fn list_for_user(db: &DatabaseConnection, user_id: i64) -> Result<Vec<passkey::Model>> {
     Passkey::find()
         .filter(passkey::Column::UserId.eq(user_id))
@@ -20,6 +22,8 @@ pub async fn list_for_user(db: &DatabaseConnection, user_id: i64) -> Result<Vec<
         .map_err(AsterError::from)
 }
 
+/// Loads a passkey only when it belongs to the given user. Returns `None` for
+/// other users' passkeys or unknown ids.
 pub async fn find_by_id_for_user(
     db: &DatabaseConnection,
     id: i64,
@@ -33,6 +37,8 @@ pub async fn find_by_id_for_user(
         .map_err(AsterError::from)
 }
 
+/// Resolves a passkey by its WebAuthn credential id during authentication.
+/// Returns `None` when no credential matches.
 pub async fn find_by_credential_id(
     db: &DatabaseConnection,
     credential_id: &str,
@@ -44,6 +50,9 @@ pub async fn find_by_credential_id(
         .map_err(AsterError::from)
 }
 
+/// Resolves a passkey by the WebAuthn user handle plus credential id pair,
+/// binding the assertion to the claimed account. Returns `None` when the pair
+/// does not match a stored credential.
 pub async fn find_by_user_handle_and_credential_id(
     db: &DatabaseConnection,
     user_handle: &str,
@@ -57,6 +66,8 @@ pub async fn find_by_user_handle_and_credential_id(
         .map_err(AsterError::from)
 }
 
+/// Returns `true` when at least one passkey already uses the WebAuthn user
+/// handle; handles must be globally unique across accounts.
 pub async fn user_handle_exists(db: &DatabaseConnection, user_handle: &str) -> Result<bool> {
     let found = Passkey::find()
         .select_only()
@@ -69,6 +80,8 @@ pub async fn user_handle_exists(db: &DatabaseConnection, user_handle: &str) -> R
     Ok(found.is_some())
 }
 
+/// Renames the user's passkey. Returns `false` when the id does not belong to
+/// the user or does not exist.
 pub async fn update_name_for_user(
     db: &DatabaseConnection,
     id: i64,
@@ -86,6 +99,10 @@ pub async fn update_name_for_user(
     Ok(result.rows_affected == 1)
 }
 
+/// Persists the credential state observed after a successful assertion:
+/// updated credential data, backup flags, signature counter, and last-used time
+/// (also written to `updated_at`). A negative sign count is rejected before any
+/// write. Returns `false` when the passkey no longer exists.
 pub async fn update_credential_after_auth(
     db: &DatabaseConnection,
     id: i64,
@@ -118,6 +135,8 @@ pub async fn update_credential_after_auth(
     Ok(result.rows_affected == 1)
 }
 
+/// Advances a passkey's `last_used_at` (and `updated_at`) without touching
+/// credential data. Returns `false` when the id does not exist.
 pub async fn touch_last_used(
     db: &DatabaseConnection,
     id: i64,
@@ -133,6 +152,8 @@ pub async fn touch_last_used(
     Ok(result.rows_affected == 1)
 }
 
+/// Removes the user's passkey. Returns `false` when the id does not belong to
+/// the user or does not exist.
 pub async fn delete_for_user(db: &DatabaseConnection, id: i64, user_id: i64) -> Result<bool> {
     let result = Passkey::delete_many()
         .filter(passkey::Column::Id.eq(id))

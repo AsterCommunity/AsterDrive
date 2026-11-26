@@ -37,16 +37,26 @@ use self::context::{
     try_persist_upload_session,
 };
 
+/// Negotiated upload plan persisted with the session and replayed during completion.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct UploadPlan {
+    /// Session identifier shared by every later stage call.
     pub upload_id: String,
+    /// Target filename recorded at init time.
     pub filename: String,
+    /// MIME type after normalization from the declared value or filename.
     pub mime_type: String,
+    /// Total upload size in bytes as declared at init time.
     pub total_size: i64,
+    /// Storage policy the placement decision was made against.
     pub policy_id: i64,
+    /// Placement profile snapshot that produced the routing decision.
     pub placement_profile_id: i64,
+    /// Specific placement rule selected within the profile, if one matched.
     pub placement_rule_id: Option<i64>,
+    /// Revision of the placement decision, used to detect placement changes later.
     pub placement_revision: i64,
+    /// Transport mode negotiated from the policy and the upload size.
     pub transport: aster_drive_model::types::UploadTransport,
 }
 
@@ -71,17 +81,27 @@ impl UploadPlan {
     }
 }
 
+/// Client-provided parameters for upload negotiation, before policy resolution.
 #[derive(Clone, Copy)]
 pub struct InitUploadParams<'a> {
+    /// Target filename, used for MIME inference and the persisted record.
     pub filename: &'a str,
+    /// Total upload size in bytes as declared by the client.
     pub total_size: i64,
+    /// Existing destination folder; `None` places the file in the scope root.
     pub folder_id: Option<i64>,
+    /// Web-client folder tree path relative to `folder_id`; intermediate folders
+    /// are created on success and rolled back when the init fails.
     pub relative_path: Option<&'a str>,
+    /// MIME type declared by the client; inferred from the filename when absent.
     pub mime_type: Option<&'a str>,
+    /// Identifier the web client uses to correlate this session with its local
+    /// upload list for recovery queries.
     pub frontend_client_id: Option<&'a str>,
 }
 
 impl<'a> InitUploadParams<'a> {
+    /// Build params with the mandatory fields; optional fields default to `None`.
     pub fn new(
         filename: &'a str,
         total_size: i64,
@@ -98,11 +118,13 @@ impl<'a> InitUploadParams<'a> {
         }
     }
 
+    /// Attach the web client's correlation id for upload recovery listings.
     pub fn with_frontend_client(mut self, frontend_client_id: Option<&'a str>) -> Self {
         self.frontend_client_id = frontend_client_id;
         self
     }
 
+    /// Override the client-declared MIME type instead of filename inference.
     pub fn with_mime_type(mut self, mime_type: Option<&'a str>) -> Self {
         self.mime_type = mime_type;
         self
@@ -404,6 +426,7 @@ pub async fn init_upload(
     .await
 }
 
+/// 个人空间上传协商入口，额外携带 [`InitUploadParams`] 的可选字段。
 pub async fn init_upload_with_frontend_client(
     state: &PrimaryAppState,
     user_id: i64,
@@ -431,6 +454,7 @@ pub async fn init_upload_for_team(
     .await
 }
 
+/// 团队空间上传协商入口，额外携带 [`InitUploadParams`] 的可选字段。
 pub async fn init_upload_for_team_with_frontend_client(
     state: &PrimaryAppState,
     team_id: i64,

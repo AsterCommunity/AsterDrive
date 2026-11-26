@@ -10,6 +10,11 @@ use crate::config::operations;
 use super::{TASK_DRAIN_MAX_ROUNDS, dispatch_due};
 use aster_forge_tasks::DispatchStats;
 
+/// Drains the background task dispatcher until no due tasks remain and no
+/// claimed task is still processing, or until [`TASK_DRAIN_MAX_ROUNDS`] is
+/// reached.
+///
+/// Used on shutdown paths to give in-flight work a bounded window to finish.
 pub async fn drain(state: &PrimaryAppState) -> Result<DispatchStats> {
     aster_forge_tasks::drain_dispatcher(
         TASK_DRAIN_MAX_ROUNDS,
@@ -20,6 +25,11 @@ pub async fn drain(state: &PrimaryAppState) -> Result<DispatchStats> {
     .await
 }
 
+/// Removes expired background task artifact directories from every configured
+/// temp root and returns how many directories were cleaned.
+///
+/// Only artifact directories are removed; `background_task` history rows are
+/// kept so terminal runs stay inspectable.
 pub async fn cleanup_expired(state: &impl SharedRuntimeState) -> Result<u64> {
     let mut cleaned = cleanup_expired_in_root(state, &state.config().server.temp_dir).await?;
     if let Some(temp_root) = operations::offline_download_temp_dir(state.runtime_config())

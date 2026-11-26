@@ -14,6 +14,7 @@ use aster_forge_api::SortOrder;
 use aster_forge_db::pagination::fetch_offset_page;
 use aster_forge_db::sort::{order_by_column_with_id, order_by_id};
 
+/// Inserts a new resource lock row.
 pub async fn create<C: ConnectionTrait>(
     db: &C,
     model: resource_lock::ActiveModel,
@@ -21,6 +22,7 @@ pub async fn create<C: ConnectionTrait>(
     model.insert(db).await.map_err(AsterError::from)
 }
 
+/// Lists every resource lock, ordered by id ascending.
 pub async fn find_all(db: &DatabaseConnection) -> Result<Vec<resource_lock::Model>> {
     ResourceLock::find()
         .order_by_asc(resource_lock::Column::Id)
@@ -29,6 +31,7 @@ pub async fn find_all(db: &DatabaseConnection) -> Result<Vec<resource_lock::Mode
         .map_err(AsterError::from)
 }
 
+/// Returns one admin-sorted page of locks together with the total row count.
 pub async fn find_paginated(
     db: &DatabaseConnection,
     limit: u64,
@@ -97,6 +100,7 @@ fn apply_admin_lock_sort(
     }
 }
 
+/// Finds a lock row by primary key.
 pub async fn find_by_id<C: ConnectionTrait>(
     db: &C,
     id: i64,
@@ -107,6 +111,7 @@ pub async fn find_by_id<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Finds a lock row by its opaque lock token.
 pub async fn find_by_token<C: ConnectionTrait>(
     db: &C,
     token: &str,
@@ -118,6 +123,7 @@ pub async fn find_by_token<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Finds a lock by token with an exclusive row lock for read-modify-write flows.
 pub async fn find_by_token_for_update<C: ConnectionTrait>(
     db: &C,
     token: &str,
@@ -130,6 +136,7 @@ pub async fn find_by_token_for_update<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Finds a lock by id with an exclusive row lock for read-modify-write flows.
 pub async fn find_by_id_for_update<C: ConnectionTrait>(
     db: &C,
     id: i64,
@@ -157,6 +164,7 @@ pub async fn find_by_entity<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Lists every lock on a resource root, ordered by id ascending.
 pub async fn find_all_by_entity<C: ConnectionTrait>(
     db: &C,
     entity_type: EntityType,
@@ -169,6 +177,8 @@ pub async fn find_all_by_entity<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Lists every lock on a resource root with an exclusive row lock for consistent
+/// multi-lock updates.
 pub async fn find_all_by_entity_for_update<C: ConnectionTrait>(
     db: &C,
     entity_type: EntityType,
@@ -209,6 +219,7 @@ pub async fn find_by_path_prefix<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Lists locks whose lockroot path starts with the given prefix within a namespace.
 pub async fn find_by_path_prefix_in_namespace<C: ConnectionTrait>(
     db: &C,
     namespace_id: i64,
@@ -222,6 +233,7 @@ pub async fn find_by_path_prefix_in_namespace<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Lists locks whose lockroot path matches exactly, ordered by id ascending.
 pub async fn find_by_path<C: ConnectionTrait>(
     db: &C,
     path: &str,
@@ -234,6 +246,9 @@ pub async fn find_by_path<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Repoints the root entity of every lock on a path, returning the updated row count.
+///
+/// The root kind and root id columns are derived from the given entity type.
 pub async fn rebind_path<C: ConnectionTrait>(
     db: &C,
     path: &str,
@@ -255,6 +270,8 @@ pub async fn rebind_path<C: ConnectionTrait>(
     Ok(result.rows_affected)
 }
 
+/// Repoints the root entity of every lock on a namespace-scoped path, returning the
+/// updated row count.
 pub async fn rebind_path_in_namespace<C: ConnectionTrait>(
     db: &C,
     namespace_id: i64,
@@ -293,6 +310,8 @@ pub async fn find_ancestors<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Lists locks whose lockroot path matches any of the given ancestor paths within a
+/// namespace; used by WebDAV existence checks.
 pub async fn find_ancestors_in_namespace<C: ConnectionTrait>(
     db: &C,
     namespace_id: i64,
@@ -309,6 +328,7 @@ pub async fn find_ancestors_in_namespace<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Deletes a lock row by primary key.
 pub async fn delete_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     ResourceLock::delete_by_id(id)
         .exec(db)
@@ -317,6 +337,7 @@ pub async fn delete_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     Ok(())
 }
 
+/// Deletes every lock row carrying the given token.
 pub async fn delete_by_token<C: ConnectionTrait>(db: &C, token: &str) -> Result<()> {
     ResourceLock::delete_many()
         .filter(resource_lock::Column::Token.eq(token))
@@ -326,6 +347,7 @@ pub async fn delete_by_token<C: ConnectionTrait>(db: &C, token: &str) -> Result<
     Ok(())
 }
 
+/// Deletes every lock on the given file or folder root.
 pub async fn delete_by_entity<C: ConnectionTrait>(
     db: &C,
     entity_type: EntityType,
@@ -339,6 +361,7 @@ pub async fn delete_by_entity<C: ConnectionTrait>(
     Ok(())
 }
 
+/// Deletes locks on the given root held by a specific user.
 pub async fn delete_by_entity_and_owner<C: ConnectionTrait>(
     db: &C,
     entity_type: EntityType,
@@ -354,6 +377,8 @@ pub async fn delete_by_entity_and_owner<C: ConnectionTrait>(
     Ok(())
 }
 
+/// Deletes timed locks on a root that expired at or before the cutoff, returning the
+/// deleted row count.
 pub async fn delete_expired_by_entity_before<C: ConnectionTrait>(
     db: &C,
     entity_type: EntityType,
@@ -398,6 +423,7 @@ pub async fn delete_by_path_prefix<C: ConnectionTrait>(db: &C, prefix: &str) -> 
     Ok(res.rows_affected)
 }
 
+/// Lists timed locks that expired at or before the cutoff.
 pub async fn find_expired_before<C: ConnectionTrait>(
     db: &C,
     cutoff: chrono::DateTime<Utc>,
@@ -410,6 +436,7 @@ pub async fn find_expired_before<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Deletes timed locks that expired at or before the cutoff, returning the deleted row count.
 pub async fn delete_expired_before<C: ConnectionTrait>(
     db: &C,
     cutoff: chrono::DateTime<Utc>,
@@ -423,6 +450,8 @@ pub async fn delete_expired_before<C: ConnectionTrait>(
     Ok(res.rows_affected)
 }
 
+/// Deletes timed locks in a namespace that expired at or before the cutoff, returning the
+/// deleted row count.
 pub async fn delete_expired_by_namespace_before<C: ConnectionTrait>(
     db: &C,
     namespace_id: i64,
@@ -438,6 +467,7 @@ pub async fn delete_expired_by_namespace_before<C: ConnectionTrait>(
     Ok(result.rows_affected)
 }
 
+/// Lists every lock in a namespace with an exclusive row lock, ordered by id ascending.
 pub async fn find_all_by_namespace_for_update<C: ConnectionTrait>(
     db: &C,
     namespace_id: i64,
@@ -451,6 +481,7 @@ pub async fn find_all_by_namespace_for_update<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Lists every lock in a namespace, ordered by id ascending.
 pub async fn find_all_by_namespace<C: ConnectionTrait>(
     db: &C,
     namespace_id: i64,
@@ -463,6 +494,7 @@ pub async fn find_all_by_namespace<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Sets a lock's timeout, returning the updated row or `None` when the token is unknown.
 pub async fn refresh<C: ConnectionTrait>(
     db: &C,
     token: &str,
@@ -540,6 +572,7 @@ pub async fn delete_all_by_owner<C: ConnectionTrait>(db: &C, owner_id: i64) -> R
     Ok(res.rows_affected)
 }
 
+/// Deletes all locks held by a user within a namespace, returning the deleted row count.
 pub async fn delete_by_owner_in_namespace<C: ConnectionTrait>(
     db: &C,
     namespace_id: i64,

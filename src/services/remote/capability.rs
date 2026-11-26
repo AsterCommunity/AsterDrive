@@ -1,3 +1,7 @@
+//! 远端节点能力协商：解析 follower 上报的 capability 快照，并据此校验协议
+//! 兼容性、feature 集、presigned 浏览器 CORS 契约与 storage target 连接器
+//! 支持。
+
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::{Result, validation_error_with_code};
 use crate::services::remote::storage_target::remote_storage_target_descriptor_from_connector;
@@ -7,6 +11,11 @@ use aster_drive_model::types::{RemoteDownloadStrategy, RemoteUploadStrategy};
 use aster_drive_storage::StorageErrorKind;
 use aster_drive_storage::{ConnectorId, StorageConnectorDescriptor};
 
+/// Validates master-side storage requirements against a follower's reported
+/// capability snapshot (protocol version, feature flags, browser CORS
+/// contract, and remote storage target connector support). Built from the
+/// capability probe persisted on the remote node record; missing or
+/// unparsable snapshots degrade to the most conservative answer.
 #[derive(Debug, Clone)]
 pub struct RemoteCapabilityResolver {
     remote_node_id: i64,
@@ -14,10 +23,15 @@ pub struct RemoteCapabilityResolver {
 }
 
 impl RemoteCapabilityResolver {
+    /// Builds a resolver from the last persisted capability probe stored on
+    /// the remote node record.
     pub fn from_remote_node(node: &managed_follower::Model) -> Self {
         Self::from_last_capabilities(node.id, &node.last_capabilities)
     }
 
+    /// Builds a resolver from the stored capability snapshot JSON. Blank or
+    /// unparsable snapshots resolve to conservative defaults that reject
+    /// optional remote features rather than assume support.
     pub fn from_last_capabilities(remote_node_id: i64, last_capabilities: &str) -> Self {
         Self::from_capabilities(
             remote_node_id,
@@ -25,6 +39,8 @@ impl RemoteCapabilityResolver {
         )
     }
 
+    /// Builds a resolver around an already-parsed capability snapshot, e.g.
+    /// taken straight from a successful probe response.
     pub fn from_capabilities(remote_node_id: i64, capabilities: RemoteStorageCapabilities) -> Self {
         Self {
             remote_node_id,
@@ -32,6 +48,7 @@ impl RemoteCapabilityResolver {
         }
     }
 
+    /// Returns the capability snapshot this resolver validates against.
     pub fn capabilities(&self) -> &RemoteStorageCapabilities {
         &self.capabilities
     }
@@ -49,10 +66,16 @@ impl RemoteCapabilityResolver {
             .find(|capability| capability.target_key == target_key)
     }
 
+    /// Rejects snapshots whose protocol version is incompatible with this
+    /// build. `context` prefixes the validation error message.
     pub fn ensure_protocol_compatible(&self, context: &str) -> Result<()> {
         self.capabilities.validate_protocol(context)
     }
 
+    /// Checks that a single remote storage policy can run against this
+    /// follower: protocol compatibility, the base object feature set, and —
+    /// when either transfer strategy is browser presigned — the required
+    /// CORS contract.
     pub fn ensure_remote_policy_config_supported(
         &self,
         policy_id: i64,
@@ -75,6 +98,10 @@ impl RemoteCapabilityResolver {
         Ok(())
     }
 
+    /// Validates every storage policy referencing this follower before a
+    /// binding is created or reloaded, tagging failures with the offending
+    /// policy id. An empty requirement list still requires protocol
+    /// compatibility.
     pub fn ensure_binding_policy_configs_supported(
         &self,
         remote_node_name: &str,
@@ -106,6 +133,9 @@ impl RemoteCapabilityResolver {
         Ok(())
     }
 
+    /// Lists descriptors for registry connectors the follower declared in its
+    /// `remote_storage_target` capabilities, preserving registry order and
+    /// dropping unknown or undeclared connector ids.
     pub fn remote_storage_target_connector_descriptors(
         &self,
         registry: &crate::storage::connectors::StorageConnectorRegistry,
@@ -121,6 +151,8 @@ impl RemoteCapabilityResolver {
             .collect()
     }
 
+    /// Returns `true` only when the follower declared the connector and the
+    /// registry can provide a remote target connector implementation for it.
     pub fn supports_remote_storage_target_connector(
         &self,
         registry: &crate::storage::connectors::StorageConnectorRegistry,
@@ -133,6 +165,9 @@ impl RemoteCapabilityResolver {
                 .is_ok()
     }
 
+    /// Ensures the follower declared support for `connector_id`, failing
+    /// with a `RemoteStorageTargetConnectorUnsupported` validation error
+    /// otherwise.
     pub fn ensure_remote_storage_target_connector_supported(
         &self,
         registry: &crate::storage::connectors::StorageConnectorRegistry,
@@ -151,6 +186,9 @@ impl RemoteCapabilityResolver {
         ))
     }
 
+    /// Browser presigned transfers require a directly reachable follower;
+    /// they cannot traverse the reverse tunnel. Returns `true` when either
+    /// strategy is presigned and therefore forces direct transport.
     pub fn requires_direct_transport_for_presigned(
         download_strategy: RemoteDownloadStrategy,
         upload_strategy: RemoteUploadStrategy,

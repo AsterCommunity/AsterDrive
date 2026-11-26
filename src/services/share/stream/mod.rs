@@ -14,10 +14,17 @@ use crate::services::files::{direct_link, file as file_ops};
 use aster_drive_model::entities::{file, share};
 use aster_forge_utils::numbers::u64_to_i64;
 
+/// Signed streaming session for anonymous media playback of a shared file.
+///
+/// Issued after the share passes public-validity checks; redeemable through
+/// the returned path until `expires_at`.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ShareStreamSessionInfo {
+    /// Signed streaming URL; the session token is bound to the share token
+    /// and target file, and expires after the configured session TTL.
     pub path: String,
+    /// Instant after which the streaming session is rejected.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub expires_at: DateTime<Utc>,
 }

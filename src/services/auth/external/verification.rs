@@ -93,6 +93,11 @@ pub(super) async fn create_pending_email_verification_flow(
     })
 }
 
+/// Sends the verification email for a pending external auth flow.
+///
+/// Re-checks the browser binding and flow state, applies the provider's email domain
+/// allowlist and the local registration policy, then records the target email plus token
+/// hash and enqueues the mail inside one transaction.
 pub async fn start_email_verification(
     state: &impl SharedRuntimeState,
     input: ExternalAuthEmailVerificationStartRequest,
@@ -203,6 +208,13 @@ pub async fn start_email_verification(
     }
 }
 
+/// Confirms the emailed verification token and finishes the external login.
+///
+/// The browser proof must match the hash stored for the token's flow, so a stolen link
+/// alone is not enough. If the email matches an active verified local account, the login
+/// returns with a pending link; otherwise the flow is consumed exactly once inside a
+/// transaction that links or auto-provisions the external identity, assigning a random
+/// internal password to newly created accounts.
 pub async fn confirm_email_verification(
     state: &impl SharedRuntimeState,
     token: &str,

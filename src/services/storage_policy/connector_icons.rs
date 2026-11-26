@@ -7,6 +7,11 @@
 use aster_drive_storage::connector_descriptor::StorageConnectorIconDescriptor;
 use aster_drive_storage::{ConnectorId, StorageConnectorDescriptor};
 
+/// URL path prefix of the backend-owned connector icon endpoint.
+///
+/// Descriptor icon URLs are `{prefix}{connector_id}/icon?v={revision}`; the
+/// revision query parameter lets browsers cache icon bytes per connector
+/// revision.
 pub const ICON_ENDPOINT_PREFIX: &str = "/api/v1/storage/connectors/";
 
 pub(crate) fn icon_url(connector_id: &ConnectorId, revision: &str) -> String {

@@ -1,3 +1,10 @@
+//! 布尔型配置值的宽松解析。
+
+/// Parses a config string into a boolean, accepting common truthy/falsy spellings.
+///
+/// Trims surrounding whitespace and matches case-insensitively: `true`, `1`,
+/// `yes`, `on` yield `Some(true)`; `false`, `0`, `no`, `off` yield `Some(false)`;
+/// anything else yields `None`.
 pub fn parse_bool_like(value: &str) -> Option<bool> {
     match value.trim().to_ascii_lowercase().as_str() {
         "true" | "1" | "yes" | "on" => Some(true),

@@ -9,6 +9,7 @@ use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::webdav_account::{self, Entity as WebdavAccount};
 use aster_forge_db::pagination::fetch_offset_page;
 
+/// Loads a WebDAV account by id, returning `record_not_found` when absent.
 pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<webdav_account::Model> {
     WebdavAccount::find_by_id(id)
         .one(db)
@@ -31,6 +32,8 @@ pub(crate) async fn find_for_authorization<C: ConnectionTrait>(
     query.one(db).await.map_err(AsterError::from)
 }
 
+/// Finds a WebDAV account by its login username. Returns `None` when no
+/// account carries the username.
 pub async fn find_by_username(
     db: &DatabaseConnection,
     username: &str,
@@ -42,6 +45,7 @@ pub async fn find_by_username(
         .map_err(AsterError::from)
 }
 
+/// Lists the user's personal WebDAV accounts (team_id NULL), ordered by id.
 pub async fn find_by_user(
     db: &DatabaseConnection,
     user_id: i64,
@@ -69,6 +73,7 @@ pub async fn find_all_by_user(
         .map_err(AsterError::from)
 }
 
+/// Lists all accounts linked to a team, ordered by id.
 pub async fn find_by_team(
     db: &DatabaseConnection,
     team_id: i64,
@@ -81,6 +86,7 @@ pub async fn find_by_team(
         .map_err(AsterError::from)
 }
 
+/// Lists the user's accounts linked to one team, ordered by id.
 pub async fn find_by_team_and_user(
     db: &DatabaseConnection,
     team_id: i64,
@@ -95,6 +101,8 @@ pub async fn find_by_team_and_user(
         .map_err(AsterError::from)
 }
 
+/// Returns one offset page of the user's personal accounts (team_id NULL),
+/// ordered by id, together with the total matching count.
 pub async fn find_by_user_paginated(
     db: &DatabaseConnection,
     user_id: i64,
@@ -113,6 +121,8 @@ pub async fn find_by_user_paginated(
     .await
 }
 
+/// Returns one offset page of a team's accounts, ordered by id, together with
+/// the total matching count.
 pub async fn find_by_team_paginated(
     db: &DatabaseConnection,
     team_id: i64,
@@ -130,6 +140,8 @@ pub async fn find_by_team_paginated(
     .await
 }
 
+/// Returns one offset page of the user's accounts linked to one team, ordered
+/// by id, together with the total matching count.
 pub async fn find_by_team_and_user_paginated(
     db: &DatabaseConnection,
     team_id: i64,
@@ -149,6 +161,7 @@ pub async fn find_by_team_and_user_paginated(
     .await
 }
 
+/// Inserts a new WebDAV account from the given active model.
 pub async fn create(
     db: &DatabaseConnection,
     model: webdav_account::ActiveModel,
@@ -156,6 +169,7 @@ pub async fn create(
     model.insert(db).await.map_err(AsterError::from)
 }
 
+/// Persists the given account model's changed fields.
 pub async fn update(
     db: &DatabaseConnection,
     model: webdav_account::ActiveModel,
@@ -180,6 +194,7 @@ pub async fn update_password_hash_if_current<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// Deletes a WebDAV account by id; succeeds even when the id is absent.
 pub async fn delete(db: &DatabaseConnection, id: i64) -> Result<()> {
     WebdavAccount::delete_by_id(id)
         .exec(db)
@@ -198,6 +213,7 @@ pub async fn delete_all_by_user<C: ConnectionTrait>(db: &C, user_id: i64) -> Res
     Ok(res.rows_affected)
 }
 
+/// 批量删除团队的所有 WebDAV 账号，返回删除行数。
 pub async fn delete_all_by_team<C: ConnectionTrait>(db: &C, team_id: i64) -> Result<u64> {
     let res = WebdavAccount::delete_many()
         .filter(webdav_account::Column::TeamId.eq(team_id))

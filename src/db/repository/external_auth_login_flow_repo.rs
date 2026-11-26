@@ -10,6 +10,7 @@ use aster_drive_model::entities::external_auth_login_flow::{
     self, Entity as ExternalAuthLoginFlow,
 };
 
+/// Inserts a new external auth login flow from the given active model.
 pub async fn create(
     db: &DatabaseConnection,
     model: external_auth_login_flow::ActiveModel,
@@ -17,6 +18,10 @@ pub async fn create(
     model.insert(db).await.map_err(AsterError::from)
 }
 
+/// One-shot redemption of a login flow: the flow must match both the state
+/// hash and the browser binding hash, be unconsumed and unexpired at `now`.
+/// The conditional consumption marks it consumed and returns the row;
+/// concurrent consumers see the update miss and get `None`.
 pub async fn consume_by_state_and_browser_binding_hash(
     db: &DatabaseConnection,
     state_hash: &str,
@@ -56,6 +61,9 @@ pub async fn consume_by_state_and_browser_binding_hash(
     }
 }
 
+/// Reads a flow by state hash plus browser binding hash without consuming it,
+/// but only while unconsumed and unexpired at `now`; used for polling login
+/// completion.
 pub async fn find_active_by_state_and_browser_binding_hash(
     db: &DatabaseConnection,
     state_hash: &str,
@@ -72,6 +80,8 @@ pub async fn find_active_by_state_and_browser_binding_hash(
         .map_err(AsterError::from)
 }
 
+/// Removes login flows that expired before `now`, returning the number of
+/// deleted rows.
 pub async fn cleanup_expired(db: &DatabaseConnection, now: chrono::DateTime<Utc>) -> Result<u64> {
     let result = ExternalAuthLoginFlow::delete_many()
         .filter(external_auth_login_flow::Column::ExpiresAt.lt(now))

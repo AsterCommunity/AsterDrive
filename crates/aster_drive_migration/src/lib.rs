@@ -90,6 +90,8 @@ mod m20261105_000002_remote_target_audit_names;
 mod m20261107_000001_bind_external_recovery;
 mod m20261107_000002_auth_once_states;
 mod m20261107_000003_mfa_attempt_budgets;
+/// Migration name of the merged baseline schema; the anchor every supported
+/// history starts from.
 pub const BASELINE_MIGRATION_NAME: &str = "m20260512_000001_baseline_schema";
 
 const MIGRATION_TABLE: &str = "seaql_migrations";
@@ -109,14 +111,23 @@ const APPLICATION_SCHEMA_SENTINELS: &[&str] = &[
     "system_config",
 ];
 
+/// SeaORM migrator entry point for AsterDrive product migrations.
 pub struct Migrator;
 
+/// Ordered registry of every migration on the current release line.
 pub struct CurrentMigrator;
 
+/// Coarse classification of a database's migration history relative to the
+/// current release line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MigrationTrack {
+    /// No migrations applied and no application schema objects exist.
     Empty,
+    /// Applied history matches the current release line, including the recognized
+    /// storage-refactor branch suffix.
     Current,
+    /// History contains versions outside the current release line, or empty
+    /// history over pre-existing schema objects.
     Unknown,
 }
 
@@ -127,6 +138,7 @@ enum EmptyDatabaseState {
 }
 
 impl MigrationTrack {
+    /// Returns the stable lowercase label used in logs and CLI output.
     pub fn label(self) -> &'static str {
         match self {
             Self::Empty => "empty",
@@ -136,25 +148,40 @@ impl MigrationTrack {
     }
 }
 
+/// Snapshot of the applied migration table compared against the current release
+/// line.
 #[derive(Debug, Clone)]
 pub struct MigrationHistory {
+    /// Coarse classification of the inspected database.
     pub track: MigrationTrack,
+    /// Applied migration names in stored order.
     pub applied: Vec<String>,
+    /// Current-line migrations not yet applied; empty when the history is
+    /// unsupported.
     pub pending_current: Vec<String>,
+    /// Applied migration names outside the current release line.
     pub unknown_applied: Vec<String>,
 }
 
 impl MigrationHistory {
+    /// Returns the pending current-line migrations; empty when the history is
+    /// unsupported.
     pub fn effective_pending(&self) -> &[String] {
         &self.pending_current
     }
 
+    /// Whether the database applied any migration outside the current release line.
     pub fn has_unknown_applied(&self) -> bool {
         !self.unknown_applied.is_empty()
     }
 }
 
 impl Migrator {
+    /// Applies pending migrations.
+    ///
+    /// An explicit step count runs that many SeaORM steps directly; `None` runs
+    /// the full product upgrade under the migration lock, including SQLite
+    /// foreign-key handling and migration history validation.
     pub async fn up(database: &DatabaseConnection, steps: Option<u32>) -> Result<(), DbErr> {
         match steps {
             Some(step_count) => {
@@ -261,6 +288,7 @@ impl MigratorTrait for CurrentMigrator {
     }
 }
 
+/// Returns the ordered migration names registered on the current release line.
 pub fn current_migration_names() -> Vec<String> {
     <CurrentMigrator as MigratorTrait>::migrations()
         .into_iter()
@@ -268,6 +296,10 @@ pub fn current_migration_names() -> Vec<String> {
         .collect()
 }
 
+/// Classifies the database migration history without changing schema.
+///
+/// Recognizes the storage-refactor branch suffix as current-line history; see
+/// [`MigrationHistory`] for the resulting fields.
 pub async fn inspect_migration_history<C>(db: &C) -> Result<MigrationHistory, DbErr>
 where
     C: SeaConnectionTrait,
@@ -373,6 +405,10 @@ where
     }
 }
 
+/// Applies all pending migrations under the product migration lock.
+///
+/// SQLite additionally runs with foreign keys disabled and validates them
+/// afterwards; other backends take the shared Forge migration lock.
 pub async fn apply_database_migrations(database: &DatabaseConnection) -> Result<(), DbErr> {
     if database.get_database_backend() == DbBackend::Sqlite {
         return apply_sqlite_database_migrations(database).await;

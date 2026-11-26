@@ -16,6 +16,7 @@ use actix_web::{HttpRequest, HttpResponse, web};
 use aster_forge_middleware::actix::csrf::{self, RequestSourceMode};
 use serde_json::json;
 
+/// Lists the passkeys registered by the current user.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/auth/passkeys",
@@ -35,6 +36,7 @@ pub async fn list_passkeys(
     Ok(HttpResponse::Ok().json(crate::api::response::success(items)))
 }
 
+/// Starts passkey registration and returns the WebAuthn creation challenge.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/passkeys/register/start",
@@ -57,6 +59,8 @@ pub async fn start_registration(
     Ok(HttpResponse::Ok().json(crate::api::response::success(resp)))
 }
 
+/// Completes passkey registration by verifying the WebAuthn credential, stores the
+/// passkey, and records the change in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/passkeys/register/finish",
@@ -99,6 +103,7 @@ pub async fn finish_registration(
     Ok(HttpResponse::Ok().json(crate::api::response::success(passkey)))
 }
 
+/// Renames a passkey owned by the current user and records the change in the audit log.
 #[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/auth/passkeys/{id}",
@@ -147,6 +152,7 @@ pub async fn rename_passkey(
     Ok(HttpResponse::Ok().json(crate::api::response::success(passkey)))
 }
 
+/// Deletes a passkey owned by the current user and records the change in the audit log.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/auth/passkeys/{id}",
@@ -195,6 +201,8 @@ pub async fn delete_passkey(
     Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
+/// Starts passkey login and returns the WebAuthn request challenge; conditional mode
+/// targets autofill (username-less) flows.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/passkeys/login/start",
@@ -221,6 +229,8 @@ pub async fn start_login(
     Ok(HttpResponse::Ok().json(crate::api::response::success(resp)))
 }
 
+/// Completes passkey login by verifying the WebAuthn assertion, sets the session
+/// tokens in HttpOnly cookies, and records the login in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/passkeys/login/finish",

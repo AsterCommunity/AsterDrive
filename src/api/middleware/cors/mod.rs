@@ -12,6 +12,8 @@ use self::constants::{ALLOWED_HEADERS, ALLOWED_METHODS, EXPOSE_HEADERS};
 use crate::errors::AsterError;
 use crate::runtime::PrimaryAppState;
 
+/// Builds the Forge runtime CORS middleware wired to Drive's policy resolver,
+/// exempt static paths, allowed method/header lists, and error mapping.
 pub fn runtime_cors() -> ForgeRuntimeCors {
     ForgeRuntimeCors::new(
         RuntimeCorsConfig::new(resolve_runtime_policy, is_cors_exempt_path, map_cors_error)

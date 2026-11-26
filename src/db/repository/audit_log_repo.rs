@@ -14,34 +14,57 @@ use aster_forge_api::SortOrder;
 use aster_forge_db::audit_log::{self, Entity as AuditLog};
 use aster_forge_db::sort::{order_by_column_with_id, order_by_id};
 
+/// Filters, ordering, and paging for admin audit log queries.
 pub struct AuditLogQuery<'a> {
+    /// Restricts results to actions performed by this user.
     pub user_id: Option<i64>,
+    /// Exact action name to match.
     pub action: Option<&'a str>,
+    /// Exact entity type name to match.
     pub entity_type: Option<&'a str>,
+    /// Restricts results to this entity id.
     pub entity_id: Option<i64>,
+    /// Inclusive lower bound on the event creation time.
     pub after: Option<DateTime<Utc>>,
+    /// Inclusive upper bound on the event creation time.
     pub before: Option<DateTime<Utc>>,
+    /// Maximum number of rows returned.
     pub limit: u64,
+    /// Number of rows skipped before the first returned row.
     pub offset: u64,
+    /// Result ordering key.
     pub sort_by: AdminAuditLogSortBy,
+    /// Result ordering direction.
     pub sort_order: SortOrder,
 }
 
+/// Filters and ordering for audit log export runs.
 #[derive(Debug, Clone)]
 pub struct AuditLogExportQuery {
+    /// Restricts results to actions performed by this user.
     pub user_id: Option<i64>,
+    /// Exact action name to match.
     pub action: Option<String>,
+    /// Exact entity type name to match.
     pub entity_type: Option<String>,
+    /// Restricts results to this entity id.
     pub entity_id: Option<i64>,
+    /// Inclusive lower bound on the event creation time.
     pub after: Option<DateTime<Utc>>,
+    /// Inclusive upper bound on the event creation time.
     pub before: Option<DateTime<Utc>>,
+    /// Result ordering key.
     pub sort_by: AdminAuditLogSortBy,
+    /// Result ordering direction.
     pub sort_order: SortOrder,
 }
 
+/// Consistency boundary for one audit log export run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AuditLogExportSnapshot {
+    /// Largest audit log id included in the export; later rows are excluded.
     pub max_id: i64,
+    /// Total number of rows matching the export filters up to `max_id`.
     pub total: u64,
 }
 
@@ -182,6 +205,10 @@ fn apply_export_filters(
     query
 }
 
+/// Captures the id boundary and row total for a filtered export run.
+///
+/// Returns `None` when no rows match the filters; otherwise the snapshot bounds every
+/// later page so rows inserted during the export are not included.
 pub async fn export_snapshot(
     db: &DatabaseConnection,
     filters: &AuditLogExportQuery,
@@ -331,6 +358,10 @@ fn export_cursor_condition(
     }
 }
 
+/// Returns one cursor page of an export run bounded by the given snapshot.
+///
+/// When `cursor` is `Some`, only rows strictly after the cursor row in the export sort
+/// order are returned; the snapshot's `max_id` always bounds the page.
 pub async fn find_export_page(
     db: &DatabaseConnection,
     filters: &AuditLogExportQuery,

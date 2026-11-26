@@ -20,6 +20,12 @@ static ALLOCATION_COUNT: AtomicU64 = AtomicU64::new(0);
 #[global_allocator]
 static ALLOCATOR: MeasuringAllocator = MeasuringAllocator;
 
+#[expect(
+    unsafe_code,
+    reason = "implementing `GlobalAlloc` requires unsafe trait methods by definition; every \
+              operation delegates to `System` with the caller-supplied pointer and layout, and \
+              the wrapper only observes allocation sizes through atomics."
+)]
 // SAFETY: Every operation delegates to `System` with the original pointer and layout;
 // this wrapper only observes allocation sizes through atomics.
 unsafe impl GlobalAlloc for MeasuringAllocator {

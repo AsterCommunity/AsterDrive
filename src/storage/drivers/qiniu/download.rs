@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use url::Url;
 
-// Go SDK storagev2/downloader/signers.go and storage/bucket_get.go use 3 minutes.
-// Default Kodo source domains reject distant expiry times (including one hour).
+/// Default signed-download validity in seconds, mirroring the Go SDK downloader
+/// (3 minutes); default Kodo source domains reject longer expiry windows.
 pub const fn default_download_auth_validity_seconds() -> u32 {
     180
 }
@@ -28,11 +28,14 @@ fn default_source_ttl(domain: &str, requested: Duration) -> Duration {
     }
 }
 
+/// Download delivery channel for Kodo objects.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum QiniuDownloadDelivery {
+    /// Signed private URL against the configured Kodo download origin.
     #[default]
     Origin,
+    /// Signed private URL against the bound Kodo CDN download domain.
     QiniuCdn,
 }
 

@@ -27,32 +27,46 @@ pub const RESPONSE_BODY_LIMIT: usize = 64 * 1024;
 const PRIVATE_STATE_LIMIT: usize = 32 * 1024;
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
+/// A single HTTP instruction the browser must execute on behalf of the driver.
 #[derive(Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct BrowserUploadInstruction {
+    /// Fresh identifier pairing this instruction with its later [`BrowserUploadReport`];
+    /// reports carrying a different or missing ID are treated as stale and ignored.
     pub request_id: String,
+    /// Fully validated request the browser executor must issue.
     pub request: BrowserUploadRequest,
+    /// Maximum response body size in bytes the browser may return in its report.
     pub response_body_limit: u32,
+    /// Soft timeout in milliseconds for the browser-side request.
     pub timeout_ms: u32,
 }
 
+/// Client-facing snapshot of the browser-coordinated upload at one coordination round.
 #[derive(Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct BrowserUploadStep {
     /// Version of the finite browser executor, independent from driver protocol versions.
     pub executor_version: u32,
+    /// Driver upload protocol the browser instructions follow.
     pub protocol: BrowserUploadProtocol,
+    /// Bytes acknowledged by the provider so far, in bytes.
     pub confirmed_offset: u64,
     /// Increments only when driver state or confirmed progress advances, not for a fresh request ID.
     pub progress_revision: u64,
+    /// Whether the provider has acknowledged the full upload.
     pub provider_completed: bool,
+    /// Next HTTP instruction to execute; `None` means waiting, done, or needing a new report.
     pub instruction: Option<BrowserUploadInstruction>,
 }
 
+/// Result the browser reports back for one issued [`BrowserUploadInstruction`].
 #[derive(Clone, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct BrowserUploadReport {
+    /// ID of the executed instruction; must be present with `observation` and absent otherwise.
     pub request_id: Option<String>,
+    /// HTTP outcome of the executed instruction; `None` means the request never ran.
     pub observation: Option<BrowserUploadObservation>,
 }
 
@@ -395,6 +409,9 @@ pub(crate) async fn coordinate_for_scope(
     advance_session(state, &session, &report).await
 }
 
+/// Advance the personal-scope browser-coordinated upload by one protocol round: validate the
+/// report, reconcile it with the provider adapter, persist the new snapshot via CAS and return
+/// the next executable step.
 pub async fn coordinate_browser_upload(
     state: &PrimaryAppState,
     upload_id: &str,
@@ -410,6 +427,7 @@ pub async fn coordinate_browser_upload(
     .await
 }
 
+/// Team-scope variant of [`coordinate_browser_upload`]; authorization uses the team scope.
 pub async fn coordinate_browser_upload_for_team(
     state: &PrimaryAppState,
     team_id: i64,

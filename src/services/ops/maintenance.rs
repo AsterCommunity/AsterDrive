@@ -14,19 +14,31 @@ const BLOB_RECONCILE_BATCH_SIZE: u64 = 1_000;
 const MULTIPART_ABORT_MAX_ATTEMPTS: u32 = 3;
 const MULTIPART_ABORT_INITIAL_BACKOFF_MS: u64 = 200;
 
+/// Counters reported by expired upload session cleanup.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct UploadSessionMaintenanceStats {
+    /// Completed sessions removed from the upload session table.
     pub completed_sessions_deleted: u64,
+    /// Removed sessions that never finished metadata finalization (no file ID).
     pub broken_completed_sessions_deleted: u64,
+    /// Expired file-create idempotency records removed in the same pass.
     pub file_create_idempotencies_deleted: u64,
 }
 
+/// Counters reported by blob state reconciliation.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct BlobMaintenanceStats {
+    /// Blobs whose recorded reference count was rewritten to the actual value.
     pub ref_count_fixed: u64,
+    /// Blobs with zero references whose stored object was deleted.
     pub orphan_blobs_deleted: u64,
 }
 
+/// Deletes expired completed upload sessions in keyset batches.
+///
+/// Before a row is removed, its stale temp object (aborting multipart uploads
+/// with bounded retries) and local temp directory are cleaned; sessions whose
+/// cleanup cannot be completed are kept for a later run.
 pub async fn cleanup_expired_completed_upload_sessions(
     state: &PrimaryAppState,
 ) -> Result<UploadSessionMaintenanceStats> {
@@ -121,6 +133,8 @@ fn session_stale_temp_key<'a>(
     Some(temp_key)
 }
 
+/// Reconciles recorded blob reference counts against actual file/revision
+/// references in paginated batches, repairing drifts and deleting orphans.
 pub async fn reconcile_blob_state(state: &PrimaryAppState) -> Result<BlobMaintenanceStats> {
     let mut last_blob_id: Option<i64> = None;
     let mut stats = BlobMaintenanceStats::default();

@@ -31,6 +31,12 @@ const MAIL_OUTBOX_DISPATCH_CONFIG: MailOutboxDispatchConfig = MailOutboxDispatch
     ),
 );
 
+/// Persists one mail into the outbox queue for later dispatch.
+///
+/// The payload is stored as serialized JSON with the template code and a
+/// `next_attempt_at` of now, so the regular dispatch pass picks it up on its
+/// next run. Validates the recipient address first; runs inside the caller's
+/// transaction without sending anything itself.
 pub(crate) async fn enqueue<C: ConnectionTrait>(
     db: &C,
     to_address: &str,
@@ -54,6 +60,11 @@ pub(crate) async fn enqueue<C: ConnectionTrait>(
     .map_err(Into::into)
 }
 
+/// Dispatches one batch of due outbox mail through the runtime state.
+///
+/// Claims up to the configured batch size of `queued` rows whose
+/// `next_attempt_at` has passed (plus stale `processing` rows), delivers each
+/// via the configured sender, and audits success and failure per row.
 pub async fn dispatch_due(state: &impl MailRuntimeState) -> Result<DispatchStats> {
     dispatch_due_with(
         state.writer_db(),
@@ -63,6 +74,11 @@ pub async fn dispatch_due(state: &impl MailRuntimeState) -> Result<DispatchStats
     .await
 }
 
+/// Dispatches one batch of due outbox mail on explicit dependencies.
+///
+/// Same semantics as [`dispatch_due`], with the database connection, runtime
+/// config and mail sender passed in directly so callers can drive dispatch
+/// against a chosen writer database and sender implementation.
 pub async fn dispatch_due_with(
     db: &DatabaseConnection,
     runtime_config: &Arc<RuntimeConfig>,
@@ -115,6 +131,11 @@ pub async fn dispatch_due_with(
         .await
 }
 
+/// Dispatches due outbox mail until the queue is empty.
+///
+/// Repeats [`dispatch_due`] up to the configured drain round limit, merging
+/// the per-round stats; intended for shutdown or maintenance paths that must
+/// not leave queued mail behind.
 pub async fn drain(state: &impl MailRuntimeState) -> Result<DispatchStats> {
     drain_with(
         state.writer_db(),
@@ -124,6 +145,10 @@ pub async fn drain(state: &impl MailRuntimeState) -> Result<DispatchStats> {
     .await
 }
 
+/// Drains the outbox queue on explicit dependencies.
+///
+/// Same semantics as [`drain`], with the database connection, runtime config
+/// and mail sender passed in directly.
 pub async fn drain_with(
     db: &DatabaseConnection,
     runtime_config: &Arc<RuntimeConfig>,

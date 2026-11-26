@@ -44,6 +44,9 @@ const METADATA_IMAGE_PROCESSOR_PRIORITY: [MediaProcessorKind; 1] = [MediaProcess
 const METADATA_AUDIO_PROCESSOR_PRIORITY: [MediaProcessorKind; 1] = [MediaProcessorKind::Lofty];
 const METADATA_VIDEO_PROCESSOR_PRIORITY: [MediaProcessorKind; 1] = [MediaProcessorKind::FfprobeCli];
 
+/// Parses a processor kind from its `snake_case` config spelling, e.g. `vips_cli`.
+///
+/// Returns `None` for unknown values.
 pub fn parse_media_processor_kind(value: &str) -> Option<MediaProcessorKind> {
     match value.trim().to_ascii_lowercase().as_str() {
         "images" => Some(MediaProcessorKind::Images),
@@ -56,14 +59,20 @@ pub fn parse_media_processor_kind(value: &str) -> Option<MediaProcessorKind> {
     }
 }
 
+/// Validates and trims a configured `vips_cli` command, falling back to [`DEFAULT_VIPS_COMMAND`]
+/// when empty; rejects control characters.
 pub fn normalize_vips_command(value: &str) -> Result<String> {
     normalize_processor_command(value, DEFAULT_VIPS_COMMAND, "vips command")
 }
 
+/// Validates and trims a configured `ffmpeg_cli` command, falling back to [`DEFAULT_FFMPEG_COMMAND`]
+/// when empty; rejects control characters.
 pub fn normalize_ffmpeg_command(value: &str) -> Result<String> {
     normalize_processor_command(value, DEFAULT_FFMPEG_COMMAND, "ffmpeg command")
 }
 
+/// Validates and trims a configured `ffprobe_cli` command, falling back to [`DEFAULT_FFPROBE_COMMAND`]
+/// when empty; rejects control characters.
 pub fn normalize_ffprobe_command(value: &str) -> Result<String> {
     normalize_processor_command(value, DEFAULT_FFPROBE_COMMAND, "ffprobe command")
 }
@@ -81,18 +90,26 @@ fn normalize_processor_command(value: &str, default_command: &str, label: &str) 
     Ok(trimmed.to_string())
 }
 
+/// Returns whether the built-in `images` processor can decode a file with the given
+/// lowercase extension.
 pub fn builtin_images_supports_extension(extension: &str) -> bool {
     BUILTIN_IMAGES_SUPPORTED_EXTENSIONS.contains(&extension)
 }
 
+/// Returns whether the built-in `images` processor can extract metadata from a file with
+/// the given lowercase extension.
 pub fn builtin_image_metadata_supports_extension(extension: &str) -> bool {
     BUILTIN_IMAGE_METADATA_EXTENSIONS.contains(&extension)
 }
 
+/// Returns whether the built-in `lofty` processor can read metadata from a file with the
+/// given lowercase extension.
 pub fn builtin_audio_metadata_supports_extension(extension: &str) -> bool {
     BUILTIN_AUDIO_METADATA_EXTENSIONS.contains(&extension)
 }
 
+/// Parses a registry JSON payload and returns the normalized `vips_cli` command, or the
+/// default when the payload leaves it unset.
 pub fn vips_command_from_registry_value(value: &str) -> Result<String> {
     let config = parse_media_processing_registry_config(value)?;
     let command = processor_config_for_kind(&config, MediaProcessorKind::VipsCli)
@@ -101,6 +118,8 @@ pub fn vips_command_from_registry_value(value: &str) -> Result<String> {
     normalize_vips_command(command)
 }
 
+/// Parses a registry JSON payload and returns the normalized `ffmpeg_cli` command, or the
+/// default when the payload leaves it unset.
 pub fn ffmpeg_command_from_registry_value(value: &str) -> Result<String> {
     let config = parse_media_processing_registry_config(value)?;
     let command = processor_config_for_kind(&config, MediaProcessorKind::FfmpegCli)
@@ -109,11 +128,14 @@ pub fn ffmpeg_command_from_registry_value(value: &str) -> Result<String> {
     normalize_ffmpeg_command(command)
 }
 
+/// Parses a registry JSON payload and returns the normalized `ffprobe_cli` command, or the
+/// default when the payload leaves it unset.
 pub fn ffprobe_command_from_registry_value(value: &str) -> Result<String> {
     let config = parse_media_processing_registry_config(value)?;
     ffprobe_command_from_registry(&config)
 }
 
+/// Returns the normalized `ffprobe_cli` command from an already-parsed registry config.
 pub fn ffprobe_command_from_registry(config: &MediaProcessingRegistryConfig) -> Result<String> {
     let command = processor_config_for_kind(config, MediaProcessorKind::FfprobeCli)
         .and_then(|processor| processor.config.command.as_deref())
@@ -121,6 +143,10 @@ pub fn ffprobe_command_from_registry(config: &MediaProcessingRegistryConfig) -> 
     normalize_ffprobe_command(command)
 }
 
+/// Builds the public thumbnail capability document from the registry active in runtime config.
+///
+/// Only enabled processors whose commands are available on this host contribute their
+/// extensions; the built-in `images` processor contributes its hard-coded list.
 pub fn public_thumbnail_support(runtime_config: &RuntimeConfig) -> PublicThumbnailSupport {
     let registry = media_processing_registry(runtime_config);
     let mut image_thumbnail_extensions = BTreeSet::new();
@@ -198,6 +224,8 @@ pub fn public_thumbnail_support(runtime_config: &RuntimeConfig) -> PublicThumbna
     }
 }
 
+/// Builds a runtime availability snapshot for every processor in the registry active in
+/// runtime config.
 pub fn media_processing_runtime_status(
     runtime_config: &RuntimeConfig,
 ) -> MediaProcessingRuntimeStatus {
@@ -257,6 +285,8 @@ fn public_extension_support(extensions: BTreeSet<String>) -> PublicExtensionSupp
     }
 }
 
+/// Builds the public media-data capability document, combining the global metadata toggle
+/// and source size limit with per-kind processor availability.
 pub fn public_media_data_support(runtime_config: &RuntimeConfig) -> PublicMediaDataSupport {
     let registry = media_processing_registry(runtime_config);
     let enabled = operations::media_metadata_enabled(runtime_config);
@@ -368,6 +398,8 @@ fn sorted_extensions<'a>(extensions: impl IntoIterator<Item = &'a str>) -> Vec<S
         .collect()
 }
 
+/// Returns the default registry: every known processor in canonical priority order, with
+/// the built-in `images` and `lofty` processors enabled.
 pub fn default_media_processing_registry() -> MediaProcessingRegistryConfig {
     MediaProcessingRegistryConfig {
         version: MEDIA_PROCESSING_REGISTRY_VERSION,
@@ -378,6 +410,9 @@ pub fn default_media_processing_registry() -> MediaProcessingRegistryConfig {
     }
 }
 
+/// Serializes [`default_media_processing_registry`] as pretty JSON.
+///
+/// On serialization failure logs a warning and degrades to an empty processor list.
 pub fn default_media_processing_registry_json() -> String {
     serde_json::to_string_pretty(&default_media_processing_registry()).unwrap_or_else(|error| {
         tracing::warn!(%error, "failed to serialize default media processing registry");
@@ -392,6 +427,11 @@ pub fn default_media_processing_registry_json() -> String {
     })
 }
 
+/// Validates and canonicalizes a registry JSON payload, returning the pretty-printed
+/// normalized form.
+///
+/// Enabled CLI processors must have their commands available on this host, otherwise
+/// validation fails.
 pub fn normalize_media_processing_registry_config_value(value: &str) -> Result<String> {
     normalize_media_processing_registry_config_value_with_command_validation(value, true)
 }
@@ -417,6 +457,8 @@ fn normalize_media_processing_registry_config_value_with_command_validation(
     })
 }
 
+/// Loads the media processing registry from runtime config, falling back to
+/// [`default_media_processing_registry`] when the stored value is missing or unparseable.
 pub fn media_processing_registry(runtime_config: &RuntimeConfig) -> MediaProcessingRegistryConfig {
     let Some(raw) = runtime_config.get(MEDIA_PROCESSING_REGISTRY_JSON_KEY) else {
         return default_media_processing_registry();
@@ -431,10 +473,17 @@ pub fn media_processing_registry(runtime_config: &RuntimeConfig) -> MediaProcess
     }
 }
 
+/// Normalizes an already-stored registry payload without requiring enabled CLI commands
+/// to exist on this host.
+///
+/// Used when re-saving existing config on machines that may not have the processors
+/// installed.
 pub fn normalize_existing_media_processing_registry_config_value(value: &str) -> Result<String> {
     normalize_media_processing_registry_config_value_with_command_validation(value, false)
 }
 
+/// Returns all thumbnail-capable processors (image, audio, and video uses) that match a
+/// file name, in canonical priority order.
 pub fn processor_candidates_for_file_name(
     config: &MediaProcessingRegistryConfig,
     file_name: &str,
@@ -454,6 +503,11 @@ pub fn processor_candidates_for_file_name(
         .collect()
 }
 
+/// Returns the processors enabled for `media_use` that match a file name, ordered by the
+/// canonical processor priority.
+///
+/// Built-in processors match against their hard-coded extension lists; CLI processors
+/// match against their configured bindings, or match any file when the binding is empty.
 pub fn processor_candidates_for_use(
     config: &MediaProcessingRegistryConfig,
     media_use: MediaProcessingUse,
@@ -537,6 +591,7 @@ pub fn processor_candidates_for_use(
     matched
 }
 
+/// Returns whether a processor entry is assigned the given processing role.
 pub fn processor_supports_use(
     processor: &MediaProcessingProcessorConfig,
     media_use: MediaProcessingUse,
@@ -555,6 +610,9 @@ fn processor_priority_for_use(media_use: MediaProcessingUse) -> &'static [MediaP
     }
 }
 
+/// Extracts a file's extension as a trimmed, lowercase string without the leading dot.
+///
+/// Returns `None` when the name has no extension.
 pub fn file_extension(file_name: &str) -> Option<String> {
     Path::new(file_name)
         .extension()
@@ -564,6 +622,8 @@ pub fn file_extension(file_name: &str) -> Option<String> {
         .map(|value| value.trim_start_matches('.').to_ascii_lowercase())
 }
 
+/// Builds the default registry entry for a processor kind, including its default uses,
+/// extension binding, and command.
 pub fn default_processor_config_for_kind(
     kind: MediaProcessorKind,
 ) -> MediaProcessingProcessorConfig {
@@ -605,6 +665,7 @@ pub fn default_processor_config_for_kind(
     }
 }
 
+/// Returns the processing roles a processor kind supports and is assigned by default.
 pub fn default_uses_for_kind(kind: MediaProcessorKind) -> Vec<MediaProcessingUse> {
     match kind {
         MediaProcessorKind::Images => vec![
@@ -622,6 +683,7 @@ pub fn default_uses_for_kind(kind: MediaProcessorKind) -> Vec<MediaProcessingUse
     }
 }
 
+/// Looks up the registry entry for a processor kind.
 pub fn processor_config_for_kind(
     config: &MediaProcessingRegistryConfig,
     kind: MediaProcessorKind,
@@ -632,6 +694,10 @@ pub fn processor_config_for_kind(
         .find(|processor| processor.kind == kind)
 }
 
+/// Returns whether a processor command can be executed on this host.
+///
+/// Path-like commands must point to an executable file; bare names are looked up in
+/// `PATH` (honoring `PATHEXT` on Windows).
 pub fn command_is_available(command: &str) -> bool {
     if command.trim().is_empty() {
         return false;

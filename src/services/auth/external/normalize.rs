@@ -52,6 +52,8 @@ fn legacy_callback_path(provider_kind: ExternalAuthProviderKind, provider_key: &
     )
 }
 
+/// Builds the absolute OAuth callback redirect URI for a provider from the request origin,
+/// selecting the unified or legacy per-provider path according to the callback mode.
 pub fn callback_redirect_uri(
     state: &impl SharedRuntimeState,
     origin: ExternalAuthRequestOrigin,

@@ -18,6 +18,8 @@ struct StorageChangeTransportMessage {
     event: StorageChangeEvent,
 }
 
+/// Build the storage-change event bus. Cross-instance transport is only attached when the
+/// config-sync backend is Redis; otherwise the bus operates in local-only mode.
 pub fn build_storage_change_bus(
     config: &aster_forge_config::ConfigSyncConfig,
 ) -> Result<StorageChangeBus> {
@@ -78,6 +80,9 @@ pub(super) fn publish_cross_instance<S: StorageChangeRuntimeState>(
     }));
 }
 
+/// Subscribe to cross-instance storage events until `shutdown` fires. Events published by
+/// this runtime are dropped as echo; a disconnect or recovery publishes `SyncRequired` so
+/// clients reconcile against authoritative state after a possible gap.
 pub async fn run_cross_instance_subscription(
     state: Arc<PrimaryAppState>,
     shutdown: CancellationToken,

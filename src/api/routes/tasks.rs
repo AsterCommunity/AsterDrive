@@ -21,6 +21,8 @@ use aster_forge_api::LimitOffsetQuery;
 use aster_forge_api::OffsetPage;
 use aster_forge_middleware::actix::rate_limit::RateLimit;
 
+/// Builds the personal `/api/v1/tasks` route scope behind JWT auth and the API rate
+/// limiter (background task list, retry, cancel, offline download).
 pub fn routes(
     rl: &RateLimitConfig,
     network_trust: &NetworkTrustConfig,
@@ -37,6 +39,8 @@ pub fn routes(
         .route("/{id}/cancel", web::post().to(cancel_task))
 }
 
+/// Builds the team task route scope mounted under `/api/v1/teams/{team_id}/tasks`,
+/// mirroring the personal task routes.
 pub fn team_routes() -> actix_web::Scope {
     web::scope("/{team_id}/tasks")
         .route("", web::get().to(team_list_tasks))
@@ -49,6 +53,7 @@ pub fn team_routes() -> actix_web::Scope {
         .route("/{id}/cancel", web::post().to(team_cancel_task))
 }
 
+/// Lists the current user's background tasks with pagination.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/tasks",
@@ -76,6 +81,7 @@ pub async fn list_tasks(
     .await
 }
 
+/// Returns one of the current user's background tasks by ID.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/tasks/{id}",
@@ -104,6 +110,8 @@ pub async fn get_task(
     .await
 }
 
+/// Resets a failed personal task to its last checkpoint for retry, and records the
+/// action in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/tasks/{id}/retry",
@@ -136,6 +144,8 @@ pub async fn retry_task(
     .await
 }
 
+/// Creates a personal offline download task that fetches an external URL into a
+/// target folder, and records the action in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/tasks/offline-download",
@@ -167,6 +177,7 @@ pub async fn create_offline_download(
     .await
 }
 
+/// Lists the current user's background tasks in a team workspace with pagination.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/tasks",
@@ -192,6 +203,7 @@ pub(crate) async fn team_list_tasks(
     list_tasks_response(state.get_ref(), team_scope(*path, claims.user_id), &query).await
 }
 
+/// Returns one background task in a team workspace by ID.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/tasks/{id}",
@@ -223,6 +235,8 @@ pub(crate) async fn team_get_task(
     .await
 }
 
+/// Resets a failed team task to its last checkpoint for retry, and records the
+/// action in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/tasks/{id}/retry",
@@ -258,6 +272,8 @@ pub(crate) async fn team_retry_task(
     .await
 }
 
+/// Creates a team offline download task that fetches an external URL into a target
+/// folder, and records the action in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/tasks/offline-download",
@@ -355,6 +371,7 @@ pub(crate) async fn create_offline_download_response(
     Ok(HttpResponse::Ok().json(crate::api::response::success(task)))
 }
 
+/// Requests cancellation of a personal task; committed changes are retained.
 #[aster_forge_api_docs_macros::path(
     post,path="/api/v1/tasks/{id}/cancel",tag="tasks",operation_id="cancel_task",
     params(("id"=i64,Path,description="Task ID")),
@@ -379,6 +396,7 @@ pub async fn cancel_task(
     Ok(HttpResponse::Ok().json(crate::api::response::success(task)))
 }
 
+/// Requests cancellation of a team task; committed changes are retained.
 #[aster_forge_api_docs_macros::path(
     post,path="/api/v1/teams/{team_id}/tasks/{id}/cancel",tag="teams",operation_id="cancel_team_task",
     params(("team_id"=i64,Path,description="Team ID"),("id"=i64,Path,description="Task ID")),

@@ -19,10 +19,14 @@ use aster_drive_model::entities::{
 };
 use aster_drive_model::types::EntityType;
 
+/// Error returned when appending a revision to a file history fails a precondition.
 #[derive(Debug)]
 pub enum RevisionAppendError {
+    /// The expected head revision id no longer matches the current head.
     HeadChanged,
+    /// The expected ETag does not match the ETag of the current head revision.
     EtagMismatch,
+    /// A database or repository error occurred while appending.
     Repository(AsterError),
 }
 
@@ -32,18 +36,26 @@ impl From<AsterError> for RevisionAppendError {
     }
 }
 
+/// Result type for revision append operations that can fail on optimistic concurrency checks.
 pub type RevisionAppendResult<T> = std::result::Result<T, RevisionAppendError>;
 
+/// Why a revision was appended, persisted in the revision `reason` column.
 #[derive(Clone, Copy, Debug)]
 pub enum RevisionReason {
+    /// The revision records the initial content of a newly created file.
     Create,
+    /// The revision replaced the content of an existing file.
     Overwrite,
+    /// The revision restored content from an earlier revision.
     Restore,
+    /// The revision was produced while copying a file.
     Copy,
+    /// The revision only reflects a property change on the file.
     PropertyChange,
 }
 
 impl RevisionReason {
+    /// Returns the stable string token stored in the revision `reason` column.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Create => "create",
@@ -55,29 +67,47 @@ impl RevisionReason {
     }
 }
 
+/// A DeltaV revision resolved together with the history and file that own it.
 #[derive(Debug, Clone)]
 pub struct DeltavRevisionTarget {
+    /// The file the revision history belongs to.
     pub file: file::Model,
+    /// The revision history containing the revision.
     pub history: file_revision_history::Model,
+    /// The live revision at or after the DeltaV root that still carries blob content.
     pub revision: file_revision::Model,
 }
 
+/// A file's current head revision together with its DeltaV state.
 #[derive(Debug, Clone)]
 pub struct CurrentRevisionSnapshot {
+    /// The current head revision of the file.
     pub revision: file_revision::Model,
+    /// Whether the history has been activated for DeltaV versioning.
     pub deltav_controlled: bool,
 }
 
+/// Content and metadata for a revision about to be inserted into a file history.
 pub struct NewRevision<'a> {
+    /// Blob holding the revision content; must reference an existing blob row.
     pub blob_id: i64,
+    /// Content size in bytes as presented to clients, which may differ from the stored blob size.
     pub logical_size: i64,
+    /// MIME type of the revision content.
     pub mime_type: &'a str,
+    /// SHA-256 digest of the content, when the caller has computed it.
     pub content_sha256: Option<&'a str>,
+    /// Id of the authenticated user that produced the content, if known.
     pub creator_user_id: Option<i64>,
+    /// Display name recorded for the creator.
     pub creator_display_name: &'a str,
+    /// Optional client-supplied comment describing the change.
     pub comment: Option<&'a str>,
+    /// Why this revision is being created.
     pub reason: RevisionReason,
+    /// Revision timestamp; typically the time the file content changed.
     pub created_at: chrono::DateTime<Utc>,
+    /// Caller-supplied ETag; a fresh one is generated when `None`.
     pub etag: Option<&'a str>,
 }
 
@@ -158,6 +188,11 @@ async fn insert_history<C: ConnectionTrait>(
     .map_err(AsterError::from)
 }
 
+/// Creates the first history row, the sequence-1 revision, and its property snapshot for
+/// a newly created file, then publishes the history head pointer.
+///
+/// Callers must run this on the same connection, typically a transaction, that created
+/// the file.
 pub async fn create_initial<C: ConnectionTrait>(
     db: &C,
     file: &file::Model,
@@ -394,6 +429,10 @@ pub async fn create_initial_many<C: ConnectionTrait>(
     Ok(revisions)
 }
 
+/// Appends a new revision to a file's history under an exclusive history lock.
+///
+/// When `expected_current_revision_id` is `Some`, it must equal the current head
+/// revision id or [`RevisionAppendError::HeadChanged`] is returned.
 pub async fn append<C: ConnectionTrait>(
     db: &C,
     file_id: i64,
@@ -411,6 +450,10 @@ pub async fn append<C: ConnectionTrait>(
         .map_err(Into::into)
 }
 
+/// Appends a new revision guarded by the current head revision's ETag.
+///
+/// When `expected_etag` is `Some`, it is compared case-insensitively with the head
+/// revision's ETag and [`RevisionAppendError::EtagMismatch`] is returned on mismatch.
 pub async fn append_for_expected_etag<C: ConnectionTrait>(
     db: &C,
     file_id: i64,
@@ -548,6 +591,9 @@ async fn snapshot_user_properties<C: ConnectionTrait>(
     Ok(())
 }
 
+/// Returns the revision history row of a file.
+///
+/// Fails with an internal error when the file has no history row.
 pub async fn find_history_by_file_id<C: ConnectionTrait>(
     db: &C,
     file_id: i64,
@@ -610,6 +656,10 @@ async fn deltav_root_sequence<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Resolves a live revision by public id into a DeltaV target.
+///
+/// Returns `None` unless the owning history is DeltaV activated, the revision's sequence
+/// is at or after the activation root, and the revision still carries blob content.
 pub async fn find_deltav_revision_by_public_id<C: ConnectionTrait>(
     db: &C,
     public_id: &str,
@@ -651,6 +701,9 @@ pub async fn find_deltav_revision_by_public_id<C: ConnectionTrait>(
     }))
 }
 
+/// Lists live, blob-backed revisions at or after the DeltaV root, oldest sequence first.
+///
+/// Returns an empty vector when the history has no DeltaV root; `limit` caps the page size.
 pub async fn find_deltav_revisions<C: ConnectionTrait>(
     db: &C,
     history: &file_revision_history::Model,
@@ -672,6 +725,10 @@ pub async fn find_deltav_revisions<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Loads property snapshots for the given revisions, grouped by revision id.
+///
+/// Queries in batches of 500 ids; each group is ordered by namespace then name, and
+/// revisions without snapshots are absent from the map.
 pub async fn find_properties_by_revision_ids<C: ConnectionTrait>(
     db: &C,
     revision_ids: &[i64],
@@ -697,6 +754,10 @@ pub async fn find_properties_by_revision_ids<C: ConnectionTrait>(
     Ok(grouped)
 }
 
+/// Returns the current head revision of a file.
+///
+/// Fails with an internal error when the history has no head, points at a missing
+/// revision, or the head is retired or belongs to a different history.
 pub async fn find_current_by_file_id<C: ConnectionTrait>(
     db: &C,
     file_id: i64,
@@ -724,6 +785,10 @@ pub async fn find_current_by_file_id<C: ConnectionTrait>(
     Ok(revision)
 }
 
+/// Loads a file, its blob, and its current revision inside a fresh transaction.
+///
+/// PostgreSQL and MySQL use repeatable-read isolation so the three reads observe one
+/// consistent snapshot; other backends use the default isolation level.
 pub async fn find_file_blob_and_current_revision<C: ConnectionTrait + TransactionTrait>(
     db: &C,
     file_id: i64,
@@ -747,12 +812,16 @@ pub async fn find_file_blob_and_current_revision<C: ConnectionTrait + Transactio
     Ok((file, blob, revision))
 }
 
+/// Returns the ETag of a file's current head revision.
 pub async fn current_etag<C: ConnectionTrait>(db: &C, file_id: i64) -> Result<String> {
     find_current_by_file_id(db, file_id)
         .await
         .map(|revision| revision.etag)
 }
 
+/// Returns the current head revision snapshot for each of the given file ids.
+///
+/// Fails with an internal error when any history has no head or a dangling head pointer.
 pub async fn current_revision_snapshots_by_file_ids<C: ConnectionTrait>(
     db: &C,
     file_ids: &[i64],
@@ -805,6 +874,10 @@ pub async fn current_revision_snapshots_by_file_ids<C: ConnectionTrait>(
         .collect()
 }
 
+/// Loads a file's revision history row, taking an exclusive row lock on PostgreSQL and MySQL.
+///
+/// Other backends read without a lock. Fails with an internal error when the file has no
+/// history row.
 pub async fn lock_history_by_file_id<C: ConnectionTrait>(
     db: &C,
     file_id: i64,
@@ -821,6 +894,9 @@ pub async fn lock_history_by_file_id<C: ConnectionTrait>(
     })
 }
 
+/// Finds a live revision by id, scoped to the given file's history.
+///
+/// Returns `None` when the revision does not exist, belongs to another file, or is retired.
 pub async fn find_by_id_for_file<C: ConnectionTrait>(
     db: &C,
     file_id: i64,
@@ -835,6 +911,7 @@ pub async fn find_by_id_for_file<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Lists all live revisions of a file, newest sequence first.
 pub async fn find_by_file_id<C: ConnectionTrait>(
     db: &C,
     file_id: i64,
@@ -849,6 +926,10 @@ pub async fn find_by_file_id<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Lists live revisions of a file with keyset pagination, newest sequence first.
+///
+/// When `after_sequence` is `Some`, only revisions with a strictly smaller sequence are
+/// returned; `limit` caps the page size.
 pub async fn find_page_by_file_id<C: ConnectionTrait>(
     db: &C,
     file_id: i64,
@@ -866,6 +947,7 @@ pub async fn find_page_by_file_id<C: ConnectionTrait>(
     query.limit(limit).all(db).await.map_err(AsterError::from)
 }
 
+/// Lists the property snapshots of a revision, ordered by namespace then name.
 pub async fn find_properties<C: ConnectionTrait>(
     db: &C,
     revision_id: i64,
@@ -879,6 +961,10 @@ pub async fn find_properties<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Restores a file's user properties from the snapshots of a revision.
+///
+/// Deletes the file's current user-namespaced properties first, then reinserts the
+/// snapshot values; system namespaces are left untouched.
 pub async fn restore_user_properties<C: ConnectionTrait>(
     db: &C,
     file_id: i64,
@@ -914,6 +1000,8 @@ pub async fn restore_user_properties<C: ConnectionTrait>(
     Ok(())
 }
 
+/// Lists live revisions backed by the given blob together with their histories,
+/// ordered by revision id.
 pub async fn find_by_blob_id<C: ConnectionTrait>(
     db: &C,
     blob_id: i64,
@@ -933,6 +1021,7 @@ pub async fn find_by_blob_id<C: ConnectionTrait>(
         })
 }
 
+/// Counts the live revisions in a file's history.
 pub async fn count_by_file_id<C: ConnectionTrait>(db: &C, file_id: i64) -> Result<u64> {
     let history = find_history_by_file_id(db, file_id).await?;
     FileRevision::find()
@@ -943,6 +1032,9 @@ pub async fn count_by_file_id<C: ConnectionTrait>(db: &C, file_id: i64) -> Resul
         .map_err(AsterError::from)
 }
 
+/// Finds the oldest live revision of a file that is not the current head.
+///
+/// Returns `None` when the history has no revisions besides the head, or is empty.
 pub async fn find_oldest_non_current<C: ConnectionTrait>(
     db: &C,
     file_id: i64,
@@ -958,6 +1050,10 @@ pub async fn find_oldest_non_current<C: ConnectionTrait>(
     query.one(db).await.map_err(AsterError::from)
 }
 
+/// Tombstones a revision by clearing its blob reference and stamping it retired and purged.
+///
+/// A live successor revision is relinked to this revision's predecessor first so the
+/// version chain stays connected.
 pub async fn tombstone<C: ConnectionTrait>(db: &C, revision: file_revision::Model) -> Result<()> {
     let successor = FileRevision::find()
         .filter(file_revision::Column::HistoryId.eq(revision.history_id))
@@ -980,6 +1076,12 @@ pub async fn tombstone<C: ConnectionTrait>(db: &C, revision: file_revision::Mode
     Ok(())
 }
 
+/// Retires the revision histories of the given files and returns the released blob references.
+///
+/// Every live, blob-backed revision has its blob reference cleared and is stamped retired
+/// and purged (already tombstoned revisions keep their timestamps); the histories are
+/// detached from their files and heads, then stamped retired. The returned pairs are
+/// `(blob_id, logical_size)` for each revision whose blob was released.
 pub async fn retire_histories<C: ConnectionTrait>(
     db: &C,
     file_ids: &[i64],
@@ -1052,6 +1154,9 @@ fn sum_size_expr(backend: DbBackend) -> sea_orm::sea_query::SimpleExpr {
         .cast_as(type_name)
 }
 
+/// Sums the logical sizes of a file's live revisions, excluding the current head.
+///
+/// Returns `0` when the history has no non-head revisions.
 pub async fn sum_non_current_sizes_by_file_id(
     db: &sea_orm::DatabaseConnection,
     file_id: i64,
@@ -1074,6 +1179,9 @@ pub async fn sum_non_current_sizes_by_file_id(
         .unwrap_or(0))
 }
 
+/// Sums the non-head revision logical sizes per file across the given file ids.
+///
+/// Files without non-head revisions are absent from the returned map.
 pub async fn sum_non_current_sizes_by_file_ids<C: ConnectionTrait>(
     db: &C,
     file_ids: &[i64],
@@ -1115,6 +1223,9 @@ pub async fn sum_non_current_sizes_by_file_ids<C: ConnectionTrait>(
         .collect())
 }
 
+/// Counts the live non-head revisions referencing each of the given blobs.
+///
+/// Blobs without such references are absent from the returned map.
 pub async fn count_non_current_blob_refs_for_blobs<C: ConnectionTrait>(
     db: &C,
     blob_ids: &[i64],
@@ -1156,6 +1267,7 @@ pub async fn count_non_current_blob_refs_for_blobs<C: ConnectionTrait>(
     Ok(rows.into_iter().collect())
 }
 
+/// Counts the live non-head revisions referencing a single blob; `0` when there are none.
 pub async fn count_non_current_blob_refs_for_blob<C: ConnectionTrait>(
     db: &C,
     blob_id: i64,
@@ -1167,6 +1279,7 @@ pub async fn count_non_current_blob_refs_for_blob<C: ConnectionTrait>(
         .unwrap_or(0))
 }
 
+/// Repoints every live revision from one blob to another, returning the updated row count.
 pub async fn replace_blob_refs<C: ConnectionTrait>(
     db: &C,
     old_blob_id: i64,

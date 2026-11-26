@@ -8,6 +8,7 @@ use sea_orm::{
     QueryOrder,
 };
 
+/// Loads a remote storage target by id, returning `record_not_found` when absent.
 pub async fn find_by_id<C: ConnectionTrait>(
     db: &C,
     id: i64,
@@ -19,6 +20,8 @@ pub async fn find_by_id<C: ConnectionTrait>(
         .ok_or_else(|| AsterError::record_not_found(format!("remote_storage_target #{id}")))
 }
 
+/// Resolves one target of a master binding by its stable target key.
+/// Returns `None` when the binding has no such target.
 pub async fn find_by_binding_and_target_key<C: ConnectionTrait>(
     db: &C,
     master_binding_id: i64,
@@ -32,6 +35,7 @@ pub async fn find_by_binding_and_target_key<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Lists every target declared under one master binding, newest first.
 pub async fn find_all_by_binding<C: ConnectionTrait>(
     db: &C,
     master_binding_id: i64,
@@ -45,6 +49,7 @@ pub async fn find_all_by_binding<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Counts the targets declared under one master binding.
 pub async fn count_by_binding<C: ConnectionTrait>(db: &C, master_binding_id: i64) -> Result<u64> {
     RemoteStorageTarget::find()
         .filter(remote_storage_target::Column::MasterBindingId.eq(master_binding_id))
@@ -53,6 +58,7 @@ pub async fn count_by_binding<C: ConnectionTrait>(db: &C, master_binding_id: i64
         .map_err(AsterError::from)
 }
 
+/// Inserts a new remote storage target from the given active model.
 pub async fn create<C: ConnectionTrait>(
     db: &C,
     model: remote_storage_target::ActiveModel,
@@ -60,6 +66,7 @@ pub async fn create<C: ConnectionTrait>(
     model.insert(db).await.map_err(AsterError::from)
 }
 
+/// Persists the given target model's changed fields.
 pub async fn update<C: ConnectionTrait>(
     db: &C,
     model: remote_storage_target::ActiveModel,
@@ -101,6 +108,8 @@ pub async fn update_reconciliation_if_revision<C: ConnectionTrait>(
     find_by_id(db, target_id).await
 }
 
+/// Removes one target of a binding by target key, returning
+/// `record_not_found` when the binding has no such target.
 pub async fn delete_by_binding_and_target_key<C: ConnectionTrait>(
     db: &C,
     master_binding_id: i64,

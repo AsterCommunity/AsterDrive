@@ -30,6 +30,8 @@ pub struct AuthRouteLimiters {
 }
 
 impl AuthRouteLimiters {
+    /// Builds the auth-tier and api-tier limiters from the configured rate
+    /// limits and trusted-proxy list.
     pub fn new(
         config: &crate::config::RateLimitConfig,
         trust: &crate::config::NetworkTrustConfig,

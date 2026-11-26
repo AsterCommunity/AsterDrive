@@ -44,6 +44,8 @@ pub(crate) fn tunnel_http_response(
     })
 }
 
+/// Converts response headers into ordered name/value pairs for tunnel
+/// transport, dropping headers whose values are not valid UTF-8.
 pub fn response_headers_for_tunnel(headers: &HeaderMap) -> Vec<(String, String)> {
     headers
         .iter()
@@ -60,6 +62,8 @@ pub fn response_headers_for_tunnel(headers: &HeaderMap) -> Vec<(String, String)>
         .collect()
 }
 
+/// Buffers a follower-side reqwest response into a tunnel response, enforcing
+/// the tunnel body limit on both the declared and the received size.
 pub async fn tunnel_response_from_reqwest(
     request_id: String,
     mut response: reqwest::Response,
@@ -122,10 +126,12 @@ fn response_headers_for_reqwest(headers: &reqwest::header::HeaderMap) -> Vec<(St
         .collect()
 }
 
+/// Wraps `data` in the standard success envelope for tunnel endpoint replies.
 pub fn envelope_response<T: Serialize>(data: T) -> actix_web::HttpResponse {
     actix_web::HttpResponse::Ok().json(crate::api::response::success(data))
 }
 
+/// Replies with the standard success envelope carrying no payload.
 pub fn empty_envelope_response() -> actix_web::HttpResponse {
     actix_web::HttpResponse::Ok().json(crate::api::response::empty_success())
 }

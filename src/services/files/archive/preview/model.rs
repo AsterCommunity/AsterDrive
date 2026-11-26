@@ -2,51 +2,85 @@ use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
+/// Read-only preview manifest of an archive file, served to clients.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ArchivePreviewManifest {
+    /// Preview manifest schema version; bumped when the shape changes.
     pub schema_version: u32,
+    /// Archive format identifier the manifest was produced with, e.g. `zip`.
     pub format: String,
+    /// Blob id of the archive the manifest was scanned from.
     pub source_blob_id: i64,
+    /// Content hash of the source blob; part of the cache identity.
     pub source_hash: String,
+    /// RFC 3339 timestamp of when the scan was performed.
     pub generated_at: String,
+    /// Total number of entries in the archive; may exceed `entries.len()`
+    /// when the listing was truncated.
     pub entry_count: i64,
+    /// Number of file entries in the archive.
     pub file_count: i64,
+    /// Number of directory entries in the archive.
     pub directory_count: i64,
+    /// Sum of uncompressed entry sizes in bytes; keeps the larger of the
+    /// stored and re-scanned values.
     pub total_uncompressed_size: i64,
+    /// True when the scan hit the entry limit and `entries` is incomplete.
     pub truncated: bool,
+    /// Whether the archive is considered safe to extract server-side.
     pub extract_compatibility: ArchivePreviewExtractCompatibility,
+    /// Preview entries actually listed, capped by the preview limits.
     pub entries: Vec<ArchivePreviewEntry>,
 }
 
+/// Single listed entry of an archive preview.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ArchivePreviewEntry {
+    /// Display path of the entry inside the archive, root-relative.
     pub path: String,
+    /// Final path component of the entry.
     pub name: String,
+    /// Path of the parent directory; empty at the archive root.
     pub parent: Option<String>,
+    /// Whether this entry is a file or a directory.
     pub kind: ArchivePreviewEntryKind,
+    /// Uncompressed size in bytes.
     pub size: i64,
+    /// Compressed size in bytes as stored in the archive.
     pub compressed_size: i64,
+    /// Entry modification timestamp from the archive metadata, if present.
     pub modified_at: Option<String>,
 }
 
+/// Kind of an archive preview entry.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum ArchivePreviewEntryKind {
+    /// Regular file entry.
     File,
+    /// Directory entry.
     Directory,
 }
 
+/// Whether server-side extraction of the archive is allowed.
+///
+/// Extraction is rejected when the scan found entry names that the storage
+/// layer cannot safely represent, or when the preview listing was truncated
+/// so not all entry names were verified.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ArchivePreviewExtractCompatibility {
+    /// True when the archive passed all extract safety checks.
     pub supported: bool,
+    /// Reason extraction is unsupported; always `None` when `supported`.
     pub reason: Option<ArchivePreviewExtractUnsupportedReason>,
 }
 
 impl ArchivePreviewExtractCompatibility {
+    /// Compatibility verdict for an archive that passed all safety checks.
     pub(super) fn supported() -> Self {
         Self {
             supported: true,
@@ -70,10 +104,13 @@ impl ArchivePreviewExtractCompatibility {
     }
 }
 
+/// Why an archive was rejected for server-side extraction.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum ArchivePreviewExtractUnsupportedReason {
+    /// At least one entry name cannot be mapped to a safe storage path, or
+    /// the preview listing was truncated so names were not fully verified.
     UnsupportedEntryNames,
 }
 

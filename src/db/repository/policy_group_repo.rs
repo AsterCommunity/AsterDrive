@@ -14,6 +14,7 @@ use sea_orm::{
     PaginatorTrait, QueryFilter, QueryOrder, Select, sea_query::Expr,
 };
 
+/// Loads a storage policy group by id, returning `record_not_found` when absent.
 pub async fn find_group_by_id<C: ConnectionTrait>(
     db: &C,
     id: i64,
@@ -25,6 +26,8 @@ pub async fn find_group_by_id<C: ConnectionTrait>(
         .ok_or_else(|| AsterError::record_not_found(format!("storage_policy_group #{id}")))
 }
 
+/// Returns the group flagged as default (lowest id wins if the invariant is
+/// somehow broken and several exist), or `None` when no default is set.
 pub async fn find_default_group<C: ConnectionTrait>(
     db: &C,
 ) -> Result<Option<storage_policy_group::Model>> {
@@ -36,6 +39,7 @@ pub async fn find_default_group<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Lists every policy group ordered by id.
 pub async fn find_all_groups<C: ConnectionTrait>(
     db: &C,
 ) -> Result<Vec<storage_policy_group::Model>> {
@@ -46,6 +50,8 @@ pub async fn find_all_groups<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Returns one offset page of policy groups ordered by the requested admin sort
+/// key (tie-broken by id), together with the total matching count.
 pub async fn find_groups_paginated(
     db: &DatabaseConnection,
     limit: u64,
@@ -104,6 +110,7 @@ fn apply_admin_policy_group_sort(
     }
 }
 
+/// Inserts a new policy group from the given active model.
 pub async fn create_group<C: ConnectionTrait>(
     db: &C,
     model: storage_policy_group::ActiveModel,
@@ -111,6 +118,7 @@ pub async fn create_group<C: ConnectionTrait>(
     model.insert(db).await.map_err(AsterError::from)
 }
 
+/// Persists the given group model's changed fields.
 pub async fn update_group<C: ConnectionTrait>(
     db: &C,
     model: storage_policy_group::ActiveModel,
@@ -118,6 +126,7 @@ pub async fn update_group<C: ConnectionTrait>(
     model.update(db).await.map_err(AsterError::from)
 }
 
+/// Deletes a policy group by id; succeeds even when the id is absent.
 pub async fn delete_group<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     StoragePolicyGroup::delete_by_id(id)
         .exec(db)
@@ -126,6 +135,9 @@ pub async fn delete_group<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     Ok(())
 }
 
+/// Makes the group the only default in a single statement: its `is_default`
+/// becomes true and every other group's becomes false. No uniqueness invariant
+/// beyond this statement's atomicity is enforced here.
 pub async fn set_only_default_group<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     StoragePolicyGroup::update_many()
         .col_expr(
@@ -140,6 +152,8 @@ pub async fn set_only_default_group<C: ConnectionTrait>(db: &C, id: i64) -> Resu
     Ok(())
 }
 
+/// Counts the users assigned to the group; used before deletion to check the
+/// group is not still in use.
 pub async fn count_user_group_assignments<C: ConnectionTrait>(
     db: &C,
     group_id: i64,

@@ -11,6 +11,10 @@ use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
+/// Envelope layout version for persisted connector configuration payloads.
+///
+/// Decoders reject any envelope whose `format_version` differs from this
+/// value instead of guessing at an unknown layout.
 pub const CONNECTOR_CONFIG_FORMAT_VERSION: u32 = 1;
 
 /// Scalar value accepted by connector config and action field contracts.
@@ -21,8 +25,11 @@ pub const CONNECTOR_CONFIG_FORMAT_VERSION: u32 = 1;
 #[serde(untagged)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum StorageConnectorFieldValue {
+    /// A `true`/`false` switch.
     Boolean(bool),
+    /// A signed 64-bit integer (counts, limits, sizes).
     Integer(i64),
+    /// Free-form text, typically a path, bucket, or identifier.
     String(String),
 }
 
@@ -338,14 +345,27 @@ macro_rules! storage_connector_schema_impl {
 pub struct ConnectorId(String);
 
 impl ConnectorId {
+    /// Wraps a raw identifier string without validating it.
+    ///
+    /// Callers must run [`ConnectorId::validate`] before persisting or
+    /// registering the value; the constructor stays infallible so descriptors
+    /// and constants can be built inline.
     pub fn declared(value: impl Into<String>) -> Self {
         Self(value.into())
     }
 
+    /// Returns the identifier text, including content that has not passed
+    /// [`ConnectorId::validate`].
     pub fn as_str(&self) -> &str {
         &self.0
     }
 
+    /// Checks the identifier against the portable registry format.
+    ///
+    /// A valid identifier is 3-128 bytes of lowercase ASCII letters, digits,
+    /// `.`, `-` or `_`, with no leading, trailing, or repeated dots. Returns
+    /// [`ConnectorIdError`] when the value does not fit; the built-in and
+    /// plugin registries share this rule.
     pub fn validate(&self) -> Result<(), ConnectorIdError> {
         validate_connector_id(self.as_str())
     }
@@ -357,6 +377,10 @@ impl fmt::Display for ConnectorId {
     }
 }
 
+/// The connector identifier does not satisfy the portable registry format.
+///
+/// Carries no payload; the [`fmt::Display`] implementation states the accepted
+/// format so callers can surface it directly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectorIdError;
 
@@ -398,9 +422,13 @@ fn validate_connector_id(value: &str) -> Result<(), ConnectorIdError> {
     schema(bound = "")
 )]
 pub struct ConnectorConfigEnvelope<T = BTreeMap<String, serde_json::Value>> {
+    /// Envelope layout version; decoders expect [`CONNECTOR_CONFIG_FORMAT_VERSION`].
     pub format_version: u32,
+    /// Connector that owns and can decode `values`.
     pub connector_id: ConnectorId,
+    /// Connector-owned schema version that interprets `values`.
     pub schema_version: u32,
+    /// Connector-owned configuration payload, opaque to AsterDrive core.
     #[cfg_attr(
         all(debug_assertions, feature = "openapi"),
         schema(value_type = BTreeMap<String, StorageConnectorFieldValue>)
@@ -409,6 +437,7 @@ pub struct ConnectorConfigEnvelope<T = BTreeMap<String, serde_json::Value>> {
 }
 
 impl<T> ConnectorConfigEnvelope<T> {
+    /// Builds an envelope stamped with the current [`CONNECTOR_CONFIG_FORMAT_VERSION`].
     pub fn new(connector_id: ConnectorId, schema_version: u32, values: T) -> Self {
         Self {
             format_version: CONNECTOR_CONFIG_FORMAT_VERSION,
@@ -419,12 +448,32 @@ impl<T> ConnectorConfigEnvelope<T> {
     }
 }
 
+/// Failure modes of the connector config codec.
 #[derive(Debug)]
 pub enum ConnectorConfigCodecError {
+    /// The payload is not valid JSON or does not fit the typed schema.
     InvalidJson(serde_json::Error),
-    FormatVersionMismatch { expected: u32, actual: u32 },
-    ConnectorIdMismatch { expected: String, actual: String },
-    SchemaVersionMismatch { expected: u32, actual: u32 },
+    /// Envelope layout version differs from [`CONNECTOR_CONFIG_FORMAT_VERSION`].
+    FormatVersionMismatch {
+        /// Layout version this build was compiled with.
+        expected: u32,
+        /// Layout version stored in the payload.
+        actual: u32,
+    },
+    /// The envelope was persisted by a different connector than expected.
+    ConnectorIdMismatch {
+        /// Identifier the caller expected.
+        expected: String,
+        /// Identifier stored in the payload.
+        actual: String,
+    },
+    /// The stored connector schema version differs from the expected value.
+    SchemaVersionMismatch {
+        /// Schema version the caller expects.
+        expected: u32,
+        /// Schema version stored in the payload.
+        actual: u32,
+    },
 }
 
 impl fmt::Display for ConnectorConfigCodecError {
@@ -456,6 +505,13 @@ impl std::error::Error for ConnectorConfigCodecError {
     }
 }
 
+/// Serializes connector-owned values into the versioned persistence envelope.
+///
+/// Version and identifier fields are stamped automatically; the identifier is
+/// not re-validated here, so callers should pass one that already passed
+/// [`ConnectorId::validate`]. Returns
+/// [`ConnectorConfigCodecError::InvalidJson`] when the values cannot be
+/// represented as JSON.
 pub fn encode_connector_config<T: Serialize>(
     connector_id: ConnectorId,
     schema_version: u32,
@@ -469,6 +525,13 @@ pub fn encode_connector_config<T: Serialize>(
     .map_err(ConnectorConfigCodecError::InvalidJson)
 }
 
+/// Decodes a persisted envelope back into typed connector values.
+///
+/// All three ownership markers must match — envelope format version, connector
+/// identifier, and connector schema version — otherwise a mismatch error is
+/// returned, so a payload written by another connector or schema is never
+/// silently interpreted by this one. JSON or schema failures map to
+/// [`ConnectorConfigCodecError::InvalidJson`].
 pub fn decode_connector_config<'a, T: Deserialize<'a>>(
     raw: &'a str,
     expected_connector_id: &ConnectorId,

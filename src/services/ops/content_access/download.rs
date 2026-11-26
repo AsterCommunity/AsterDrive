@@ -66,6 +66,11 @@ async fn snapshot(
     Ok((file, blob, revision))
 }
 
+/// Initializes an administrator download of a file or specific revision.
+///
+/// Authorizes the actor (plus an optional workspace grant), derives the access
+/// scope, prepares a short-lived direct URL and records the audit outcome.
+/// Failed preparations still persist a `failed` audit entry before returning.
 pub async fn init_download(
     state: &PrimaryAppState,
     claims: &Claims,
@@ -218,6 +223,10 @@ async fn prepare(
     })
 }
 
+/// Streams the content authorized by an initialized administrator download grant.
+///
+/// The grant payload must be a download grant; range and conditional requests
+/// are treated as transport-only retries of the already-audited initialization.
 pub async fn download(
     state: &PrimaryAppState,
     claims: &Claims,

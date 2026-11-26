@@ -18,6 +18,7 @@ fn upload_file_created_response(file: FileInfo) -> HttpResponse {
         .json(crate::api::response::success(file))
 }
 
+/// Creates a personal upload session after checking target capacity.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/files/upload/init",
@@ -54,6 +55,8 @@ pub async fn init_upload_session(
     Ok(HttpResponse::Created().json(crate::api::response::success(resp)))
 }
 
+/// Lists the current user's interrupted upload sessions that can be resumed,
+/// optionally filtered by frontend client.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/files/upload/sessions",
@@ -81,6 +84,7 @@ pub async fn list_recoverable_upload_sessions(
     Ok(HttpResponse::Ok().json(crate::api::response::success(resp)))
 }
 
+/// Persists one chunk of a personal chunked upload (0-indexed chunk number).
 #[aster_forge_api_docs_macros::path(
     put,
     path = "/api/v1/files/upload/{upload_id}/{chunk_number}",
@@ -115,6 +119,7 @@ pub async fn upload_chunk(
     Ok(HttpResponse::Ok().json(crate::api::response::success(resp)))
 }
 
+/// Streams the whole request body into a personal upload session as a single blob.
 #[aster_forge_api_docs_macros::path(
     put,
     path = "/api/v1/files/upload/{upload_id}/body",
@@ -146,6 +151,8 @@ pub async fn upload_stream_body(
     Ok(upload_file_created_response(file))
 }
 
+/// Finalizes a personal upload session, assembling chunks (or confirming multipart
+/// parts) into the file record, and records the upload in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/files/upload/{upload_id}/complete",
@@ -187,6 +194,7 @@ pub async fn complete_upload(
     Ok(upload_file_created_response(file))
 }
 
+/// Returns the progress of a personal upload session.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/files/upload/{upload_id}",
@@ -209,6 +217,7 @@ pub async fn get_upload_progress(
     Ok(HttpResponse::Ok().json(crate::api::response::success(resp)))
 }
 
+/// Cancels a personal upload session and records the cancellation in the audit log.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/files/upload/{upload_id}",
@@ -249,6 +258,8 @@ pub async fn cancel_upload(
     Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
+/// Returns pre-signed (or native) browser requests for the requested multipart part
+/// numbers of a personal upload session.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/files/upload/{upload_id}/presign-parts",
@@ -279,6 +290,7 @@ pub async fn presign_parts(
     Ok(HttpResponse::Ok().json(crate::api::response::success(urls)))
 }
 
+/// Creates a team upload session after checking target capacity.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/files/upload/init",
@@ -319,6 +331,8 @@ pub(crate) async fn team_init_upload_session(
     Ok(HttpResponse::Created().json(crate::api::response::success(resp)))
 }
 
+/// Lists the current user's interrupted team upload sessions that can be resumed,
+/// optionally filtered by frontend client.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/files/upload/sessions",
@@ -349,6 +363,7 @@ pub(crate) async fn team_list_recoverable_upload_sessions(
     Ok(HttpResponse::Ok().json(crate::api::response::success(resp)))
 }
 
+/// Persists one chunk of a team chunked upload (0-indexed chunk number).
 #[aster_forge_api_docs_macros::path(
     put,
     path = "/api/v1/teams/{team_id}/files/upload/{upload_id}/{chunk_number}",
@@ -387,6 +402,7 @@ pub(crate) async fn team_upload_chunk(
     Ok(HttpResponse::Ok().json(crate::api::response::success(resp)))
 }
 
+/// Streams the whole request body into a team upload session as a single blob.
 #[aster_forge_api_docs_macros::path(
     put,
     path = "/api/v1/teams/{team_id}/files/upload/{upload_id}/body",
@@ -420,6 +436,8 @@ pub(crate) async fn team_upload_stream_body(
     Ok(upload_file_created_response(file))
 }
 
+/// Finalizes a team upload session, assembling chunks (or confirming multipart
+/// parts) into the team file record, and records the upload in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/files/upload/{upload_id}/complete",
@@ -467,6 +485,7 @@ pub(crate) async fn team_complete_upload(
     Ok(upload_file_created_response(file))
 }
 
+/// Returns the progress of a team upload session.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/files/upload/{upload_id}",
@@ -495,6 +514,7 @@ pub(crate) async fn team_get_upload_progress(
     Ok(HttpResponse::Ok().json(crate::api::response::success(resp)))
 }
 
+/// Cancels a team upload session and records the cancellation in the audit log.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/teams/{team_id}/files/upload/{upload_id}",
@@ -540,6 +560,8 @@ pub(crate) async fn team_cancel_upload(
     Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
+/// Returns pre-signed (or native) browser requests for the requested multipart part
+/// numbers of a team upload session.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/files/upload/{upload_id}/presign-parts",
@@ -576,6 +598,8 @@ pub(crate) async fn team_presign_parts(
     Ok(HttpResponse::Ok().json(crate::api::response::success(urls)))
 }
 
+/// Backend-coordinated browser upload step: the browser reports the result of the
+/// previous step and receives the next step to perform for a personal upload.
 #[aster_forge_api_docs_macros::path(
     post, path = "/api/v1/files/upload/{upload_id}/provider-step", tag = "files",
     operation_id = "coordinate_browser_upload",
@@ -600,6 +624,8 @@ pub async fn coordinate_browser_upload(
     Ok(HttpResponse::Ok().json(crate::api::response::success(step)))
 }
 
+/// Backend-coordinated browser upload step: the browser reports the result of the
+/// previous step and receives the next step to perform for a team upload.
 #[aster_forge_api_docs_macros::path(
     post, path = "/api/v1/teams/{team_id}/files/upload/{upload_id}/provider-step", tag = "teams",
     operation_id = "coordinate_team_browser_upload",

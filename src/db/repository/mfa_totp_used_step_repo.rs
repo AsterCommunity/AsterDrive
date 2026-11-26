@@ -56,6 +56,8 @@ pub async fn delete_steps_before<C: ConnectionTrait>(
     Ok(())
 }
 
+/// Removes every consumed time-step record of one factor; called when the
+/// factor itself is deleted.
 pub async fn delete_all_for_factor<C: ConnectionTrait>(db: &C, factor_id: i64) -> Result<()> {
     MfaTotpUsedStep::delete_many()
         .filter(mfa_totp_used_step::Column::FactorId.eq(factor_id))
@@ -65,6 +67,8 @@ pub async fn delete_all_for_factor<C: ConnectionTrait>(db: &C, factor_id: i64) -
     Ok(())
 }
 
+/// Removes the consumed time-step records of several factors in one statement;
+/// an empty id list short-circuits to no-op.
 pub async fn delete_all_for_factors<C: ConnectionTrait>(
     db: &C,
     factor_ids: Vec<i64>,

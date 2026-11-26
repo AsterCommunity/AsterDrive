@@ -69,11 +69,15 @@ fn map_webdav_account_create_db_err(err: DbErr) -> AsterError {
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct WebdavAccountCreated {
+    /// 新建账号的 ID。
     pub id: i64,
+    /// WebDAV 登录用户名，全局唯一。
     pub username: String,
+    /// 所属团队；个人账号为 `None`。
     pub team_id: Option<i64>,
     /// 明文密码，只返回一次
     pub password: String,
+    /// 根目录完整路径；`None` 表示可访问整个存储空间。
     pub root_folder_path: Option<String>,
 }
 
@@ -81,32 +85,50 @@ pub struct WebdavAccountCreated {
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct WebdavAccountInfo {
+    /// 账号 ID。
     pub id: i64,
+    /// WebDAV 登录用户名。
     pub username: String,
+    /// 所属用户的 ID。
     pub user_id: i64,
+    /// 所属用户摘要；查不到时为 `None`。
     pub user: Option<UserSummary>,
+    /// 所属团队；个人账号为 `None`。
     pub team_id: Option<i64>,
+    /// 访问根目录的文件夹 ID；`None` 表示全部访问。
     pub root_folder_id: Option<i64>,
     /// 文件夹路径，如 "/Documents/Photos"，None 表示全部访问
     pub root_folder_path: Option<String>,
+    /// 是否启用；禁用后该账号认证直接失败。
     pub is_active: bool,
+    /// 创建时间（UTC）。
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: chrono::DateTime<Utc>,
+    /// 最近更新时间（UTC）。
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: chrono::DateTime<Utc>,
 }
 
+/// WebDAV 账号实体（不含密码散列）。
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct WebdavAccount {
+    /// 账号 ID。
     pub id: i64,
+    /// 所属用户的 ID。
     pub user_id: i64,
+    /// 所属团队；个人账号为 `None`。
     pub team_id: Option<i64>,
+    /// WebDAV 登录用户名，全局唯一。
     pub username: String,
+    /// 访问根目录的文件夹 ID；`None` 表示全部访问。
     pub root_folder_id: Option<i64>,
+    /// 是否启用；禁用后该账号认证直接失败。
     pub is_active: bool,
+    /// 创建时间（UTC）。
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: chrono::DateTime<Utc>,
+    /// 最近更新时间（UTC）。
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: chrono::DateTime<Utc>,
 }
@@ -146,6 +168,7 @@ pub async fn create(
     .await
 }
 
+/// 在团队工作空间创建 WebDAV 账号；`actor_user_id` 需具备团队元数据读取权限。
 pub async fn create_for_team(
     state: &impl SharedRuntimeState,
     actor_user_id: i64,
@@ -267,6 +290,7 @@ pub async fn list(state: &impl SharedRuntimeState, user_id: i64) -> Result<Vec<W
     build_account_infos(state, accounts).await
 }
 
+/// 列出团队的 WebDAV 账号；团队管理者可见全部，普通成员只见自己名下的。
 pub async fn list_for_team(
     state: &impl SharedRuntimeState,
     actor_user_id: i64,
@@ -284,6 +308,7 @@ pub async fn list_for_team(
     build_account_infos(state, accounts).await
 }
 
+/// 分页列出用户的 WebDAV 账号（带文件夹路径）。
 pub async fn list_paginated(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -300,6 +325,7 @@ pub async fn list_paginated(
     .await
 }
 
+/// 分页列出团队的 WebDAV 账号；可见范围与 [`list_for_team`] 一致。
 pub async fn list_team_paginated(
     state: &impl SharedRuntimeState,
     actor_user_id: i64,
@@ -386,6 +412,7 @@ pub async fn delete(state: &impl SharedRuntimeState, id: i64, user_id: i64) -> R
     Ok(())
 }
 
+/// 删除团队 WebDAV 账号；仅账号属主或团队管理者可操作。
 pub async fn delete_for_team(
     state: &impl SharedRuntimeState,
     id: i64,
@@ -443,6 +470,7 @@ pub async fn toggle_active(
     Ok(updated)
 }
 
+/// 切换团队账号的启用/禁用；仅账号属主或团队管理者可操作。
 pub async fn toggle_team_active(
     state: &impl SharedRuntimeState,
     id: i64,

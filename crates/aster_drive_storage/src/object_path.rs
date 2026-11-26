@@ -48,6 +48,12 @@ pub fn new_upload_staging_name() -> String {
     format!("{}.upload", aster_forge_utils::id::new_uuid())
 }
 
+/// Joins a previously generated staging name into the private `.staging/` area.
+///
+/// `name` must come from [`new_upload_staging_name`]: the value is re-validated
+/// (non-empty, no `.`/`..`, ASCII alphanumeric plus `.`/`-`/`_`) so a caller
+/// cannot point the path outside the staging namespace. Returns a
+/// [`StorageError`](crate::StorageError) of kind `Precondition` on invalid input.
 pub fn local_upload_staging_path(name: &str) -> Result<String> {
     if name.is_empty()
         || matches!(name, "." | "..")
@@ -103,6 +109,10 @@ pub fn multipart_parts_prefix(upload_id: &str) -> Result<String> {
     Ok(format!("uploads/{upload_id}/parts"))
 }
 
+/// Builds the object key for one numbered part under [`multipart_parts_prefix`].
+///
+/// `part_number` must be positive (1-based provider convention); zero or
+/// negative values return a `Precondition` error.
 pub fn multipart_part_path(upload_id: &str, part_number: i32) -> Result<String> {
     if part_number <= 0 {
         return Err(invalid(format!(
@@ -120,6 +130,10 @@ pub fn thumbnail_path(blob_hash: &str, processor: &str, version: &str) -> String
     derivative_path(THUMBNAIL_PREFIX, blob_hash, processor, version)
 }
 
+/// Builds the persisted object key for an image-preview derivative.
+///
+/// Same layout and stability guarantees as [`thumbnail_path`], under the
+/// `_preview` namespace.
 pub fn image_preview_path(blob_hash: &str, processor: &str, version: &str) -> String {
     derivative_path(IMAGE_PREVIEW_PREFIX, blob_hash, processor, version)
 }
@@ -132,12 +146,20 @@ fn derivative_path(namespace: &str, blob_hash: &str, processor: &str, version: &
     format!("{namespace}/{processor}/{version}/{first}/{second}/{blob_hash}.webp")
 }
 
+/// Reports whether a persisted object path belongs to the thumbnail namespace.
+///
+/// Leading slashes are ignored; the `_thumb` segment must be followed by `/`,
+/// so unrelated names such as `_thumbnail/...` do not match.
 pub fn is_thumbnail_path(path: &str) -> bool {
     path.trim_start_matches('/')
         .strip_prefix(THUMBNAIL_PREFIX)
         .is_some_and(|suffix| suffix.starts_with('/'))
 }
 
+/// Reports whether a persisted object path belongs to the image-preview namespace.
+///
+/// Leading slashes are ignored; the `_preview` segment must be followed by `/`,
+/// so unrelated names such as `_preview-else/...` do not match.
 pub fn is_image_preview_path(path: &str) -> bool {
     path.trim_start_matches('/')
         .strip_prefix(IMAGE_PREVIEW_PREFIX)

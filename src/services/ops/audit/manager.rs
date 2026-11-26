@@ -21,20 +21,33 @@ pub async fn flush(state: &impl SharedRuntimeState) -> crate::errors::Result<()>
         })
 }
 
+/// Whether `action` falls in the configurable best-effort audit scope.
+///
+/// Workspace mutations are unconditionally mandatory and are recorded
+/// through dedicated paths, so they are excluded here; every other action
+/// additionally has to be covered by the runtime audit settings.
 pub fn should_record<S: SharedRuntimeState>(state: &S, action: AuditAction) -> bool {
     !action.is_workspace_mutation() && state.runtime_config().should_record_audit_action(action)
 }
 
+/// Like [`should_record`], but evaluates the scope against an explicit
+/// runtime config snapshot instead of the shared runtime state.
 pub fn should_record_with_config(runtime_config: &RuntimeConfig, action: AuditAction) -> bool {
     !action.is_workspace_mutation() && runtime_config.should_record_audit_action(action)
 }
 
+/// Describes one audit entry to record: actor context, action, and target.
 #[derive(Debug, Clone, Copy)]
 pub struct AuditLogInput<'a> {
+    /// Actor and request metadata captured for this operation.
     pub ctx: &'a AuditContext,
+    /// Audit action being recorded.
     pub action: AuditAction,
+    /// Type of the entity the action targets.
     pub entity_type: AuditEntityType,
+    /// Id of the targeted entity, when it has a numeric identity.
     pub entity_id: Option<i64>,
+    /// Display name of the targeted entity at the time of the action.
     pub entity_name: Option<&'a str>,
 }
 
@@ -124,6 +137,12 @@ async fn record_prechecked_with_db(
     }
 }
 
+/// Records a best-effort audit entry through the background audit writer.
+///
+/// The entry is dropped without effect when [`should_record`] rejects the
+/// action; rejection by the writer (not running, invalid, or full) is logged
+/// and swallowed, and direct failures are retained for reconciliation. The
+/// caller's operation is never rolled back by this path.
 pub async fn log<S: SharedRuntimeState>(
     state: &S,
     ctx: &AuditContext,
@@ -149,6 +168,13 @@ pub async fn log<S: SharedRuntimeState>(
     .await;
 }
 
+/// Records a best-effort audit entry directly on the given database
+/// connection instead of the background audit writer.
+///
+/// Used where the audit row should share the connection a mutation already
+/// runs against. Applies the same action-scope filter as
+/// [`should_record_with_config`]; persistence failures are logged and
+/// swallowed, leaving the caller's operation untouched.
 pub async fn log_with_db_and_config<F>(
     db: &DatabaseConnection,
     runtime_config: &RuntimeConfig,
@@ -205,6 +231,10 @@ where
         .map(|_| ())
 }
 
+/// Like [`log`], but builds the details payload lazily via `details`.
+///
+/// Serialization runs only after the action-scope check passes, so filtered
+/// actions never pay for building their details.
 pub async fn log_with_details<S, F>(
     state: &S,
     ctx: &AuditContext,
@@ -221,7 +251,6 @@ pub async fn log_with_details<S, F>(
         return;
     }
 
-    // Details can be expensive to serialize, so build them only after scope filtering.
     let details = details();
     record_prechecked(
         state,

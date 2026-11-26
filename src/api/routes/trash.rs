@@ -19,6 +19,8 @@ use actix_web::{HttpRequest, HttpResponse, web};
 use aster_drive_model::types::EntityType;
 use aster_forge_middleware::actix::rate_limit::RateLimit;
 
+/// Builds the personal `/api/v1/trash` route scope behind JWT auth and the API rate
+/// limiter.
 pub fn routes(
     rl: &RateLimitConfig,
     network_trust: &NetworkTrustConfig,
@@ -34,6 +36,7 @@ pub fn routes(
         .route("/{entity_type}/{id}", web::delete().to(purge_one))
 }
 
+/// Builds the team trash route scope mounted under `/api/v1/teams/{team_id}/trash`.
 pub fn team_routes() -> actix_web::Scope {
     web::scope("/{team_id}/trash")
         .route("", web::get().to(team_list_trash))
@@ -42,6 +45,8 @@ pub fn team_routes() -> actix_web::Scope {
         .route("/{entity_type}/{id}", web::delete().to(team_purge_one))
 }
 
+/// Lists the current user's trash contents (deleted files and folders), with
+/// cursor-based pagination.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/trash",
@@ -74,6 +79,8 @@ pub async fn list_trash(
     Ok(HttpResponse::Ok().json(crate::api::response::success(contents)))
 }
 
+/// Restores a trashed file or folder back to its original location; large folder
+/// trees are restored via a queued task (202).
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/trash/{entity_type}/{id}/restore",
@@ -136,6 +143,8 @@ pub async fn restore(
     }
 }
 
+/// Permanently deletes one trashed file or folder and records the action in the
+/// audit log.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/trash/{entity_type}/{id}",
@@ -185,6 +194,8 @@ pub async fn purge_one(
     Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
+/// Creates a background task that permanently purges the current user's entire
+/// trash, and records the request in the audit log.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/trash",
@@ -224,6 +235,7 @@ pub async fn purge_all(
     Ok(HttpResponse::Ok().json(crate::api::response::success(task)))
 }
 
+/// Lists a team workspace's trash contents with cursor-based pagination.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/trash",
@@ -263,6 +275,8 @@ pub(crate) async fn team_list_trash(
     Ok(HttpResponse::Ok().json(crate::api::response::success(contents)))
 }
 
+/// Restores a trashed team file or folder back to its original location; large
+/// folder trees are restored via a queued task (202).
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/trash/{entity_type}/{id}/restore",
@@ -329,6 +343,8 @@ pub(crate) async fn team_restore(
     }
 }
 
+/// Permanently deletes one trashed team file or folder and records the action in
+/// the audit log.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/teams/{team_id}/trash/{entity_type}/{id}",
@@ -386,6 +402,8 @@ pub(crate) async fn team_purge_one(
     Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
+/// Creates a background task that permanently purges a team's entire trash, and
+/// records the request in the audit log.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/teams/{team_id}/trash",

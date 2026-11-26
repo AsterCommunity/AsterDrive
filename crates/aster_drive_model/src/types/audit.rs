@@ -200,21 +200,26 @@ macro_rules! define_audit_entity_type {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
         pub enum AuditEntityType {
             $(
+                /// 被审计的资源实体类型。
                 #[serde(rename = $name)]
                 $variant,
             )+
         }
 
         impl AuditEntityType {
+            /// Number of distinct audit entity types.
             pub const COUNT: usize = <[()]>::len(&[$(define_audit_entity_type!(@unit $variant)),+]);
+            /// Every audit entity type, in declaration order.
             pub const ALL: [Self; Self::COUNT] = [$(Self::$variant,)+];
 
+            /// Canonical snake_case wire name persisted in audit rows and accepted by filters.
             pub const fn as_str(self) -> &'static str {
                 match self {
                     $(Self::$variant => $name,)+
                 }
             }
 
+            /// Parses a wire name produced by [`Self::as_str`]; returns `None` for unknown names.
             pub fn from_str_name(value: &str) -> Option<Self> {
                 match value {
                     $($name => Some(Self::$variant),)+
@@ -222,6 +227,7 @@ macro_rules! define_audit_entity_type {
                 }
             }
 
+            /// Maps a general entity type to its audit counterpart; only file and folder are audited.
             pub const fn from_entity_type(entity_type: EntityType) -> Self {
                 match entity_type {
                     EntityType::File => Self::File,
@@ -330,6 +336,7 @@ impl<'de> Deserialize<'de> for AuditEntityType {
     }
 }
 
+/// Error returned when a string does not match any known audit entity type.
 #[derive(Debug, Clone, Copy)]
 pub struct ParseAuditEntityTypeError;
 
@@ -347,328 +354,487 @@ impl std::error::Error for ParseAuditEntityTypeError {}
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(64))")]
 #[serde(rename_all = "snake_case")]
 pub enum AuditAction {
+    /// Administrator created a user account.
     #[sea_orm(string_value = "admin_create_user")]
     AdminCreateUser,
+    /// Administrator permanently deleted a user account together with its owned resources.
     #[sea_orm(string_value = "admin_force_delete_user")]
     AdminForceDeleteUser,
+    /// Administrator created a team.
     #[sea_orm(string_value = "admin_create_team")]
     AdminCreateTeam,
+    /// Administrator created a policy group.
     #[sea_orm(string_value = "admin_create_policy_group")]
     AdminCreatePolicyGroup,
+    /// Administrator archived a team.
     #[sea_orm(string_value = "admin_archive_team")]
     AdminArchiveTeam,
+    /// Administrator restored a previously archived team.
     #[sea_orm(string_value = "admin_restore_team")]
     AdminRestoreTeam,
+    /// Administrator revoked all active sessions of a user.
     #[sea_orm(string_value = "admin_revoke_user_sessions")]
     AdminRevokeUserSessions,
+    /// Administrator reset a user's password.
     #[sea_orm(string_value = "admin_reset_user_password")]
     AdminResetUserPassword,
+    /// Administrator reset or disabled a user's MFA enrollment.
     #[sea_orm(string_value = "admin_reset_user_mfa")]
     AdminResetUserMfa,
+    /// Administrator updated team settings.
     #[sea_orm(string_value = "admin_update_team")]
     AdminUpdateTeam,
+    /// Administrator updated a user account.
     #[sea_orm(string_value = "admin_update_user")]
     AdminUpdateUser,
+    /// Administrator deleted a policy group.
     #[sea_orm(string_value = "admin_delete_policy_group")]
     AdminDeletePolicyGroup,
+    /// Administrator moved users from one policy group to another.
     #[sea_orm(string_value = "admin_migrate_policy_group_users")]
     AdminMigratePolicyGroupUsers,
+    /// Administrator updated a policy group.
     #[sea_orm(string_value = "admin_update_policy_group")]
     AdminUpdatePolicyGroup,
+    /// Administrator created a storage policy.
     #[sea_orm(string_value = "admin_create_policy")]
     AdminCreatePolicy,
+    /// Administrator updated a storage policy.
     #[sea_orm(string_value = "admin_update_policy")]
     AdminUpdatePolicy,
+    /// Administrator deleted a storage policy.
     #[sea_orm(string_value = "admin_delete_policy")]
     AdminDeletePolicy,
+    /// Administrator executed a connector-defined action on a storage policy or its draft.
     #[sea_orm(string_value = "admin_trigger_storage_action")]
     AdminTriggerStorageAction,
+    /// Administrator deleted a system configuration entry.
     #[sea_orm(string_value = "admin_delete_config")]
     AdminDeleteConfig,
+    /// Administrator deleted a share owned by another user.
     #[sea_orm(string_value = "admin_delete_share")]
     AdminDeleteShare,
+    /// Administrator force-released a resource lock regardless of its owner.
     #[sea_orm(string_value = "admin_force_unlock")]
     AdminForceUnlock,
+    /// Administrator triggered cleanup of expired resource locks.
     #[sea_orm(string_value = "admin_cleanup_expired_locks")]
     AdminCleanupExpiredLocks,
+    /// Administrator triggered cleanup of finished or stale background tasks.
     #[sea_orm(string_value = "admin_cleanup_tasks")]
     AdminCleanupTasks,
+    /// Administrator created a blob maintenance (garbage collection / repair) task.
     #[sea_orm(string_value = "admin_create_blob_maintenance_task")]
     AdminCreateBlobMaintenanceTask,
+    /// Administrator registered a remote node.
     #[sea_orm(string_value = "admin_create_remote_node")]
     AdminCreateRemoteNode,
+    /// Administrator updated a remote node's configuration.
     #[sea_orm(string_value = "admin_update_remote_node")]
     AdminUpdateRemoteNode,
+    /// Administrator removed a remote node.
     #[sea_orm(string_value = "admin_delete_remote_node")]
     AdminDeleteRemoteNode,
+    /// Administrator ran a connectivity test against a remote node.
     #[sea_orm(string_value = "admin_test_remote_node")]
     AdminTestRemoteNode,
+    /// Administrator issued an enrollment token for joining a remote node.
     #[sea_orm(string_value = "admin_create_remote_node_enrollment_token")]
     AdminCreateRemoteNodeEnrollmentToken,
+    /// Administrator created a remote storage target on a remote node.
     #[sea_orm(string_value = "admin_create_remote_storage_target")]
     AdminCreateRemoteStorageTarget,
+    /// Administrator updated a remote storage target on a remote node.
     #[sea_orm(string_value = "admin_update_remote_storage_target")]
     AdminUpdateRemoteStorageTarget,
+    /// Administrator deleted a remote storage target on a remote node.
     #[sea_orm(string_value = "admin_delete_remote_storage_target")]
     AdminDeleteRemoteStorageTarget,
+    /// Administrator registered an external authentication provider.
     #[sea_orm(string_value = "admin_create_external_auth_provider")]
     AdminCreateExternalAuthProvider,
+    /// Administrator updated an external authentication provider.
     #[sea_orm(string_value = "admin_update_external_auth_provider")]
     AdminUpdateExternalAuthProvider,
+    /// Administrator removed an external authentication provider.
     #[sea_orm(string_value = "admin_delete_external_auth_provider")]
     AdminDeleteExternalAuthProvider,
+    /// Administrator ran a connectivity test against an external authentication provider.
     #[sea_orm(string_value = "admin_test_external_auth_provider")]
     AdminTestExternalAuthProvider,
+    /// A multi-file batch copy operation completed.
     #[sea_orm(string_value = "batch_copy")]
     BatchCopy,
+    /// A multi-file batch delete operation completed.
     #[sea_orm(string_value = "batch_delete")]
     BatchDelete,
+    /// A multi-file batch move operation completed.
     #[sea_orm(string_value = "batch_move")]
     BatchMove,
+    /// A stored system configuration action was executed.
     #[sea_orm(string_value = "config_action_execute")]
     ConfigActionExecute,
+    /// A system configuration value was created or changed.
     #[sea_orm(string_value = "config_update")]
     ConfigUpdate,
+    /// A file was copied within or across workspaces.
     #[sea_orm(string_value = "file_copy")]
     FileCopy,
+    /// A file was created.
     #[sea_orm(string_value = "file_create")]
     FileCreate,
+    /// A file was moved to trash.
     #[sea_orm(string_value = "file_delete")]
     FileDelete,
+    /// A file's content was downloaded.
     #[sea_orm(string_value = "file_download")]
     FileDownload,
+    /// A direct-download access token was issued for a file.
     #[sea_orm(string_value = "file_direct_link_create")]
     FileDirectLinkCreate,
+    /// A file's content was modified in place.
     #[sea_orm(string_value = "file_edit")]
     FileEdit,
+    /// A file was moved to another folder.
     #[sea_orm(string_value = "file_move")]
     FileMove,
+    /// A file was renamed.
     #[sea_orm(string_value = "file_rename")]
     FileRename,
+    /// A file upload completed.
     #[sea_orm(string_value = "file_upload")]
     FileUpload,
+    /// An in-browser preview access token was issued for a file.
     #[sea_orm(string_value = "file_preview_link_create")]
     FilePreviewLinkCreate,
+    /// A file was opened for editing through the WOPI protocol.
     #[sea_orm(string_value = "file_wopi_open")]
     FileWopiOpen,
+    /// An in-progress upload was cancelled by the client.
     #[sea_orm(string_value = "file_upload_cancel")]
     FileUploadCancel,
+    /// A trashed file was restored.
     #[sea_orm(string_value = "file_restore")]
     FileRestore,
+    /// A trashed file was permanently purged.
     #[sea_orm(string_value = "file_purge")]
     FilePurge,
+    /// A lock was placed on a file.
     #[sea_orm(string_value = "file_lock")]
     FileLock,
+    /// A file's lock was released.
     #[sea_orm(string_value = "file_unlock")]
     FileUnlock,
+    /// A file was rolled back to a previous version.
     #[sea_orm(string_value = "file_version_restore")]
     FileVersionRestore,
+    /// A stored file version was deleted.
     #[sea_orm(string_value = "file_version_delete")]
     FileVersionDelete,
+    /// A folder was copied within or across workspaces.
     #[sea_orm(string_value = "folder_copy")]
     FolderCopy,
+    /// A folder was created.
     #[sea_orm(string_value = "folder_create")]
     FolderCreate,
+    /// A folder was moved to trash.
     #[sea_orm(string_value = "folder_delete")]
     FolderDelete,
+    /// A folder was moved to another parent.
     #[sea_orm(string_value = "folder_move")]
     FolderMove,
+    /// A folder's storage policy assignment was changed.
     #[sea_orm(string_value = "folder_policy_change")]
     FolderPolicyChange,
+    /// A folder was renamed.
     #[sea_orm(string_value = "folder_rename")]
     FolderRename,
+    /// A trashed folder was restored.
     #[sea_orm(string_value = "folder_restore")]
     FolderRestore,
+    /// A trashed folder was permanently purged.
     #[sea_orm(string_value = "folder_purge")]
     FolderPurge,
+    /// A lock was placed on a folder.
     #[sea_orm(string_value = "folder_lock")]
     FolderLock,
+    /// A folder's lock was released.
     #[sea_orm(string_value = "folder_unlock")]
     FolderUnlock,
+    /// A WebDAV metadata property was set on a resource.
     #[sea_orm(string_value = "property_set")]
     PropertySet,
+    /// A WebDAV metadata property was removed from a resource.
     #[sea_orm(string_value = "property_delete")]
     PropertyDelete,
+    /// Multiple shares were deleted in one batch.
     #[sea_orm(string_value = "share_batch_delete")]
     ShareBatchDelete,
+    /// A share was created.
     #[sea_orm(string_value = "share_create")]
     ShareCreate,
+    /// A share was deleted.
     #[sea_orm(string_value = "share_delete")]
     ShareDelete,
+    /// A share's settings were updated.
     #[sea_orm(string_value = "share_update")]
     ShareUpdate,
+    /// Initial instance setup completed and the system became usable.
     #[sea_orm(string_value = "system_setup")]
     SystemSetup,
+    /// The server process started.
     #[sea_orm(string_value = "server_start")]
     ServerStart,
+    /// The server process shut down.
     #[sea_orm(string_value = "server_shutdown")]
     ServerShutdown,
+    /// A team was archived.
     #[sea_orm(string_value = "team_archive")]
     TeamArchive,
+    /// Expired archived teams were cleaned up by the retention sweep.
     #[sea_orm(string_value = "team_cleanup_expired")]
     TeamCleanupExpired,
+    /// A team was created.
     #[sea_orm(string_value = "team_create")]
     TeamCreate,
+    /// A member was added to a team.
     #[sea_orm(string_value = "team_member_add")]
     TeamMemberAdd,
+    /// A member was removed from a team.
     #[sea_orm(string_value = "team_member_remove")]
     TeamMemberRemove,
+    /// A team member's role or membership was updated.
     #[sea_orm(string_value = "team_member_update")]
     TeamMemberUpdate,
+    /// A previously archived team was restored.
     #[sea_orm(string_value = "team_restore")]
     TeamRestore,
+    /// A team's settings were updated.
     #[sea_orm(string_value = "team_update")]
     TeamUpdate,
+    /// A background task was retried.
     #[sea_orm(string_value = "task_retry")]
     TaskRetry,
+    /// Cancellation was requested for a running background task.
     #[sea_orm(string_value = "task_cancel_requested")]
     TaskCancelRequested,
+    /// An archive file was created by compressing selected resources.
     #[sea_orm(string_value = "archive_compress")]
     ArchiveCompress,
+    /// An archive file was extracted into the workspace.
     #[sea_orm(string_value = "archive_extract")]
     ArchiveExtract,
+    /// An archive file was downloaded.
     #[sea_orm(string_value = "archive_download")]
     ArchiveDownload,
+    /// A remote-URL download task was created to fetch content into the workspace.
     #[sea_orm(string_value = "offline_download")]
     OfflineDownload,
+    /// The entire trash was emptied.
     #[sea_orm(string_value = "trash_purge_all")]
     TrashPurgeAll,
+    /// A remote node redeemed an enrollment token to join the primary.
     #[sea_orm(string_value = "remote_enrollment_redeem")]
     RemoteEnrollmentRedeem,
+    /// The primary acknowledged a remote node's enrollment completion.
     #[sea_orm(string_value = "remote_enrollment_ack")]
     RemoteEnrollmentAck,
+    /// A user revoked all sessions except the current one.
     #[sea_orm(string_value = "user_revoke_other_sessions")]
     UserRevokeOtherSessions,
+    /// A user revoked a specific session.
     #[sea_orm(string_value = "user_revoke_session")]
     UserRevokeSession,
+    /// A user updated their preferences.
     #[sea_orm(string_value = "user_update_preferences")]
     UserUpdatePreferences,
+    /// A user updated their profile information.
     #[sea_orm(string_value = "user_update_profile")]
     UserUpdateProfile,
+    /// A user uploaded a new avatar image.
     #[sea_orm(string_value = "user_upload_avatar")]
     UserUploadAvatar,
+    /// A user switched their avatar source (none, gravatar, or upload).
     #[sea_orm(string_value = "user_set_avatar_source")]
     UserSetAvatarSource,
+    /// A user updated their WOPI integration identity information.
     #[sea_orm(string_value = "user_update_wopi_info")]
     UserUpdateWopiInfo,
+    /// A personal WebDAV account credential was created.
     #[sea_orm(string_value = "webdav_account_create")]
     WebdavAccountCreate,
+    /// A personal WebDAV account was deleted.
     #[sea_orm(string_value = "webdav_account_delete")]
     WebdavAccountDelete,
+    /// A personal WebDAV account was enabled or disabled.
     #[sea_orm(string_value = "webdav_account_toggle")]
     WebdavAccountToggle,
+    /// A team-scoped WebDAV account credential was created.
     #[sea_orm(string_value = "team_webdav_account_create")]
     TeamWebdavAccountCreate,
+    /// A team-scoped WebDAV account was deleted.
     #[sea_orm(string_value = "team_webdav_account_delete")]
     TeamWebdavAccountDelete,
+    /// A team-scoped WebDAV account was enabled or disabled.
     #[sea_orm(string_value = "team_webdav_account_toggle")]
     TeamWebdavAccountToggle,
+    /// A user changed their own password.
     #[sea_orm(string_value = "user_change_password")]
     UserChangePassword,
+    /// A user completed a password reset with a reset token.
     #[sea_orm(string_value = "user_confirm_password_reset")]
     UserConfirmPasswordReset,
+    /// A user confirmed an email change with the confirmation token.
     #[sea_orm(string_value = "user_confirm_email_change")]
     UserConfirmEmailChange,
+    /// A user confirmed registration with the confirmation token.
     #[sea_orm(string_value = "user_confirm_registration")]
     UserConfirmRegistration,
+    /// A user logged in.
     #[sea_orm(string_value = "user_login")]
     UserLogin,
+    /// A user logged out.
     #[sea_orm(string_value = "user_logout")]
     UserLogout,
+    /// A user enabled MFA.
     #[sea_orm(string_value = "user_mfa_enable")]
     UserMfaEnable,
+    /// A user disabled MFA.
     #[sea_orm(string_value = "user_mfa_disable")]
     UserMfaDisable,
+    /// A user regenerated their MFA recovery codes.
     #[sea_orm(string_value = "user_mfa_recovery_codes_regenerate")]
     UserMfaRecoveryCodesRegenerate,
+    /// An MFA email verification code was sent to a user.
     #[sea_orm(string_value = "user_mfa_email_code_send")]
     UserMfaEmailCodeSend,
+    /// An MFA challenge was satisfied.
     #[sea_orm(string_value = "user_mfa_challenge_success")]
     UserMfaChallengeSuccess,
+    /// An MFA challenge attempt failed.
     #[sea_orm(string_value = "user_mfa_challenge_failed")]
     UserMfaChallengeFailed,
+    /// A registered passkey was deleted.
     #[sea_orm(string_value = "user_passkey_delete")]
     UserPasskeyDelete,
+    /// A user authenticated with a passkey.
     #[sea_orm(string_value = "user_passkey_login")]
     UserPasskeyLogin,
+    /// A new passkey was registered for a user.
     #[sea_orm(string_value = "user_passkey_register")]
     UserPasskeyRegister,
+    /// A registered passkey was renamed.
     #[sea_orm(string_value = "user_passkey_rename")]
     UserPasskeyRename,
+    /// A user logged in through an external authentication provider.
     #[sea_orm(string_value = "user_external_auth_login")]
     UserExternalAuthLogin,
+    /// A user linked an external authentication identity to their account.
     #[sea_orm(string_value = "user_external_auth_link")]
     UserExternalAuthLink,
+    /// A user unlinked an external authentication identity from their account.
     #[sea_orm(string_value = "user_external_auth_unlink")]
     UserExternalAuthUnlink,
+    /// Refresh-token reuse was detected and the token family was invalidated.
     #[sea_orm(string_value = "user_refresh_token_reuse_detected")]
     UserRefreshTokenReuseDetected,
+    /// A user requested an email change.
     #[sea_orm(string_value = "user_request_email_change")]
     UserRequestEmailChange,
+    /// A user requested a password reset email.
     #[sea_orm(string_value = "user_request_password_reset")]
     UserRequestPasswordReset,
+    /// A new user registered an account.
     #[sea_orm(string_value = "user_register")]
     UserRegister,
+    /// The email-change confirmation email was resent.
     #[sea_orm(string_value = "user_resend_email_change")]
     UserResendEmailChange,
+    /// The registration confirmation email was resent.
     #[sea_orm(string_value = "user_resend_registration")]
     UserResendRegistration,
+    /// Binding information was synced from the primary to a follower node.
     #[sea_orm(string_value = "follower_binding_sync")]
     FollowerBindingSync,
+    /// A follower node served an object read to the internal storage protocol.
     #[sea_orm(string_value = "follower_object_read")]
     FollowerObjectRead,
+    /// A follower node stored an object through the internal storage protocol.
     #[sea_orm(string_value = "follower_object_write")]
     FollowerObjectWrite,
+    /// A follower node deleted an object through the internal storage protocol.
     #[sea_orm(string_value = "follower_object_delete")]
     FollowerObjectDelete,
+    /// A follower node assembled uploaded parts into a complete object.
     #[sea_orm(string_value = "follower_object_compose")]
     FollowerObjectCompose,
+    /// A follower node created a remote storage target.
     #[sea_orm(string_value = "follower_storage_target_create")]
     FollowerStorageTargetCreate,
+    /// A follower node updated a remote storage target.
     #[sea_orm(string_value = "follower_storage_target_update")]
     FollowerStorageTargetUpdate,
+    /// A follower node deleted a remote storage target.
     #[sea_orm(string_value = "follower_storage_target_delete")]
     FollowerStorageTargetDelete,
+    /// An email was sent.
     #[sea_orm(string_value = "mail_send")]
     MailSend,
+    /// An email delivery attempt failed.
     #[sea_orm(string_value = "mail_delivery_failed")]
     MailDeliveryFailed,
+    /// Administrator created an invitation.
     #[sea_orm(string_value = "admin_create_invitation")]
     AdminCreateInvitation,
+    /// Administrator revoked an invitation.
     #[sea_orm(string_value = "admin_revoke_invitation")]
     AdminRevokeInvitation,
+    /// A tag was created.
     #[sea_orm(string_value = "tag_create")]
     TagCreate,
+    /// A tag was updated.
     #[sea_orm(string_value = "tag_update")]
     TagUpdate,
+    /// A tag was deleted.
     #[sea_orm(string_value = "tag_delete")]
     TagDelete,
+    /// A tag was attached to a resource.
     #[sea_orm(string_value = "tag_attach")]
     TagAttach,
+    /// A tag was detached from a resource.
     #[sea_orm(string_value = "tag_detach")]
     TagDetach,
+    /// A remote node established a connection to the primary.
     #[sea_orm(string_value = "remote_node_connected")]
     RemoteNodeConnected,
+    /// A remote node disconnected in an orderly shutdown.
     #[sea_orm(string_value = "remote_node_graceful_disconnect")]
     RemoteNodeGracefulDisconnect,
+    /// A remote node dropped its connection without notice.
     #[sea_orm(string_value = "remote_node_unexpected_disconnect")]
     RemoteNodeUnexpectedDisconnect,
+    /// A remote node was marked offline after missing heartbeats.
     #[sea_orm(string_value = "remote_node_heartbeat_timeout")]
     RemoteNodeHeartbeatTimeout,
     /// Administrator confirmed creation of a destructive policy-purge task.
     #[sea_orm(string_value = "admin_create_storage_policy_forced_purge_task")]
     AdminCreateStoragePolicyForcedPurgeTask,
+    /// A folder's display icon was changed.
     #[sea_orm(string_value = "folder_icon_change")]
     FolderIconChange,
+    /// Administrator inspected another user's workspace for support or moderation.
     #[sea_orm(string_value = "admin_workspace_inspect")]
     AdminWorkspaceInspect,
+    /// Administrator downloaded a file from a user's workspace.
     #[sea_orm(string_value = "admin_file_download")]
     AdminFileDownload,
+    /// Administrator downloaded a specific file revision.
     #[sea_orm(string_value = "admin_revision_download")]
     AdminRevisionDownload,
 }
 
 impl AuditAction {
+    /// Whether the action mutates workspace content, which should be audited unconditionally.
     pub const fn is_workspace_mutation(self) -> bool {
         matches!(
             self,
@@ -695,7 +861,9 @@ impl AuditAction {
         )
     }
 
+    /// Number of distinct audit actions.
     pub const COUNT: usize = define_audit_action_list!(audit_action_count);
+    /// Every audit action, in the order matching its stable bit index.
     pub const ALL: [Self; Self::COUNT] = define_audit_action_list!(audit_action_all);
 
     /// Return the stable action bit index used by runtime audit-selection masks.

@@ -13,17 +13,27 @@ use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::remote_tunnel_owner;
 use aster_drive_storage::StorageErrorKind;
 
+/// Reverse tunnel owner lease TTL; a lease not renewed within this window
+/// lapses and another primary may take over.
 pub const REMOTE_TUNNEL_OWNER_LEASE_TTL: Duration = Duration::from_secs(45);
+/// Interval between owner lease renewals; renewals must run well inside
+/// `REMOTE_TUNNEL_OWNER_LEASE_TTL`.
 pub const REMOTE_TUNNEL_OWNER_RENEW_INTERVAL: Duration = Duration::from_secs(15);
 const REMOTE_TUNNEL_OWNER_LEASE_PREFIX: &str = "aster_drive.remote_tunnel";
 type RemoteTunnelStreamClaimCounter = Arc<tokio::sync::Mutex<usize>>;
 
+/// Snapshot of the primary runtime currently owning one follower's reverse tunnel.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteTunnelOwnerLease {
+    /// Follower the lease covers.
     pub remote_node_id: i64,
+    /// Identifier of the owning runtime.
     pub runtime_id: String,
+    /// Internal endpoint standbys proxy tunnel traffic through.
     pub internal_endpoint: String,
+    /// Token fencing lease operations against stale owners.
     pub fencing_token: String,
+    /// Lease expiry (UTC); past this point the lease no longer confers ownership.
     pub lease_expires_at: DateTime<Utc>,
 }
 
@@ -39,9 +49,13 @@ impl From<remote_tunnel_owner::Model> for RemoteTunnelOwnerLease {
     }
 }
 
+/// Outcome of trying to claim a follower's reverse tunnel ownership.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RemoteTunnelOwnerClaim {
+    /// This runtime holds the lease.
     Owned(RemoteTunnelOwnerLease),
+    /// Another runtime owns the tunnel; the current lease is carried when
+    /// observable.
     Standby(Option<RemoteTunnelOwnerLease>),
 }
 
@@ -125,6 +139,9 @@ async fn release_stream_owner_with_warning(
     }
 }
 
+/// Cluster-wide directory that owns follower tunnel leases in the shared
+/// database: claims, renews, releases, and publishes owner identity so
+/// standbys can proxy through the owner's internal endpoint.
 #[derive(Clone)]
 pub struct RemoteTunnelOwnerDirectory {
     db: sea_orm::DatabaseConnection,
@@ -136,6 +153,9 @@ pub struct RemoteTunnelOwnerDirectory {
 }
 
 impl RemoteTunnelOwnerDirectory {
+    /// Builds the directory for this runtime; `None` when the internal proxy
+    /// is disabled (single-node deployments run without lease management).
+    /// Errors on an unusable `internal_endpoint` or empty `runtime_id`.
     pub fn from_deployment(
         db: sea_orm::DatabaseConnection,
         deployment: &DeploymentConfig,
@@ -171,26 +191,35 @@ impl RemoteTunnelOwnerDirectory {
         }))
     }
 
+    /// Identifier of this runtime.
     pub fn runtime_id(&self) -> &str {
         &self.runtime_id
     }
 
+    /// Internal endpoint other primaries proxy tunnel traffic through.
     pub fn internal_endpoint(&self) -> &str {
         &self.internal_endpoint
     }
 
+    /// Fencing token minted for this runtime instance.
     pub fn fencing_token(&self) -> &str {
         &self.fencing_token
     }
 
+    /// Shared secret signing proxy requests between primaries.
     pub fn proxy_secret(&self) -> &str {
         &self.proxy_secret
     }
 
+    /// Whether `owner` was issued by this exact directory instance (matching
+    /// runtime id and fencing token).
     pub fn is_local_owner(&self, owner: &RemoteTunnelOwnerLease) -> bool {
         owner.runtime_id == self.runtime_id && owner.fencing_token == self.fencing_token
     }
 
+    /// Tries to acquire the tunnel owner lease for one follower in the shared
+    /// database, returning the standby view of the current owner when someone
+    /// else holds it.
     pub async fn try_claim(&self, remote_node_id: i64) -> Result<RemoteTunnelOwnerClaim> {
         let now = Utc::now();
         let expires_at = lease_expires_at(now);
@@ -241,6 +270,8 @@ impl RemoteTunnelOwnerDirectory {
             .clone()
     }
 
+    /// Renews this runtime's owner lease for one follower. Returns `false`
+    /// when the lease was lost or fenced by another runtime.
     pub async fn renew(&self, remote_node_id: i64) -> Result<bool> {
         let now = Utc::now();
         let expires_at = lease_expires_at(now);
@@ -262,6 +293,8 @@ impl RemoteTunnelOwnerDirectory {
         Ok(true)
     }
 
+    /// Releases the owner lease for one follower, allowing immediate takeover
+    /// by another runtime. Fenced by the issuing fencing token.
     pub async fn release(&self, remote_node_id: i64) -> Result<()> {
         let store = aster_forge_db::RuntimeLeaseDbStore::new(self.db.clone());
         store
@@ -320,6 +353,9 @@ impl RemoteTunnelOwnerDirectory {
         Ok(())
     }
 
+    /// Reads the currently observable owner lease for one follower; `None`
+    /// when no valid, unexpired lease exists or the persisted directory row
+    /// does not match the lease fencing token.
     pub async fn current_owner(
         &self,
         remote_node_id: i64,
@@ -346,6 +382,8 @@ impl RemoteTunnelOwnerDirectory {
         Ok(owner.map(RemoteTunnelOwnerLease::from))
     }
 
+    /// Reports whether this runtime still holds the follower's tunnel lease
+    /// under `fencing_token`; proxy handlers call this before relaying traffic.
     pub async fn verify_local_fencing(
         &self,
         remote_node_id: i64,
@@ -359,6 +397,9 @@ impl RemoteTunnelOwnerDirectory {
             }))
     }
 
+    /// Runs `operation` while holding and periodically renewing the follower's
+    /// tunnel lease; errors with a transient "fenced" failure before the
+    /// operation starts or mid-flight if the lease is lost.
     pub async fn run_while_owned<T>(
         &self,
         remote_node_id: i64,

@@ -18,6 +18,8 @@ use aster_drive_storage::{MapStorageErr, Result, StorageErrorKind, storage_drive
 
 use super::error::{invalid_graph_url, map_graph_response_error, map_reqwest_error};
 
+/// Microsoft Graph client splitting control, download, and upload traffic onto
+/// separate HTTP clients with distinct timeout semantics.
 #[derive(Clone, Debug)]
 pub struct MicrosoftGraphClient {
     config: MicrosoftGraphClientConfig,
@@ -30,20 +32,27 @@ pub struct MicrosoftGraphClient {
     upload_idle_timeout: std::time::Duration,
 }
 
+/// Graph API endpoint and access-token source for [`MicrosoftGraphClient`].
 #[derive(Clone, Debug)]
 pub struct MicrosoftGraphClientConfig {
+    /// Graph API base URL, for example `https://graph.microsoft.com`.
     pub graph_base_url: String,
+    /// Source of OAuth access tokens, refreshed transparently on HTTP 401.
     pub token_provider: Arc<dyn MicrosoftGraphAccessTokenProvider>,
 }
 
 #[async_trait]
+/// Supplies Microsoft Graph access tokens for [`MicrosoftGraphClient`].
 pub trait MicrosoftGraphAccessTokenProvider: Send + Sync + std::fmt::Debug {
+    /// Whether a credential is present at all; used for construction-time checks.
     fn is_configured(&self) -> bool {
         true
     }
 
+    /// Current access token; may be stale, since 401 responses trigger a refresh.
     async fn access_token(&self) -> AsterResult<String>;
 
+    /// Forced token refresh after a 401 response.
     async fn refresh_access_token(&self) -> AsterResult<String>;
 }
 
@@ -52,58 +61,79 @@ struct StaticMicrosoftGraphAccessTokenProvider {
     access_token: SecretString,
 }
 
+/// Subset of a Graph `driveItem` payload used by the OneDrive driver.
 #[derive(Clone, Debug, Deserialize)]
 pub struct MicrosoftGraphDriveItem {
+    /// Graph item ID.
     pub id: String,
+    /// Item name; absent when the response omits it.
     #[serde(default)]
     pub name: Option<String>,
+    /// Item size in bytes; absent for some item shapes.
     #[serde(default)]
     pub size: Option<i64>,
+    /// File facet payload; present for files.
     #[serde(default)]
     #[serde(rename = "file")]
     pub file: Option<serde_json::Value>,
+    /// Folder facet payload; present for folders.
     #[serde(default)]
     #[serde(rename = "folder")]
     pub folder: Option<serde_json::Value>,
+    /// Parent navigation reference; present for non-root items.
     #[serde(default)]
     #[serde(rename = "parentReference")]
     pub parent_reference: Option<MicrosoftGraphDriveItemParentReference>,
 }
 
+/// Graph `parentReference` identifying the containing drive and item.
 #[derive(Clone, Debug, Deserialize)]
 pub struct MicrosoftGraphDriveItemParentReference {
+    /// Owning drive ID.
     #[serde(default)]
     #[serde(rename = "driveId")]
     pub drive_id: Option<String>,
+    /// Parent item ID.
     #[serde(default)]
     pub id: Option<String>,
+    /// Parent path as spelled by Graph, for example `/root:/folder`.
     #[serde(default)]
     pub path: Option<String>,
 }
 
+/// Subset of a Graph `drive` payload used for connectivity and quota checks.
 #[derive(Debug, Deserialize)]
 pub struct MicrosoftGraphDrive {
+    /// Drive ID.
     pub id: String,
+    /// Drive display name; absent when the response omits it.
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
     quota: Option<MicrosoftGraphQuota>,
 }
 
+/// Graph upload session handle returned by `createUploadSession`.
 #[derive(Debug, Deserialize)]
 pub struct MicrosoftGraphUploadSession {
+    /// Preauthenticated upload endpoint; no OAuth header is sent here.
     #[serde(default)]
     #[serde(rename = "uploadUrl")]
     pub upload_url: String,
+    /// Provider-side expiry of the session, if reported.
     #[serde(default, rename = "expirationDateTime")]
     pub expires_at: Option<DateTime<Utc>>,
+    /// Byte ranges the provider still expects, as reported by the last ack.
     #[serde(default, rename = "nextExpectedRanges")]
     pub next_expected_ranges: Vec<String>,
 }
 
+/// Result of uploading one fragment through a Graph upload session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MicrosoftGraphUploadFragmentOutcome {
+    /// True when this fragment completed the whole object.
     pub completed: bool,
+    /// Remaining expected ranges; empty once the upload is complete.
     pub next_expected_ranges: Vec<String>,
 }
 
@@ -158,6 +188,7 @@ struct MicrosoftGraphQuota {
 }
 
 impl MicrosoftGraphClientConfig {
+    /// Builds a config holding a single static access token.
     pub fn new(graph_base_url: impl Into<String>, access_token: impl Into<String>) -> Self {
         Self {
             graph_base_url: graph_base_url.into(),
@@ -167,6 +198,7 @@ impl MicrosoftGraphClientConfig {
         }
     }
 
+    /// Builds a config backed by a dynamic token provider instead of a static token.
     pub fn with_token_provider(
         graph_base_url: impl Into<String>,
         token_provider: Arc<dyn MicrosoftGraphAccessTokenProvider>,
@@ -221,6 +253,8 @@ mod static_provider_tests {
 }
 
 impl MicrosoftGraphClient {
+    /// Builds the client, validating the base URL and token configuration and
+    /// constructing the three profile-specific HTTP clients.
     pub fn new(config: MicrosoftGraphClientConfig) -> Result<Self> {
         if config.graph_base_url.trim().is_empty() {
             return Err(storage_driver_error(
@@ -267,6 +301,7 @@ impl MicrosoftGraphClient {
         })
     }
 
+    /// Fetches item metadata by explicit drive and item IDs.
     pub async fn get_drive_item_by_id(
         &self,
         drive_id: &str,
@@ -283,6 +318,7 @@ impl MicrosoftGraphClient {
         .await
     }
 
+    /// Fetches the root driveItem of a drive.
     pub async fn get_drive_root(&self, drive_id: &str) -> Result<MicrosoftGraphDriveItem> {
         self.get_json(
             &format!("/drives/{}/root", encode_path_segment(drive_id)),
@@ -291,11 +327,13 @@ impl MicrosoftGraphClient {
         .await
     }
 
+    /// Fetches the signed-in user's default OneDrive.
     pub async fn get_me_drive(&self) -> Result<MicrosoftGraphDrive> {
         self.get_json("/me/drive", "get signed-in user's default OneDrive")
             .await
     }
 
+    /// Fetches a SharePoint site's default document library.
     pub async fn get_site_drive(&self, site_id: &str) -> Result<MicrosoftGraphDrive> {
         self.get_json(
             &format!("/sites/{}/drive", encode_path_segment(site_id)),
@@ -304,6 +342,7 @@ impl MicrosoftGraphClient {
         .await
     }
 
+    /// Fetches a Microsoft 365 group's default drive.
     pub async fn get_group_drive(&self, group_id: &str) -> Result<MicrosoftGraphDrive> {
         self.get_json(
             &format!("/groups/{}/drive", encode_path_segment(group_id)),
@@ -312,10 +351,12 @@ impl MicrosoftGraphClient {
         .await
     }
 
+    /// Fetches item metadata at an already-encoded Graph path.
     pub async fn get_drive_item(&self, path: &str) -> Result<MicrosoftGraphDriveItem> {
         self.get_json(path, "get OneDrive item metadata").await
     }
 
+    /// Maps a drive item to blob metadata, rejecting negative sizes.
     pub async fn metadata(&self, path: &str) -> Result<BlobMetadata> {
         let item = self.get_drive_item(path).await?;
         let size = item.size.unwrap_or(0);
@@ -333,6 +374,8 @@ impl MicrosoftGraphClient {
         })
     }
 
+    /// Simple PUT limited to Graph's 250 MB threshold; larger objects must use
+    /// an upload session.
     pub async fn put_small_content(&self, content_path: &str, body: Bytes) -> Result<()> {
         let url = self.url(content_path)?;
         let response = self
@@ -350,6 +393,7 @@ impl MicrosoftGraphClient {
         Ok(())
     }
 
+    /// Creates a resumable upload session with `replace` conflict behavior.
     pub async fn create_upload_session(
         &self,
         upload_session_path: &str,
@@ -422,6 +466,7 @@ impl MicrosoftGraphClient {
         })
     }
 
+    /// Queries session status by upload URL (no OAuth header; the URL is preauthenticated).
     pub async fn query_upload_session(
         &self,
         upload_url: &str,
@@ -443,6 +488,7 @@ impl MicrosoftGraphClient {
             )
     }
 
+    /// Aborts an upload session; a missing session counts as already aborted.
     pub async fn abort_upload_session(&self, upload_url: &str) -> Result<()> {
         let url = reqwest::Url::parse(upload_url).map_err(invalid_graph_url)?;
         let response = self
@@ -459,6 +505,9 @@ impl MicrosoftGraphClient {
         Ok(())
     }
 
+    /// Streams one fragment to the session URL with a Content-Range header,
+    /// bounded by idle-progress and acknowledgement timeouts rather than a
+    /// whole-transfer deadline.
     pub async fn upload_session_fragment_reader(
         &self,
         upload_url: &str,
@@ -545,6 +594,7 @@ impl MicrosoftGraphClient {
         })
     }
 
+    /// In-memory variant of [`Self::upload_session_fragment_reader`].
     pub async fn upload_session_fragment(
         &self,
         upload_url: &str,
@@ -568,6 +618,8 @@ impl MicrosoftGraphClient {
         .await
     }
 
+    /// Opens the content stream, following the Graph download redirect; an
+    /// optional Range header is applied to the redirect target.
     pub async fn get_stream(
         &self,
         content_path: &str,
@@ -584,6 +636,7 @@ impl MicrosoftGraphClient {
             })
     }
 
+    /// Reads the entire object content into memory.
     pub async fn get_bytes(&self, content_path: &str) -> Result<Vec<u8>> {
         let response = self.get_content_response(content_path, None, None).await?;
         response
@@ -593,6 +646,8 @@ impl MicrosoftGraphClient {
             .map_err(|err| map_reqwest_error("read OneDrive content", err))
     }
 
+    /// Resolves the preauthenticated download URL carried by Graph's `/content`
+    /// redirect without downloading any bytes.
     pub async fn get_download_url(&self, content_path: &str) -> Result<String> {
         let url = self.url(content_path)?;
         let response = self
@@ -614,6 +669,7 @@ impl MicrosoftGraphClient {
         Ok(content_redirect_url(&response)?.to_string())
     }
 
+    /// Deletes a drive item; NOT_FOUND counts as already deleted.
     pub async fn delete(&self, path: &str) -> Result<()> {
         let url = self.url(path)?;
         let response = self
@@ -631,6 +687,7 @@ impl MicrosoftGraphClient {
         Ok(())
     }
 
+    /// Reports whether the drive item exists; Graph not-found maps to `false`.
     pub async fn exists(&self, path: &str) -> Result<bool> {
         match self.get_drive_item(path).await {
             Ok(_) => Ok(true),
@@ -639,6 +696,8 @@ impl MicrosoftGraphClient {
         }
     }
 
+    /// Reads drive quota; a drive without a quota facet reports
+    /// [`StorageCapacityStatus::Unavailable`].
     pub async fn capacity_info(&self, drive_id: &str) -> Result<StorageCapacityInfo> {
         let drive: MicrosoftGraphDrive = self
             .get_json(

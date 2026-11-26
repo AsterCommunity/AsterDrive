@@ -115,9 +115,15 @@ pub(crate) struct StorageConnectorAuthorizationCallback {
 #[serde(tag = "mode", content = "values", rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum StorageConnectorCredentialInput {
+    /// No credential is supplied; only connectors whose descriptor declares
+    /// no credential mode accept this variant.
     #[default]
     None,
+    /// Values for a connector-held static secret, shaped by the connector's
+    /// credential schema.
     Static(serde_json::Value),
+    /// Values for the OAuth application a delegated connector authorizes
+    /// through its own authorization workflow.
     AuthorizationApplication(serde_json::Value),
 }
 
@@ -131,11 +137,15 @@ impl std::fmt::Debug for StorageConnectorCredentialInput {
     }
 }
 
+/// Connector-scoped connection parameters submitted by an API caller.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectionInput {
+    /// Connector configuration envelope validated against the target
+    /// connector's declared schema and version.
     pub connector_config: ConnectorConfigEnvelope,
+    /// Credential channel whose mode must match the connector descriptor.
     pub credential: StorageConnectorCredentialInput,
 }
 
@@ -146,8 +156,11 @@ pub struct StorageConnectionInput {
 #[serde(deny_unknown_fields)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StoragePolicyConnectionInput {
+    /// Connector-scoped connection parameters flattened from [`StorageConnectionInput`].
     #[serde(flatten)]
     pub storage: StorageConnectionInput,
+    /// Core-owned provider-native processing preferences, normalized by the
+    /// connector contract before validation and persistence.
     pub behavior: StoragePolicyBehaviorConfig,
 }
 
@@ -203,60 +216,96 @@ impl std::fmt::Debug for StorageConnectorRuntimeCredential {
 /// only the runtime facts needed for staging and content deduplication.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LocalFilesystemPolicyProjection {
+    /// Filesystem root this policy reads and writes under.
     pub base_path: String,
+    /// Whether the connector reports content deduplication for staged uploads.
     pub content_dedup: bool,
 }
 
 /// Connector-owned remote binding facts used by routing and topology checks.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RemotePolicyBindingProjection {
+    /// Bound remote node id, or `None` when the policy has no node binding.
     pub remote_node_id: Option<i64>,
+    /// Object-store key prefix on the remote node, or `None` when unbound.
     pub remote_storage_target_key: Option<String>,
+    /// Base path under which this policy addresses objects.
     pub base_path: String,
+    /// Download routing strategy negotiated with the remote node.
     pub download_strategy: aster_drive_model::types::RemoteDownloadStrategy,
+    /// Upload routing strategy negotiated with the remote node.
     pub upload_strategy: aster_drive_model::types::RemoteUploadStrategy,
 }
 
+/// Result of a connector-side credential validation run.
 #[derive(Debug, Clone)]
 pub(crate) struct StorageCredentialValidationOutcome {
+    /// Freshly reloaded credential row; token resolution may have refreshed it.
     pub credential: aster_drive_model::entities::storage_policy_connector_credential::Model,
+    /// Re-encrypted credential payload to persist with the updated row.
     pub credential_payload: serde_json::Value,
+    /// Connector-assigned id of the validated root container or folder.
     pub root_item_id: String,
+    /// Display name of the root container, when the provider reports one.
     pub root_item_name: Option<String>,
 }
 
+/// Serializable projection of a stored connector credential for admin APIs.
+///
+/// Secret material never appears here; connectors decode the encrypted row and
+/// emit only authorization facts.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorCredentialInfo {
+    /// Connector credential row id.
     pub id: i64,
+    /// Storage policy the credential belongs to.
     pub policy_id: i64,
+    /// Provider identity selected by the connector.
     pub provider: StorageCredentialProvider,
+    /// Whether the connector holds a static secret or a delegated OAuth
+    /// authorization.
     pub credential_kind: StorageCredentialKind,
+    /// Provider-assigned display label for the authorized account, when present.
     pub account_label: Option<String>,
+    /// Provider-assigned account subject identifier, when present.
     pub subject: Option<String>,
+    /// Directory tenant id for providers with tenant scoping, when present.
     pub tenant_id: Option<String>,
+    /// OAuth scopes granted by the current authorization.
     pub scopes: Vec<String>,
+    /// Lifecycle status of the authorization.
     pub status: aster_drive_model::types::StorageCredentialStatus,
+    /// Provider or core-provided explanation accompanying the current status.
     pub status_reason: Option<String>,
+    /// When the authorization stops being valid.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// When the end user completed the authorization consent flow.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub authorized_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// When the connector last refreshed the access token.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub last_refreshed_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// When the connector last confirmed the credential still works.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub last_validated_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// When the credential row was created.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: chrono::DateTime<chrono::Utc>,
+    /// When the credential row was last updated.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
+/// Saved-policy connector action invocation from an admin caller.
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ExecuteSavedStorageConnectorActionInput {
+    /// Connector-declared action id; must be registered with saved support.
     pub action_id: StorageConnectorActionId,
+    /// Field values keyed by the descriptor's declared field names.
     #[serde(default)]
     #[cfg_attr(
         all(debug_assertions, feature = "openapi"),
@@ -265,34 +314,47 @@ pub struct ExecuteSavedStorageConnectorActionInput {
     pub values: BTreeMap<String, serde_json::Value>,
 }
 
+/// Draft connector action invocation against an unsaved or edited connection.
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ExecuteDraftStorageConnectorActionInput {
+    /// Connector-declared action id; must be registered with draft support.
     pub action_id: StorageConnectorActionId,
+    /// Field values keyed by the descriptor's declared field names.
     #[serde(default)]
     #[cfg_attr(
         all(debug_assertions, feature = "openapi"),
         schema(value_type = BTreeMap<String, aster_drive_storage::StorageConnectorFieldValue>)
     )]
     pub values: BTreeMap<String, serde_json::Value>,
+    /// Existing policy being edited, when the action runs against saved state;
+    /// `None` tests a purely draft connection.
     #[validate(range(min = 1, message = "policy_id must be greater than 0"))]
     pub policy_id: Option<i64>,
+    /// Full draft connection used to build a temporary driver for the action.
     pub connection: StoragePolicyConnectionInput,
 }
 
+/// Draft connection test request for a connector's test action.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct TestDraftStorageConnectorConnectionInput {
+    /// Existing policy being edited, used to resolve saved edit-form
+    /// placeholders; `None` tests a purely draft connection.
     pub policy_id: Option<i64>,
+    /// Draft connection to validate and probe.
     pub connection: StoragePolicyConnectionInput,
 }
 
+/// Outcome of a connector action invocation reported to the admin API.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorActionResult {
+    /// Connector-declared action id that produced this result.
     pub action_id: StorageConnectorActionId,
+    /// Structured output, omitted when the action declares no output fields.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output: Option<StorageConnectorActionOutput>,
 }
@@ -338,6 +400,12 @@ impl StorageConnectorActionResult {
     }
 }
 
+/// Connector-owned snapshot preserved for deferred cleanup after the policy
+/// or its credential row is gone.
+///
+/// The payload is encoded by the owning connector and validated against its
+/// connector id and schema version on decode, so a snapshot can never be
+/// interpreted by another connector or an older schema.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct StoragePolicyCleanupDriverSnapshot {
@@ -390,7 +458,9 @@ impl StoragePolicyCleanupDriverSnapshot {
     }
 }
 
+/// Bundle of driver-owned snapshots handed to a connector's cleanup hook.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct StoragePolicyCleanupSnapshots<'a> {
+    /// Deferred cleanup snapshot for the policy, when one was persisted.
     pub driver_snapshot: Option<&'a StoragePolicyCleanupDriverSnapshot>,
 }

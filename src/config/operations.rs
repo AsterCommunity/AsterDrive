@@ -39,84 +39,144 @@ pub use crate::config::definitions::{
     THUMBNAIL_MAX_DIMENSION_KEY, THUMBNAIL_MAX_SOURCE_BYTES_KEY,
 };
 
+/// Default interval in seconds between mail outbox dispatch polls.
 pub const DEFAULT_MAIL_OUTBOX_DISPATCH_INTERVAL_SECS: u64 = 5;
+/// Default interval in seconds between background task dispatch polls.
 pub const DEFAULT_BACKGROUND_TASK_DISPATCH_INTERVAL_SECS: u64 = 5;
+/// Default maximum interval in seconds between dispatch polls after idle backoff.
 pub const DEFAULT_BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS: u64 = 60;
 /// Leave 15 seconds for the Prometheus scrape cadence inside the 180-second freshness window.
 pub const MAX_BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS: u64 = 164;
+/// Default maximum number of fallback tasks executed concurrently per worker process.
 pub const DEFAULT_BACKGROUND_TASK_MAX_CONCURRENCY: usize = 1;
+/// Default per-worker concurrency for archive background tasks.
 pub const DEFAULT_BACKGROUND_TASK_ARCHIVE_MAX_CONCURRENCY: usize = 2;
+/// Default per-worker concurrency for thumbnail background tasks.
 pub const DEFAULT_BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY: usize = 1;
+/// Default per-worker concurrency for storage policy migration tasks.
 pub const DEFAULT_BACKGROUND_TASK_STORAGE_MIGRATION_MAX_CONCURRENCY: usize = 1;
 const MAX_BACKGROUND_TASK_CONCURRENCY: usize = 16;
+/// Default number of attempts before a background task permanently fails.
 pub const DEFAULT_BACKGROUND_TASK_MAX_ATTEMPTS: i32 = 3;
+/// Default lifetime in seconds for shared-file stream sessions.
 pub const DEFAULT_SHARE_STREAM_SESSION_TTL_SECS: u64 = 3 * 60 * 60;
+/// Minimum accepted share stream session lifetime in seconds.
 pub const MIN_SHARE_STREAM_SESSION_TTL_SECS: u64 = 5 * 60;
+/// Maximum accepted share stream session lifetime in seconds.
 pub const MAX_SHARE_STREAM_SESSION_TTL_SECS: u64 = 24 * 60 * 60;
+/// Default interval in seconds between periodic maintenance cleanup runs.
 pub const DEFAULT_MAINTENANCE_CLEANUP_INTERVAL_SECS: u64 = 3600;
+/// Default interval in seconds between full blob reconciliation runs.
 pub const DEFAULT_BLOB_RECONCILE_INTERVAL_SECS: u64 = 6 * 3600;
+/// Default interval in seconds between system health checks for database, cache, and remote nodes.
 pub const DEFAULT_REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS: u64 = 300;
+/// Default maximum page size accepted by team member listing endpoints.
 pub const DEFAULT_TEAM_MEMBER_LIST_MAX_LIMIT: u64 = 100;
+/// Default maximum page size accepted by background task listing endpoints.
 pub const DEFAULT_TASK_LIST_MAX_LIMIT: u64 = 100;
+/// Default avatar upload size limit in bytes.
 pub const DEFAULT_AVATAR_MAX_UPLOAD_SIZE_BYTES: u64 = 10 * 1024 * 1024;
+/// Hard upper bound for the avatar upload size limit; normalizers reject larger values.
 pub const MAX_AVATAR_UPLOAD_SIZE_BYTES: u64 = 16 * 1024 * 1024;
+/// Default maximum original file size eligible for thumbnail generation, in bytes.
 pub const DEFAULT_THUMBNAIL_MAX_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
+/// Default maximum generated thumbnail width or height in pixels.
 pub const DEFAULT_THUMBNAIL_MAX_DIMENSION: u32 = 400;
+/// Default maximum generated image preview width or height in pixels.
 pub const DEFAULT_IMAGE_PREVIEW_MAX_DIMENSION: u32 = 1600;
+/// Hard upper bound for thumbnail and image preview dimensions, in pixels.
 pub const MAX_DERIVATIVE_MAX_DIMENSION: u32 = 16_384;
+/// Whether backend blob-level media metadata extraction is enabled by default.
 pub const DEFAULT_MEDIA_METADATA_ENABLED: bool = true;
+/// Default maximum original file size eligible for backend media metadata extraction, in bytes.
 pub const DEFAULT_MEDIA_METADATA_MAX_SOURCE_BYTES: u64 = 256 * 1024 * 1024;
 /// Default offline download limits are sized for slow-but-usable links.
 /// With the default 1 GiB cap and 600s request timeout, sustained throughput
 /// must stay above roughly 1.7 MiB/s to finish in time. The default 5 MiB/s
 /// speed cap leaves room above that target; operators who lower the cap or run
 /// on slower networks should raise `offline_download_request_timeout_secs`.
+/// Default maximum file size for offline HTTP/HTTPS downloads, in bytes.
 pub const DEFAULT_OFFLINE_DOWNLOAD_MAX_FILE_SIZE_BYTES: u64 = 1024 * 1024 * 1024;
+/// Default offline download speed cap in MiB/s; zero disables the cap.
 pub const DEFAULT_OFFLINE_DOWNLOAD_MAX_MB_PER_SEC: u64 = 5;
+/// Default number of offline download tasks executed concurrently per worker process.
 pub const DEFAULT_OFFLINE_DOWNLOAD_MAX_CONCURRENCY: usize = 1;
 /// See the note above `DEFAULT_OFFLINE_DOWNLOAD_MAX_FILE_SIZE_BYTES`.
 pub const DEFAULT_OFFLINE_DOWNLOAD_REQUEST_TIMEOUT_SECS: u64 = 600;
+/// Identifier of the default offline download engine (`"builtin"`).
 pub const DEFAULT_OFFLINE_DOWNLOAD_ENGINE: &str = "builtin";
+/// Default timeout in seconds for individual aria2 JSON-RPC requests.
 pub const DEFAULT_OFFLINE_DOWNLOAD_ARIA2_REQUEST_TIMEOUT_SECS: u64 = 10;
+/// Default aria2 `split` value applied to offline downloads.
 pub const DEFAULT_OFFLINE_DOWNLOAD_ARIA2_SPLIT: u64 = 5;
+/// Default aria2 `max-connection-per-server` value applied to offline downloads.
 pub const DEFAULT_OFFLINE_DOWNLOAD_ARIA2_MAX_CONNECTION_PER_SERVER: u64 = 5;
+/// Default aria2 `lowest-speed-limit` in bytes per second; zero disables the abort threshold.
 pub const DEFAULT_OFFLINE_DOWNLOAD_ARIA2_LOWEST_SPEED_LIMIT_BYTES_PER_SEC: u64 = 0;
 const MAX_OFFLINE_DOWNLOAD_TEMP_DIR_LEN: usize = 4096;
+/// Default maximum source archive size accepted for online extraction, in bytes.
 pub const DEFAULT_ARCHIVE_EXTRACT_MAX_SOURCE_BYTES: u64 = 512 * 1024 * 1024;
+/// Default total staging budget for one extraction (source archive plus extracted files), in bytes.
 pub const DEFAULT_ARCHIVE_EXTRACT_MAX_STAGING_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+/// Default total uncompressed size accepted inside an archive before import, in bytes.
 pub const DEFAULT_ARCHIVE_EXTRACT_MAX_UNCOMPRESSED_BYTES: u64 = 1024 * 1024 * 1024;
+/// Default maximum central-directory entry count accepted in an archive.
 pub const DEFAULT_ARCHIVE_EXTRACT_MAX_ENTRIES: u64 = 10_000;
+/// Default maximum file entry count accepted in an archive.
 pub const DEFAULT_ARCHIVE_EXTRACT_MAX_FILES: u64 = 10_000;
+/// Default maximum directory entry count accepted in an archive.
 pub const DEFAULT_ARCHIVE_EXTRACT_MAX_DIRECTORIES: u64 = 2_000;
+/// Default maximum normalized archive entry path depth.
 pub const DEFAULT_ARCHIVE_EXTRACT_MAX_DEPTH: u64 = 64;
+/// Default maximum UTF-8 byte length of a normalized archive entry path.
 pub const DEFAULT_ARCHIVE_EXTRACT_MAX_PATH_BYTES: u64 = 4096;
+/// Default total uncompressed-to-compressed byte ratio accepted for an archive (zip-bomb guard).
 pub const DEFAULT_ARCHIVE_EXTRACT_MAX_COMPRESSION_RATIO: u64 = 200;
+/// Default per-entry uncompressed-to-compressed byte ratio accepted for archives.
 pub const DEFAULT_ARCHIVE_EXTRACT_MAX_ENTRY_COMPRESSION_RATIO: u64 = 500;
+/// Default wall-clock budget in seconds for one online extraction task.
 pub const DEFAULT_ARCHIVE_EXTRACT_MAX_DURATION_SECS: u64 = 300;
+/// Master-switch default for read-only archive preview (disabled).
 pub const DEFAULT_ARCHIVE_PREVIEW_ENABLED: bool = false;
+/// Default for signed-in users previewing archive manifests (disabled).
 pub const DEFAULT_ARCHIVE_PREVIEW_USER_ENABLED: bool = false;
+/// Default for public share pages previewing archive manifests (disabled).
 pub const DEFAULT_ARCHIVE_PREVIEW_SHARE_ENABLED: bool = false;
+/// Default maximum source archive size accepted for preview, in bytes.
 pub const DEFAULT_ARCHIVE_PREVIEW_MAX_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
+/// Default maximum entry count accepted in a previewed archive.
 pub const DEFAULT_ARCHIVE_PREVIEW_MAX_ENTRIES: u64 = 2_000;
+/// Default maximum serialized preview manifest size returned to clients, in bytes.
 pub const DEFAULT_ARCHIVE_PREVIEW_MAX_MANIFEST_BYTES: u64 = 64 * 1024;
+/// Default wall-clock budget in seconds for one preview scan.
 pub const DEFAULT_ARCHIVE_PREVIEW_MAX_DURATION_SECS: u64 = 30;
+/// Whether users may create ZIP archives as new workspace files by default.
 pub const DEFAULT_ARCHIVE_COMPRESS_ENABLED: bool = true;
+/// Default maximum expanded file and directory entries accepted for archive compression or download.
 pub const DEFAULT_ARCHIVE_BUILD_MAX_ENTRIES: u64 = 10_000;
+/// Default total source size accepted for archive compression or download, in bytes.
 pub const DEFAULT_ARCHIVE_BUILD_MAX_TOTAL_SOURCE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+/// Default ZIP output size budget accepted for archive compression or download, in bytes.
 pub const DEFAULT_ARCHIVE_BUILD_MAX_TEMP_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
+/// Hard upper bound for configurable list page sizes.
 pub const MAX_LIST_PAGE_LIMIT: u64 = 1000;
 
+/// Engines that can fetch remote links into AsterDrive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OfflineDownloadEngine {
+    /// Self-contained built-in HTTP/HTTPS downloader.
     Builtin,
+    /// External aria2 instance driven over JSON-RPC.
     Aria2,
 }
 
 impl OfflineDownloadEngine {
+    /// Every engine variant, in registry parsing order.
     pub const ALL: [Self; 2] = [Self::Builtin, Self::Aria2];
 
+    /// Canonical identifier used in config values and the engine registry JSON.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Builtin => "builtin",
@@ -124,6 +184,7 @@ impl OfflineDownloadEngine {
         }
     }
 
+    /// Whether this engine is enabled in the default engine registry.
     pub const fn default_enabled(self) -> bool {
         match self {
             Self::Builtin => true,
@@ -131,6 +192,7 @@ impl OfflineDownloadEngine {
         }
     }
 
+    /// Human-readable name shown in admin settings.
     pub const fn display_name(self) -> &'static str {
         match self {
             Self::Builtin => "AsterDrive built-in",
@@ -139,6 +201,7 @@ impl OfflineDownloadEngine {
     }
 }
 
+/// Parses a trimmed, lowercased engine identifier; returns `None` for unknown values.
 pub fn parse_offline_download_engine(value: &str) -> Option<OfflineDownloadEngine> {
     let value = value.trim().to_ascii_lowercase();
     OfflineDownloadEngine::ALL
@@ -146,10 +209,13 @@ pub fn parse_offline_download_engine(value: &str) -> Option<OfflineDownloadEngin
         .find(|engine| engine.as_str() == value)
 }
 
+/// Normalizes a positive-integer interval value (seconds) for an operations config key.
 pub fn normalize_interval_config_value(key: &str, value: &str) -> Result<String> {
     normalize_positive_u64_config_value(key, value)
 }
 
+/// Normalizes the idle-backoff dispatch interval, rejecting values above the
+/// Prometheus freshness window headroom (`164` seconds).
 pub fn normalize_background_task_dispatch_idle_max_interval_config_value(
     key: &str,
     value: &str,
@@ -167,6 +233,8 @@ pub fn normalize_background_task_dispatch_idle_max_interval_config_value(
     Ok(parsed.to_string())
 }
 
+/// Normalizes a cluster-wide concurrency limit; `0` means no shared limit and
+/// values above `65536` are rejected.
 pub fn normalize_cluster_concurrency_config_value(key: &str, value: &str) -> Result<String> {
     let value = value.trim().parse::<usize>().map_err(|_| {
         AsterError::validation_error(format!("{key} must be an integer between 0 and 65536"))
@@ -179,17 +247,23 @@ pub fn normalize_cluster_concurrency_config_value(key: &str, value: &str) -> Res
     Ok(value.to_string())
 }
 
+/// Parses a stored cluster-wide concurrency limit; `None` when the value is
+/// `0` (no shared limit).
 pub fn parse_cluster_concurrency(key: &str, value: &str) -> Result<Option<usize>> {
     let normalized = normalize_cluster_concurrency_config_value(key, value)?;
     Ok(normalized.parse::<usize>().ok().filter(|value| *value > 0))
 }
 
+/// Reads a cluster-wide lane concurrency limit from runtime config; `None`
+/// when unset, invalid, or `0` (no shared limit).
 pub fn task_cluster_concurrency(runtime: &RuntimeConfig, key: &str) -> Option<usize> {
     runtime
         .get(key)
         .and_then(|value| parse_cluster_concurrency(key, &value).ok().flatten())
 }
 
+/// Normalizes a per-worker concurrency value, rejecting zero and values above
+/// [`MAX_BACKGROUND_TASK_CONCURRENCY`].
 pub fn normalize_concurrency_config_value(key: &str, value: &str) -> Result<String> {
     let parsed = parse_positive_u64(value)
         .ok_or_else(|| AsterError::validation_error(format!("{key} must be a positive integer")))?;
@@ -201,14 +275,18 @@ pub fn normalize_concurrency_config_value(key: &str, value: &str) -> Result<Stri
     Ok(parsed.to_string())
 }
 
+/// Normalizes a background task retry-attempt value (positive integer).
 pub fn normalize_attempts_config_value(key: &str, value: &str) -> Result<String> {
     normalize_positive_i32_config_value(key, value)
 }
 
+/// Normalizes a byte-size value (positive integer).
 pub fn normalize_bytes_config_value(key: &str, value: &str) -> Result<String> {
     normalize_positive_u64_config_value(key, value)
 }
 
+/// Normalizes the avatar upload size limit, rejecting values above
+/// [`MAX_AVATAR_UPLOAD_SIZE_BYTES`].
 pub fn normalize_avatar_upload_size_config_value(key: &str, value: &str) -> Result<String> {
     let parsed = parse_positive_u64(value)
         .ok_or_else(|| AsterError::validation_error(format!("{key} must be a positive integer")))?;
@@ -220,6 +298,8 @@ pub fn normalize_avatar_upload_size_config_value(key: &str, value: &str) -> Resu
     Ok(parsed.to_string())
 }
 
+/// Normalizes a thumbnail or image preview dimension (positive pixels, at
+/// most [`MAX_DERIVATIVE_MAX_DIMENSION`]).
 pub fn normalize_derivative_dimension_config_value(key: &str, value: &str) -> Result<String> {
     let parsed = parse_positive_u64(value)
         .ok_or_else(|| AsterError::validation_error(format!("{key} must be a positive integer")))?;
@@ -231,6 +311,8 @@ pub fn normalize_derivative_dimension_config_value(key: &str, value: &str) -> Re
     Ok(parsed.to_string())
 }
 
+/// Normalizes a non-negative integer value; zero is allowed where a config
+/// key uses it to disable a limit.
 pub fn normalize_non_negative_u64_config_value(key: &str, value: &str) -> Result<String> {
     let parsed = parse_non_negative_u64(value).ok_or_else(|| {
         AsterError::validation_error(format!("{key} must be a non-negative integer"))
@@ -238,6 +320,7 @@ pub fn normalize_non_negative_u64_config_value(key: &str, value: &str) -> Result
     Ok(parsed.to_string())
 }
 
+/// Normalizes the offline download engine value to a canonical identifier.
 pub fn normalize_offline_download_engine_config_value(value: &str) -> Result<String> {
     parse_offline_download_engine(value)
         .map(|engine| engine.as_str().to_string())
@@ -246,6 +329,8 @@ pub fn normalize_offline_download_engine_config_value(value: &str) -> Result<Str
         })
 }
 
+/// Normalizes the aria2 JSON-RPC endpoint: blank is allowed, otherwise the
+/// value must be an http(s) URL with a host and without embedded credentials.
 pub fn normalize_offline_download_aria2_rpc_url_config_value(value: &str) -> Result<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -277,6 +362,9 @@ pub fn normalize_offline_download_aria2_rpc_url_config_value(value: &str) -> Res
     Ok(url.to_string())
 }
 
+/// Normalizes the offline download staging directory: blank falls back to the
+/// server temp dir; otherwise the value must be an absolute, control-character-free
+/// path within the length cap.
 pub fn normalize_offline_download_temp_dir_config_value(value: &str) -> Result<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -300,6 +388,8 @@ pub fn normalize_offline_download_temp_dir_config_value(value: &str) -> Result<S
     Ok(trimmed.to_string())
 }
 
+/// Normalizes a boolean-like value (`true`/`false`/`yes`/`on`/...) to `"true"`
+/// or `"false"`.
 pub fn normalize_bool_config_value(key: &str, value: &str) -> Result<String> {
     match parse_bool_like(value) {
         Some(value) => Ok(if value { "true" } else { "false" }.to_string()),
@@ -309,6 +399,7 @@ pub fn normalize_bool_config_value(key: &str, value: &str) -> Result<String> {
     }
 }
 
+/// Normalizes a list page-size limit (positive, at most [`MAX_LIST_PAGE_LIMIT`]).
 pub fn normalize_list_max_limit_config_value(key: &str, value: &str) -> Result<String> {
     let parsed = parse_positive_u64(value).ok_or_else(|| {
         AsterError::validation_error(format!(
@@ -323,6 +414,8 @@ pub fn normalize_list_max_limit_config_value(key: &str, value: &str) -> Result<S
     Ok(parsed.to_string())
 }
 
+/// Normalizes the share stream session TTL, which must stay within
+/// `[MIN_SHARE_STREAM_SESSION_TTL_SECS, MAX_SHARE_STREAM_SESSION_TTL_SECS]`.
 pub fn normalize_share_stream_session_ttl_config_value(key: &str, value: &str) -> Result<String> {
     let parsed = parse_positive_u64(value).ok_or_else(|| {
         AsterError::validation_error(format!(
@@ -337,6 +430,7 @@ pub fn normalize_share_stream_session_ttl_config_value(key: &str, value: &str) -
     Ok(parsed.to_string())
 }
 
+/// Interval in seconds between mail outbox dispatch polls.
 pub fn mail_outbox_dispatch_interval_secs(runtime_config: &RuntimeConfig) -> u64 {
     read_positive_u64(
         runtime_config,
@@ -345,6 +439,8 @@ pub fn mail_outbox_dispatch_interval_secs(runtime_config: &RuntimeConfig) -> u64
     )
 }
 
+/// Interval in seconds between background task dispatch polls, clamped so it
+/// stays below the 180-second task snapshot freshness window.
 pub fn background_task_dispatch_interval_secs(runtime_config: &RuntimeConfig) -> u64 {
     read_positive_u64(
         runtime_config,
@@ -354,6 +450,9 @@ pub fn background_task_dispatch_interval_secs(runtime_config: &RuntimeConfig) ->
     .min(MAX_BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS)
 }
 
+/// Maximum interval in seconds between dispatch polls after idle backoff,
+/// never below the base dispatch interval and clamped to the Prometheus
+/// freshness headroom.
 pub fn background_task_dispatch_idle_max_interval_secs(runtime_config: &RuntimeConfig) -> u64 {
     read_positive_u64(
         runtime_config,
@@ -364,6 +463,7 @@ pub fn background_task_dispatch_idle_max_interval_secs(runtime_config: &RuntimeC
     .max(background_task_dispatch_interval_secs(runtime_config))
 }
 
+/// Maximum number of fallback-lane tasks executed concurrently per worker process.
 pub fn background_task_max_concurrency(runtime_config: &RuntimeConfig) -> usize {
     read_concurrency(
         runtime_config,
@@ -372,6 +472,7 @@ pub fn background_task_max_concurrency(runtime_config: &RuntimeConfig) -> usize 
     )
 }
 
+/// Maximum number of archive background tasks executed concurrently per worker process.
 pub fn background_task_archive_max_concurrency(runtime_config: &RuntimeConfig) -> usize {
     read_concurrency(
         runtime_config,
@@ -380,6 +481,7 @@ pub fn background_task_archive_max_concurrency(runtime_config: &RuntimeConfig) -
     )
 }
 
+/// Maximum number of thumbnail background tasks executed concurrently per worker process.
 pub fn background_task_thumbnail_max_concurrency(runtime_config: &RuntimeConfig) -> usize {
     read_concurrency(
         runtime_config,
@@ -388,6 +490,7 @@ pub fn background_task_thumbnail_max_concurrency(runtime_config: &RuntimeConfig)
     )
 }
 
+/// Maximum number of storage policy migration tasks executed concurrently per worker process.
 pub fn background_task_storage_migration_max_concurrency(runtime_config: &RuntimeConfig) -> usize {
     read_concurrency(
         runtime_config,
@@ -396,6 +499,7 @@ pub fn background_task_storage_migration_max_concurrency(runtime_config: &Runtim
     )
 }
 
+/// Maximum number of offline download tasks executed concurrently per worker process.
 pub fn offline_download_max_concurrency(runtime_config: &RuntimeConfig) -> usize {
     read_concurrency(
         runtime_config,
@@ -404,6 +508,7 @@ pub fn offline_download_max_concurrency(runtime_config: &RuntimeConfig) -> usize
     )
 }
 
+/// Maximum attempts allowed before a background task permanently fails.
 pub fn background_task_max_attempts(runtime_config: &RuntimeConfig) -> i32 {
     read_positive_i32(
         runtime_config,
@@ -412,6 +517,8 @@ pub fn background_task_max_attempts(runtime_config: &RuntimeConfig) -> i32 {
     )
 }
 
+/// Lifetime in seconds for shared-file stream sessions, clamped to the
+/// configured bounds.
 pub fn share_stream_session_ttl_secs(runtime_config: &RuntimeConfig) -> u64 {
     read_bounded_u64(
         runtime_config,
@@ -422,6 +529,7 @@ pub fn share_stream_session_ttl_secs(runtime_config: &RuntimeConfig) -> u64 {
     )
 }
 
+/// Interval in seconds between periodic maintenance cleanup runs.
 pub fn maintenance_cleanup_interval_secs(runtime_config: &RuntimeConfig) -> u64 {
     read_positive_u64(
         runtime_config,
@@ -430,6 +538,7 @@ pub fn maintenance_cleanup_interval_secs(runtime_config: &RuntimeConfig) -> u64 
     )
 }
 
+/// Interval in seconds between full blob reconciliation runs.
 pub fn blob_reconcile_interval_secs(runtime_config: &RuntimeConfig) -> u64 {
     read_positive_u64(
         runtime_config,
@@ -438,6 +547,7 @@ pub fn blob_reconcile_interval_secs(runtime_config: &RuntimeConfig) -> u64 {
     )
 }
 
+/// Interval in seconds between periodic health checks for database, cache, and remote nodes.
 pub fn remote_node_health_test_interval_secs(runtime_config: &RuntimeConfig) -> u64 {
     read_positive_u64(
         runtime_config,
@@ -446,6 +556,7 @@ pub fn remote_node_health_test_interval_secs(runtime_config: &RuntimeConfig) -> 
     )
 }
 
+/// Maximum page size accepted by team member listing endpoints.
 pub fn team_member_list_max_limit(runtime_config: &RuntimeConfig) -> u64 {
     read_bounded_u64(
         runtime_config,
@@ -456,6 +567,7 @@ pub fn team_member_list_max_limit(runtime_config: &RuntimeConfig) -> u64 {
     )
 }
 
+/// Maximum page size accepted by background task listing endpoints.
 pub fn task_list_max_limit(runtime_config: &RuntimeConfig) -> u64 {
     read_bounded_u64(
         runtime_config,
@@ -466,6 +578,7 @@ pub fn task_list_max_limit(runtime_config: &RuntimeConfig) -> u64 {
     )
 }
 
+/// Maximum accepted avatar upload size in bytes.
 pub fn avatar_max_upload_size_bytes(runtime_config: &RuntimeConfig) -> usize {
     let default_value = u64_to_usize(
         DEFAULT_AVATAR_MAX_UPLOAD_SIZE_BYTES,
@@ -488,6 +601,7 @@ pub fn avatar_max_upload_size_bytes(runtime_config: &RuntimeConfig) -> usize {
     })
 }
 
+/// Maximum original file size eligible for thumbnail generation, in bytes.
 pub fn thumbnail_max_source_bytes(runtime_config: &RuntimeConfig) -> i64 {
     let default_value = u64_to_i64(
         DEFAULT_THUMBNAIL_MAX_SOURCE_BYTES,
@@ -511,6 +625,7 @@ pub fn thumbnail_max_source_bytes(runtime_config: &RuntimeConfig) -> i64 {
     })
 }
 
+/// Maximum generated thumbnail width or height in pixels.
 pub fn thumbnail_max_dimension(runtime_config: &RuntimeConfig) -> u32 {
     read_bounded_u32(
         runtime_config,
@@ -521,6 +636,7 @@ pub fn thumbnail_max_dimension(runtime_config: &RuntimeConfig) -> u32 {
     )
 }
 
+/// Maximum generated image preview width or height in pixels.
 pub fn image_preview_max_dimension(runtime_config: &RuntimeConfig) -> u32 {
     read_bounded_u32(
         runtime_config,
@@ -531,6 +647,7 @@ pub fn image_preview_max_dimension(runtime_config: &RuntimeConfig) -> u32 {
     )
 }
 
+/// Whether backend blob-level media metadata extraction and caching is enabled.
 pub fn media_metadata_enabled(runtime_config: &RuntimeConfig) -> bool {
     read_bool(
         runtime_config,
@@ -539,6 +656,7 @@ pub fn media_metadata_enabled(runtime_config: &RuntimeConfig) -> bool {
     )
 }
 
+/// Maximum original file size eligible for backend media metadata extraction, in bytes.
 pub fn media_metadata_max_source_bytes(runtime_config: &RuntimeConfig) -> i64 {
     read_positive_i64_bytes(
         runtime_config,
@@ -548,6 +666,9 @@ pub fn media_metadata_max_source_bytes(runtime_config: &RuntimeConfig) -> i64 {
     )
 }
 
+/// Whether image responses should lead with the original file or the generated
+/// preview; falls back to [`PublicImagePreviewPreference::OriginalFirst`] when
+/// unset or invalid.
 pub fn frontend_image_preview_preference(
     runtime_config: &RuntimeConfig,
 ) -> media_processing::PublicImagePreviewPreference {
@@ -559,6 +680,8 @@ pub fn frontend_image_preview_preference(
     )
 }
 
+/// Normalizes the frontend image preview preference, which must be exactly
+/// `original_first` or `preview_first`.
 pub fn normalize_frontend_image_preview_preference_config_value(value: &str) -> Result<String> {
     let value = value.trim();
     match value {
@@ -569,6 +692,7 @@ pub fn normalize_frontend_image_preview_preference_config_value(value: &str) -> 
     }
 }
 
+/// Maximum file size for offline HTTP/HTTPS downloads, in bytes.
 pub fn offline_download_max_file_size_bytes(runtime_config: &RuntimeConfig) -> i64 {
     read_positive_i64_bytes(
         runtime_config,
@@ -578,6 +702,7 @@ pub fn offline_download_max_file_size_bytes(runtime_config: &RuntimeConfig) -> i
     )
 }
 
+/// Configured offline download engine; falls back to [`OfflineDownloadEngine::Builtin`].
 pub fn offline_download_engine(runtime_config: &RuntimeConfig) -> OfflineDownloadEngine {
     runtime_config
         .get(OFFLINE_DOWNLOAD_ENGINE_KEY)
@@ -586,6 +711,9 @@ pub fn offline_download_engine(runtime_config: &RuntimeConfig) -> OfflineDownloa
         .unwrap_or(OfflineDownloadEngine::Builtin)
 }
 
+/// Engines enabled for link import, in registry order. Reads the JSON engine
+/// registry when present and valid; otherwise falls back to the single legacy
+/// `offline_download_engine` value. An empty enabled set disables link import.
 pub fn offline_download_enabled_engines(
     runtime_config: &RuntimeConfig,
 ) -> Vec<OfflineDownloadEngine> {
@@ -605,6 +733,8 @@ pub fn offline_download_enabled_engines(
     vec![offline_download_engine(runtime_config)]
 }
 
+/// Offline download speed cap in bytes per second; `None` when the configured
+/// MiB/s value is `0` (unlimited).
 pub fn offline_download_max_bytes_per_sec(runtime_config: &RuntimeConfig) -> Option<u64> {
     let max_mb_per_sec = read_non_negative_u64(
         runtime_config,
@@ -624,6 +754,7 @@ pub fn offline_download_max_bytes_per_sec(runtime_config: &RuntimeConfig) -> Opt
     })
 }
 
+/// Timeout in seconds for the whole offline download request (all transfer phases).
 pub fn offline_download_request_timeout_secs(runtime_config: &RuntimeConfig) -> u64 {
     read_positive_u64(
         runtime_config,
@@ -632,6 +763,7 @@ pub fn offline_download_request_timeout_secs(runtime_config: &RuntimeConfig) -> 
     )
 }
 
+/// Configured aria2 JSON-RPC endpoint; `None` when unset or blank.
 pub fn offline_download_aria2_rpc_url(runtime_config: &RuntimeConfig) -> Option<String> {
     runtime_config
         .get(OFFLINE_DOWNLOAD_ARIA2_RPC_URL_KEY)
@@ -639,6 +771,7 @@ pub fn offline_download_aria2_rpc_url(runtime_config: &RuntimeConfig) -> Option<
         .filter(|value| !value.is_empty())
 }
 
+/// aria2 JSON-RPC secret sent as `token:<secret>`; `None` when unset or blank.
 pub fn offline_download_aria2_rpc_secret(runtime_config: &RuntimeConfig) -> Option<String> {
     runtime_config
         .get(OFFLINE_DOWNLOAD_ARIA2_RPC_SECRET_KEY)
@@ -646,6 +779,8 @@ pub fn offline_download_aria2_rpc_secret(runtime_config: &RuntimeConfig) -> Opti
         .filter(|value| !value.is_empty())
 }
 
+/// Dedicated staging directory for offline download files; `None` means the
+/// normal server temp dir is used.
 pub fn offline_download_temp_dir(runtime_config: &RuntimeConfig) -> Option<String> {
     runtime_config
         .get(OFFLINE_DOWNLOAD_TEMP_DIR_KEY)
@@ -653,6 +788,7 @@ pub fn offline_download_temp_dir(runtime_config: &RuntimeConfig) -> Option<Strin
         .filter(|value| !value.is_empty())
 }
 
+/// Timeout in seconds for individual aria2 JSON-RPC requests (not the whole download).
 pub fn offline_download_aria2_request_timeout_secs(runtime_config: &RuntimeConfig) -> u64 {
     read_positive_u64(
         runtime_config,
@@ -661,6 +797,7 @@ pub fn offline_download_aria2_request_timeout_secs(runtime_config: &RuntimeConfi
     )
 }
 
+/// aria2 `split` option value applied to offline downloads.
 pub fn offline_download_aria2_split(runtime_config: &RuntimeConfig) -> u64 {
     read_positive_u64(
         runtime_config,
@@ -669,6 +806,7 @@ pub fn offline_download_aria2_split(runtime_config: &RuntimeConfig) -> u64 {
     )
 }
 
+/// aria2 `max-connection-per-server` option value applied to offline downloads.
 pub fn offline_download_aria2_max_connection_per_server(runtime_config: &RuntimeConfig) -> u64 {
     read_positive_u64(
         runtime_config,
@@ -677,6 +815,8 @@ pub fn offline_download_aria2_max_connection_per_server(runtime_config: &Runtime
     )
 }
 
+/// aria2 `lowest-speed-limit` option in bytes per second; `None` when `0`
+/// (aria2-side abort threshold disabled).
 pub fn offline_download_aria2_lowest_speed_limit_bytes_per_sec(
     runtime_config: &RuntimeConfig,
 ) -> Option<u64> {
@@ -688,6 +828,8 @@ pub fn offline_download_aria2_lowest_speed_limit_bytes_per_sec(
     (value > 0).then_some(value)
 }
 
+/// Total staging budget in bytes for one extraction, covering the downloaded
+/// source archive plus extracted files.
 pub fn archive_extract_max_staging_bytes(runtime_config: &RuntimeConfig) -> i64 {
     read_positive_i64_bytes(
         runtime_config,
@@ -697,6 +839,7 @@ pub fn archive_extract_max_staging_bytes(runtime_config: &RuntimeConfig) -> i64 
     )
 }
 
+/// Maximum source archive size accepted for online extraction, in bytes.
 pub fn archive_extract_max_source_bytes(runtime_config: &RuntimeConfig) -> i64 {
     read_positive_i64_bytes(
         runtime_config,
@@ -706,6 +849,7 @@ pub fn archive_extract_max_source_bytes(runtime_config: &RuntimeConfig) -> i64 {
     )
 }
 
+/// Maximum total uncompressed file size accepted inside an archive before import, in bytes.
 pub fn archive_extract_max_uncompressed_bytes(runtime_config: &RuntimeConfig) -> i64 {
     read_positive_i64_bytes(
         runtime_config,
@@ -715,6 +859,7 @@ pub fn archive_extract_max_uncompressed_bytes(runtime_config: &RuntimeConfig) ->
     )
 }
 
+/// Maximum central-directory entry count accepted in an archive.
 pub fn archive_extract_max_entries(runtime_config: &RuntimeConfig) -> u64 {
     read_positive_u64(
         runtime_config,
@@ -723,6 +868,7 @@ pub fn archive_extract_max_entries(runtime_config: &RuntimeConfig) -> u64 {
     )
 }
 
+/// Maximum file entry count accepted in an archive.
 pub fn archive_extract_max_files(runtime_config: &RuntimeConfig) -> u64 {
     read_positive_u64(
         runtime_config,
@@ -731,6 +877,7 @@ pub fn archive_extract_max_files(runtime_config: &RuntimeConfig) -> u64 {
     )
 }
 
+/// Maximum directory entry count accepted in an archive.
 pub fn archive_extract_max_directories(runtime_config: &RuntimeConfig) -> u64 {
     read_positive_u64(
         runtime_config,
@@ -739,6 +886,7 @@ pub fn archive_extract_max_directories(runtime_config: &RuntimeConfig) -> u64 {
     )
 }
 
+/// Maximum normalized archive entry path depth.
 pub fn archive_extract_max_depth(runtime_config: &RuntimeConfig) -> u64 {
     read_positive_u64(
         runtime_config,
@@ -747,6 +895,7 @@ pub fn archive_extract_max_depth(runtime_config: &RuntimeConfig) -> u64 {
     )
 }
 
+/// Maximum UTF-8 byte length of a normalized archive entry path.
 pub fn archive_extract_max_path_bytes(runtime_config: &RuntimeConfig) -> u64 {
     read_positive_u64(
         runtime_config,
@@ -755,6 +904,8 @@ pub fn archive_extract_max_path_bytes(runtime_config: &RuntimeConfig) -> u64 {
     )
 }
 
+/// Maximum total uncompressed-to-compressed byte ratio accepted for an
+/// archive (zip-bomb guard).
 pub fn archive_extract_max_compression_ratio(runtime_config: &RuntimeConfig) -> u64 {
     read_positive_u64(
         runtime_config,
@@ -763,6 +914,7 @@ pub fn archive_extract_max_compression_ratio(runtime_config: &RuntimeConfig) -> 
     )
 }
 
+/// Maximum per-entry uncompressed-to-compressed byte ratio accepted for archive entries.
 pub fn archive_extract_max_entry_compression_ratio(runtime_config: &RuntimeConfig) -> u64 {
     read_positive_u64(
         runtime_config,
@@ -771,6 +923,7 @@ pub fn archive_extract_max_entry_compression_ratio(runtime_config: &RuntimeConfi
     )
 }
 
+/// Wall-clock budget in seconds for one online extraction task.
 pub fn archive_extract_max_duration_secs(runtime_config: &RuntimeConfig) -> u64 {
     read_positive_u64(
         runtime_config,
@@ -779,6 +932,7 @@ pub fn archive_extract_max_duration_secs(runtime_config: &RuntimeConfig) -> u64 
     )
 }
 
+/// Master switch for read-only archive preview.
 pub fn archive_preview_enabled(runtime_config: &RuntimeConfig) -> bool {
     read_bool(
         runtime_config,
@@ -787,6 +941,7 @@ pub fn archive_preview_enabled(runtime_config: &RuntimeConfig) -> bool {
     )
 }
 
+/// Whether signed-in users may preview archive manifests for personal and team files.
 pub fn archive_preview_user_enabled(runtime_config: &RuntimeConfig) -> bool {
     read_bool(
         runtime_config,
@@ -795,6 +950,7 @@ pub fn archive_preview_user_enabled(runtime_config: &RuntimeConfig) -> bool {
     )
 }
 
+/// Whether public share pages may preview archive manifests after share access checks.
 pub fn archive_preview_share_enabled(runtime_config: &RuntimeConfig) -> bool {
     read_bool(
         runtime_config,
@@ -803,6 +959,7 @@ pub fn archive_preview_share_enabled(runtime_config: &RuntimeConfig) -> bool {
     )
 }
 
+/// Maximum source archive size accepted for read-only preview, in bytes.
 pub fn archive_preview_max_source_bytes(runtime_config: &RuntimeConfig) -> i64 {
     read_positive_i64_bytes(
         runtime_config,
@@ -812,6 +969,7 @@ pub fn archive_preview_max_source_bytes(runtime_config: &RuntimeConfig) -> i64 {
     )
 }
 
+/// Maximum entry count accepted in a previewed archive.
 pub fn archive_preview_max_entries(runtime_config: &RuntimeConfig) -> u64 {
     read_positive_u64(
         runtime_config,
@@ -820,6 +978,7 @@ pub fn archive_preview_max_entries(runtime_config: &RuntimeConfig) -> u64 {
     )
 }
 
+/// Maximum serialized preview manifest size returned to clients, in bytes.
 pub fn archive_preview_max_manifest_bytes(runtime_config: &RuntimeConfig) -> u64 {
     read_positive_u64(
         runtime_config,
@@ -828,6 +987,7 @@ pub fn archive_preview_max_manifest_bytes(runtime_config: &RuntimeConfig) -> u64
     )
 }
 
+/// Wall-clock budget in seconds for one archive preview scan.
 pub fn archive_preview_max_duration_secs(runtime_config: &RuntimeConfig) -> u64 {
     read_positive_u64(
         runtime_config,
@@ -836,6 +996,7 @@ pub fn archive_preview_max_duration_secs(runtime_config: &RuntimeConfig) -> u64 
     )
 }
 
+/// Whether users may create ZIP archives as new workspace files.
 pub fn archive_compress_enabled(runtime_config: &RuntimeConfig) -> bool {
     read_bool(
         runtime_config,
@@ -844,14 +1005,18 @@ pub fn archive_compress_enabled(runtime_config: &RuntimeConfig) -> bool {
     )
 }
 
+/// Whether signed-in users may download selected personal and team files as ZIP archives.
 pub fn archive_download_user_enabled(runtime_config: &RuntimeConfig) -> bool {
     read_bool(runtime_config, ARCHIVE_DOWNLOAD_USER_ENABLED_KEY, true)
 }
 
+/// Whether public share visitors may download selected shared files as ZIP archives.
 pub fn archive_download_share_enabled(runtime_config: &RuntimeConfig) -> bool {
     read_bool(runtime_config, ARCHIVE_DOWNLOAD_SHARE_ENABLED_KEY, true)
 }
 
+/// Maximum expanded file and directory entries accepted for archive
+/// compression or download.
 pub fn archive_build_max_entries(runtime_config: &RuntimeConfig) -> u64 {
     read_positive_u64(
         runtime_config,
@@ -860,6 +1025,7 @@ pub fn archive_build_max_entries(runtime_config: &RuntimeConfig) -> u64 {
     )
 }
 
+/// Maximum total source size accepted for archive compression or download, in bytes.
 pub fn archive_build_max_total_source_bytes(runtime_config: &RuntimeConfig) -> i64 {
     read_positive_i64_bytes(
         runtime_config,
@@ -869,6 +1035,7 @@ pub fn archive_build_max_total_source_bytes(runtime_config: &RuntimeConfig) -> i
     )
 }
 
+/// Maximum ZIP output size accepted for archive compression or download, in bytes.
 pub fn archive_build_max_temp_bytes(runtime_config: &RuntimeConfig) -> i64 {
     read_positive_i64_bytes(
         runtime_config,

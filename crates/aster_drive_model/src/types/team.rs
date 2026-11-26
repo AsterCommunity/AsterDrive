@@ -1,3 +1,5 @@
+//! 团队成员角色。
+
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
@@ -9,19 +11,24 @@ use utoipa::ToSchema;
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(16))")]
 #[serde(rename_all = "lowercase")]
 pub enum TeamMemberRole {
+    /// Full control, including member management and team deletion.
     #[sea_orm(string_value = "owner")]
     Owner,
+    /// Manages members and team settings, but cannot delete the team.
     #[sea_orm(string_value = "admin")]
     Admin,
+    /// Regular member without management rights.
     #[sea_orm(string_value = "member")]
     Member,
 }
 
 impl TeamMemberRole {
+    /// Returns whether this role may manage team settings and members.
     pub fn can_manage_team(&self) -> bool {
         matches!(self, Self::Owner | Self::Admin)
     }
 
+    /// Returns whether this role is the team owner.
     pub fn is_owner(&self) -> bool {
         matches!(self, Self::Owner)
     }

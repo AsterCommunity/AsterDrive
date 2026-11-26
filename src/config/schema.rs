@@ -8,34 +8,50 @@ use aster_forge_config::{ConfigCoreError, ConfigSyncConfig, ValidatableConfig};
 use aster_forge_logging::LoggingConfig;
 use aster_forge_metrics::ObservabilityConfig;
 
+/// Root static configuration (config.toml).
+///
+/// Unknown fields are rejected so typos fail at startup instead of being
+/// silently ignored.
 #[derive(Debug, Deserialize, Serialize, Clone, Default, aster_forge_config::ValidateConfig)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    /// Per-process task consumer shutdown budgets.
     #[serde(default)]
     pub worker: crate::config::worker::WorkerConfig,
+    /// Metrics/tracing exporter settings, with uncompiled exporters stripped.
     #[serde(
         default,
         deserialize_with = "crate::config::metrics::deserialize_observability"
     )]
     pub observability: ObservabilityConfig,
+    /// Deployment topology (single vs. cluster) and internal proxy settings.
     #[serde(default)]
     pub deployment: crate::config::deployment::DeploymentConfig,
+    /// HTTP listener, temp dirs, and node start role.
     #[serde(default)]
     pub server: ServerConfig,
+    /// Database connection URL and pool settings.
     #[serde(default)]
     pub database: DatabaseConfig,
+    /// Static auth secrets and password hashing concurrency.
     #[serde(default)]
     pub auth: AuthConfig,
+    /// Cache backend configuration.
     #[serde(default)]
     pub cache: CacheConfig,
+    /// Cross-node runtime config synchronization.
     #[serde(default = "default_config_sync")]
     pub config_sync: ConfigSyncConfig,
+    /// Logging sinks and levels.
     #[serde(default)]
     pub logging: LoggingConfig,
+    /// WebDAV endpoint limits.
     #[serde(default)]
     pub webdav: WebDavConfig,
+    /// Trusted proxy networks for real-client-IP resolution.
     #[serde(default)]
     pub network_trust: NetworkTrustConfig,
+    /// Per-tier rate limiting thresholds.
     #[serde(default)]
     pub rate_limit: RateLimitConfig,
 }
@@ -63,22 +79,30 @@ fn default_config_sync() -> ConfigSyncConfig {
     }
 }
 
+/// HTTP server and node-local path configuration (`[server]`).
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ServerConfig {
+    /// Bind address of the HTTP listener.
     #[serde(default = "ServerConfig::default_host")]
     pub host: String,
+    /// Port of the HTTP listener.
     #[serde(default = "ServerConfig::default_port")]
     pub port: u16,
     /// 0 = num_cpus
     #[serde(default)]
     pub workers: usize,
+    /// Scratch directory for transient files; relative paths resolve against
+    /// the config file's directory.
     #[serde(default = "ServerConfig::default_temp_dir")]
     pub temp_dir: String,
+    /// Staging directory for in-flight uploads; relative paths resolve like
+    /// [`ServerConfig::temp_dir`].
     #[serde(default = "ServerConfig::default_upload_temp_dir")]
     pub upload_temp_dir: String,
     /// Bytes kept free on the upload staging filesystem after each physical reservation.
     #[serde(default = "ServerConfig::default_upload_temp_min_free_bytes")]
     pub upload_temp_min_free_bytes: u64,
+    /// Follower-node settings; only read when `start_mode` is `follower`.
     #[serde(default)]
     pub follower: ServerFollowerConfig,
     /// 节点静态启动角色。改动后需要重启进程。
@@ -86,6 +110,7 @@ pub struct ServerConfig {
     pub start_mode: crate::config::node_mode::NodeRuntimeMode,
 }
 
+/// Follower-node configuration (`[server.follower]`).
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ServerFollowerConfig {
     /// Maximum age of successful master communication before readiness fails.
@@ -175,12 +200,17 @@ impl ServerConfig {
     }
 }
 
+/// Database connection configuration (`[database]`).
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DatabaseConfig {
+    /// Connection URL (string) or structured credentials; SQLite paths resolve
+    /// against the config file's directory.
     #[serde(default = "DatabaseConfig::default_url")]
     pub url: aster_forge_db::DatabaseUrl,
+    /// Maximum connections per pool.
     #[serde(default = "DatabaseConfig::default_pool_size")]
     pub pool_size: u32,
+    /// Connection retry attempts during startup before giving up.
     #[serde(default = "DatabaseConfig::default_retry_count")]
     pub retry_count: u32,
 }
@@ -209,17 +239,29 @@ impl DatabaseConfig {
     }
 }
 
+/// Static auth secrets (`[auth]`).
+///
+/// Generated values are backfilled into the config file on first start and
+/// must never leave the process: they do not appear in logs, errors, or debug
+/// output.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AuthConfig {
+    /// HS256 signing key for session JWTs; at least 32 bytes.
     #[serde(default = "AuthConfig::default_jwt_secret")]
     pub jwt_secret: String,
+    /// Signing key for public share cookies.
     #[serde(default = "AuthConfig::default_share_cookie_secret")]
     pub share_cookie_secret: String,
+    /// Signing key for signed direct-download links.
     #[serde(default = "AuthConfig::default_direct_link_secret")]
     pub direct_link_secret: String,
+    /// Key protecting MFA secret material.
     pub mfa_secret_key: String,
+    /// Key encrypting storage driver credentials at rest.
     pub storage_credential_secret_key: String,
+    /// Cache-authentication secret for WebDAV sessions.
     pub webdav_auth_cache_secret: String,
+    /// Upper bound on concurrent Argon2 verifications.
     #[serde(default = "AuthConfig::default_password_hash_max_concurrency")]
     pub password_hash_max_concurrency: usize,
     /// 首次初始化 system_config 时，是否把 auth_cookie_secure 设为 false；默认允许 HTTP 首启。
@@ -415,14 +457,19 @@ impl TrustedClientNetworks {
 /// - `write`: 高成本写操作（批量/管理）
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct RateLimitConfig {
+    /// Master switch; with rate limiting off no tier is enforced.
     #[serde(default = "RateLimitConfig::default_enabled")]
     pub enabled: bool,
+    /// Tier for authentication and password verification endpoints.
     #[serde(default = "RateLimitConfig::default_auth")]
     pub auth: RateLimitTier,
+    /// Tier for anonymous public share access.
     #[serde(default = "RateLimitConfig::default_public")]
     pub public: RateLimitTier,
+    /// Tier for authenticated general read/write API traffic.
     #[serde(default = "RateLimitConfig::default_api")]
     pub api: RateLimitTier,
+    /// Tier for expensive bulk or admin write operations.
     #[serde(default = "RateLimitConfig::default_write")]
     pub write: RateLimitTier,
 }
@@ -479,10 +526,13 @@ impl ValidatableConfig for RateLimitConfig {
     }
 }
 
+/// Token-bucket parameters for one rate-limit tier.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct RateLimitTier {
+    /// Minimum spacing between refills, in seconds; strictly positive.
     #[serde(default = "RateLimitTier::default_seconds")]
     pub seconds_per_request: NonZeroU64,
+    /// Bucket capacity: requests allowed in a single burst; strictly positive.
     #[serde(default = "RateLimitTier::default_burst")]
     pub burst_size: NonZeroU32,
 }

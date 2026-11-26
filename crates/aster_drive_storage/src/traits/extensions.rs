@@ -62,6 +62,11 @@ pub struct ExactSizeReader<R> {
 }
 
 impl<R> ExactSizeReader<R> {
+    /// Wraps `inner`, declaring the exact number of bytes it must yield.
+    ///
+    /// Reading fails with `UnexpectedEof` if the source ends before `size`
+    /// bytes and with `InvalidData` if it yields more; both are detectable
+    /// via [`exact_size_error_kind`].
     pub fn new(inner: R, size: u64) -> Self {
         Self {
             inner,
@@ -144,6 +149,7 @@ impl<R: AsyncRead + Unpin> AsyncRead for ExactSizeReader<R> {
     }
 }
 
+/// Capability verdict for capacity observation on one configured storage space.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[serde(rename_all = "snake_case")]
@@ -164,15 +170,25 @@ pub enum StorageCapacityStatus {
 /// require a matching forwarding method in every decorator.
 #[derive(Clone, Copy, Default)]
 pub struct StorageDriverExtensions<'a> {
+    /// Provider-neutral direct-download URL support.
     pub direct_download: Option<&'a dyn DirectDownloadStorageDriver>,
+    /// Presigned browser-upload (single PUT) support.
     pub presigned_upload: Option<&'a dyn PresignedUploadStorageDriver>,
+    /// Maintenance-oriented object path listing support.
     pub list: Option<&'a dyn ListStorageDriver>,
+    /// Bounded streaming upload support.
     pub stream_upload: Option<&'a dyn StreamUploadDriver>,
+    /// Provider-native resumable (session/range or numbered-part) upload support.
     pub provider_resumable: Option<&'a dyn ProviderResumableUploadDriver>,
+    /// Local filesystem path exposure for controlled external commands.
     pub local_path: Option<&'a dyn LocalPathStorageDriver>,
+    /// Provider-native thumbnail generation support.
     pub native_thumbnail: Option<&'a dyn NativeThumbnailStorageDriver>,
+    /// Provider-native media metadata parsing support.
     pub native_media_metadata: Option<&'a dyn NativeMediaMetadataStorageDriver>,
+    /// Object-storage numbered multipart upload support.
     pub multipart: Option<&'a dyn crate::traits::multipart::MultipartStorageDriver>,
+    /// Publication of a staged object into its final storage key.
     pub native_publish: Option<&'a dyn NativePublishStorageDriver>,
 }
 
@@ -184,15 +200,30 @@ pub struct StorageDriverExtensions<'a> {
 /// referencing it. Filesystem-like drivers use `staging_path` until commit.
 #[derive(Debug, Clone)]
 pub struct StreamUploadAttempt {
+    /// Globally unique attempt id; also seeds the staging path.
     pub id: String,
+    /// Final opaque blob key this attempt publishes into.
     pub storage_path: String,
+    /// Provider- or filesystem-private staging location derived from
+    /// `storage_path`; never referenced by the product until commit.
     pub staging_path: String,
+    /// Declared transfer size in bytes; must be non-negative and is verified
+    /// by [`StreamUploadDriver::stage_attempt`] implementations.
     pub expected_size: i64,
+    /// Provider session handle (e.g. upload URL) set by the driver during
+    /// staging and restored on retry.
     provider_session: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+    /// Provider resource that must be cleaned up on abort (e.g. a provider
+    /// session object), set by the driver during staging.
     provider_cleanup_resource: std::sync::Arc<std::sync::Mutex<Option<String>>>,
 }
 
 impl StreamUploadAttempt {
+    /// Allocates a unique attempt for one storage path with a declared size.
+    ///
+    /// Returns a `Precondition` error when `expected_size` is negative. The
+    /// staging path is derived from the generated id, so concurrent attempts
+    /// for the same storage path never collide.
     pub fn new(storage_path: impl Into<String>, expected_size: i64) -> Result<Self> {
         if expected_size < 0 {
             return Err(crate::error::storage_driver_error(
@@ -213,12 +244,15 @@ impl StreamUploadAttempt {
         })
     }
 
+    /// Records the provider session handle produced while staging, so a
+    /// retried or resumed attempt can pick the session back up.
     pub fn set_provider_session(&self, session: impl Into<String>) {
         if let Ok(mut value) = self.provider_session.lock() {
             *value = Some(session.into());
         }
     }
 
+    /// Removes and returns the recorded provider session handle, if any.
     pub fn take_provider_session(&self) -> Option<String> {
         self.provider_session
             .lock()
@@ -226,12 +260,15 @@ impl StreamUploadAttempt {
             .and_then(|mut value| value.take())
     }
 
+    /// Records the provider-side resource (session, reservation, etc.) that
+    /// abort handling must clean up after staging started.
     pub fn set_provider_cleanup_resource(&self, resource: impl Into<String>) {
         if let Ok(mut value) = self.provider_cleanup_resource.lock() {
             *value = Some(resource.into());
         }
     }
 
+    /// Removes and returns the recorded provider cleanup resource, if any.
     pub fn take_provider_cleanup_resource(&self) -> Option<String> {
         self.provider_cleanup_resource
             .lock()
@@ -240,22 +277,37 @@ impl StreamUploadAttempt {
     }
 }
 
+/// What happened to provider-side state when an attempt was aborted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StreamUploadCleanup {
+    /// Nothing was staged, so there is nothing to clean up.
     NotRequired,
+    /// The provider-side resource was removed synchronously.
     Cleaned,
+    /// Cleanup was scheduled (e.g. lifecycle rule or background task) and may
+    /// still be in flight.
     Deferred,
+    /// Cleanup could not be confirmed; maintenance sweeps must be able to
+    /// recover the orphan.
     Unknown,
 }
 
+/// One capacity observation for a configured storage space.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageCapacityInfo {
+    /// Whether the backend supports capacity observation for this space.
     pub status: StorageCapacityStatus,
+    /// Total capacity in bytes; `None` when the provider does not report it.
     pub total_bytes: Option<i64>,
+    /// Free space in bytes; `None` when the provider does not report it.
     pub available_bytes: Option<i64>,
+    /// Used space in bytes; `None` when the provider does not report it.
     pub used_bytes: Option<i64>,
+    /// Backend identifier stating where this observation came from
+    /// (e.g. `posix_statvfs`, provider control plane name).
     pub source: String,
+    /// When the observation was taken.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub observed_at: DateTime<Utc>,
 }
@@ -333,10 +385,15 @@ impl Default for StorageCapacityProbePolicy {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorageCapacityAssessment {
     /// The observation is conclusive and the currently available bytes cover the requested size.
-    Sufficient { available_bytes: i64 },
+    Sufficient {
+        /// Bytes currently available as reported by the observation.
+        available_bytes: i64,
+    },
     /// The observation is conclusive and the requested size exceeds the currently available bytes.
     Insufficient {
+        /// Bytes the operation requires.
         required_bytes: i64,
+        /// Bytes currently available as reported by the observation.
         available_bytes: i64,
     },
     /// This backend does not expose a reliable capacity observation. This does not imply that the
@@ -347,8 +404,11 @@ pub enum StorageCapacityAssessment {
     Unavailable,
 }
 
+/// Static description of one provider's resumable upload protocol limits.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderResumableUploadCapabilities {
+    /// Optional browser transport this driver can coordinate; `None` keeps
+    /// the upload relay-only.
     pub browser_upload_protocol: Option<crate::BrowserUploadProtocol>,
     /// Provider 标识，例如 `microsoft_graph`。
     pub provider: &'static str,
@@ -374,22 +434,35 @@ pub struct ProviderResumableUploadCapabilities {
     pub status_query_supported: bool,
 }
 
+/// A newly created provider-native resumable upload session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderResumableUploadSession {
+    /// Provider session URL; the sole handle for later fragment uploads,
+    /// status queries, and aborts.
     pub upload_url: String,
+    /// When the session stops being usable; `None` when the provider does
+    /// not report an expiry.
     pub expires_at: Option<DateTime<Utc>>,
+    /// Provider-stated pending ranges for resume, when it reports them.
     pub next_expected_ranges: Vec<String>,
 }
 
+/// Authoritative provider state for an in-flight resumable session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderResumableUploadStatus {
+    /// Current session expiry; `None` when the provider does not report one.
     pub expires_at: Option<DateTime<Utc>>,
+    /// Ranges the provider still expects before completion.
     pub next_expected_ranges: Vec<String>,
 }
 
+/// Result of pushing one fragment to a provider session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderResumableUploadFragmentOutcome {
+    /// Whether the provider considers the whole upload complete after this
+    /// fragment (implicit-completion providers).
     pub completed: bool,
+    /// Ranges still expected after this fragment landed.
     pub next_expected_ranges: Vec<String>,
 }
 
@@ -400,6 +473,11 @@ pub struct ProviderResumableUploadFragmentOutcome {
 /// 也不要求使用 S3 签名。隐式提交与显式完成由 provider 能力明确区分。
 #[async_trait]
 pub trait ProviderResumableUploadDriver: Send + Sync {
+    /// Returns the provider's protocol limits and supported operations.
+    ///
+    /// Callers use this to pick fragment sizes and decide between sequential
+    /// range recovery and numbered-part scheduling; the value must be stable
+    /// for a configured driver.
     fn provider_resumable_upload_capabilities(&self) -> ProviderResumableUploadCapabilities;
 
     /// Native numbered-part protocol with explicit completion. The upload planner uses
@@ -413,11 +491,23 @@ pub trait ProviderResumableUploadDriver: Send + Sync {
         None
     }
 
+    /// Opens a provider-native resumable session for `path` and returns its
+    /// handle. Errors surface provider or precondition failures to the
+    /// caller; the session is owned by the caller until abort or completion.
     async fn create_upload_session(&self, path: &str) -> Result<ProviderResumableUploadSession>;
 
+    /// Queries authoritative provider state for an open session.
+    ///
+    /// Used to recover after response loss or process restart; the returned
+    /// ranges are the provider's view of what is still missing.
     async fn query_upload_session(&self, upload_url: &str)
     -> Result<ProviderResumableUploadStatus>;
 
+    /// Cancels the session and releases provider-side state.
+    ///
+    /// Implementations should treat this as best-effort idempotent: repeated
+    /// calls or calls after provider-side expiry must not hang or corrupt
+    /// unrelated sessions.
     async fn abort_upload_session(&self, upload_url: &str) -> Result<()>;
 
     /// Explicit native completion, when the provider does not commit on the last fragment.
@@ -437,6 +527,12 @@ pub trait ProviderResumableUploadDriver: Send + Sync {
         }
     }
 
+    /// Sends one fragment from `reader` starting at byte offset `start`.
+    ///
+    /// `fragment_size` bytes are read from the reader and pushed to the
+    /// provider session; the outcome reports provider-side completion and the
+    /// ranges still expected. Short or failed reads are provider/precondition
+    /// errors surfaced through `Result`.
     async fn upload_session_fragment_reader(
         &self,
         upload_url: &str,
@@ -448,6 +544,7 @@ pub trait ProviderResumableUploadDriver: Send + Sync {
 }
 
 impl StorageCapacityInfo {
+    /// Builds an `Unsupported` observation from `source`, with no byte data.
     pub fn unsupported(source: impl Into<String>) -> Self {
         Self {
             status: StorageCapacityStatus::Unsupported,
@@ -459,6 +556,7 @@ impl StorageCapacityInfo {
         }
     }
 
+    /// Builds an `Unavailable` observation from `source`, with no byte data.
     pub fn unavailable(source: impl Into<String>) -> Self {
         Self {
             status: StorageCapacityStatus::Unavailable,
@@ -496,6 +594,12 @@ impl StorageCapacityInfo {
 /// host selection, path construction, authentication, and expiration.
 #[async_trait]
 pub trait DirectDownloadStorageDriver: Send + Sync {
+    /// Resolves a browser-addressable download URL for `path`.
+    ///
+    /// `expires` bounds the URL's validity; `options` states delivery
+    /// overrides the caller requires. Returns `None` when the driver cannot
+    /// honor the requested overrides safely (callers fall back to relay);
+    /// provider failures are surfaced through `Result`.
     async fn resolve_download_url(
         &self,
         path: &str,
@@ -600,6 +704,9 @@ pub trait StreamUploadDriver: Send + Sync {
         Ok(attempt.storage_path.clone())
     }
 
+    /// Releases an interrupted attempt. Returns what happened to provider-side
+    /// state so callers can record whether maintenance sweeps may still find
+    /// the staged bytes; the default means nothing was staged.
     async fn abort_attempt(&self, _attempt: &StreamUploadAttempt) -> Result<StreamUploadCleanup> {
         Ok(StreamUploadCleanup::NotRequired)
     }
@@ -637,6 +744,11 @@ pub trait StreamUploadDriver: Send + Sync {
 /// propagated, rather than retried through copy.
 #[async_trait]
 pub trait NativePublishStorageDriver: Send + Sync {
+    /// Publishes the staged object into its final key atomically.
+    ///
+    /// On success the staged key is consumed and `storage_path` names the
+    /// published object; on failure the existing `storage_path` (if any)
+    /// remains intact and the staged key stays the caller's responsibility.
     async fn publish_staged(&self, staging_path: &str, storage_path: &str) -> Result<String>;
 }
 
@@ -649,11 +761,16 @@ pub trait LocalPathStorageDriver: Send + Sync {
     fn resolve_local_path(&self, path: &str) -> Result<PathBuf>;
 }
 
+/// One provider-native thumbnail request.
 #[derive(Debug, Clone)]
 pub struct NativeThumbnailRequest {
+    /// Storage path of the source object.
     pub storage_path: String,
+    /// MIME type recorded for the source object.
     pub source_mime_type: String,
+    /// Requested thumbnail width bound in pixels.
     pub max_width: u32,
+    /// Requested thumbnail height bound in pixels.
     pub max_height: u32,
 }
 
@@ -670,19 +787,29 @@ pub trait NativeThumbnailStorageDriver: Send + Sync {
     ) -> Result<Option<Vec<u8>>>;
 }
 
+/// One provider-native media metadata request.
 #[derive(Debug, Clone)]
 pub struct NativeMediaMetadataRequest {
+    /// Storage path of the source object.
     pub storage_path: String,
+    /// Original file name, used by providers that parse by extension.
     pub source_file_name: String,
+    /// MIME type recorded for the source object.
     pub source_mime_type: String,
+    /// Metadata kind to extract.
     pub kind: MediaMetadataKind,
 }
 
+/// Provider-parsed metadata result.
 #[derive(Debug, Clone)]
 pub struct NativeMediaMetadataResult {
+    /// Metadata kind actually produced.
     pub kind: MediaMetadataKind,
+    /// Parsed payload; format depends on `kind`.
     pub metadata: MediaMetadataPayload,
+    /// Identifier of the provider parser that produced the payload.
     pub parser: String,
+    /// Parser version, for cache invalidation and provenance.
     pub parser_version: String,
 }
 

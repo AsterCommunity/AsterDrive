@@ -1,3 +1,5 @@
+//! 联系方式验证与 MFA 认证类型。
+
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
@@ -9,8 +11,10 @@ use utoipa::ToSchema;
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(16))")]
 #[serde(rename_all = "snake_case")]
 pub enum VerificationChannel {
+    /// Verification code delivered by email.
     #[sea_orm(string_value = "email")]
     Email,
+    /// Verification code delivered by SMS.
     #[sea_orm(string_value = "phone")]
     Phone,
 }
@@ -21,10 +25,13 @@ pub enum VerificationChannel {
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(32))")]
 #[serde(rename_all = "snake_case")]
 pub enum VerificationPurpose {
+    /// Activate a newly registered account.
     #[sea_orm(string_value = "register_activation")]
     RegisterActivation,
+    /// Confirm a pending email / phone contact change.
     #[sea_orm(string_value = "contact_change")]
     ContactChange,
+    /// Confirm identity before resetting the password.
     #[sea_orm(string_value = "password_reset")]
     PasswordReset,
 }
@@ -47,11 +54,13 @@ pub enum VerificationPurpose {
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(16))")]
 #[serde(rename_all = "snake_case")]
 pub enum MfaPersistentFactorMethod {
+    /// Time-based one-time password factor backed by an encrypted shared secret.
     #[sea_orm(string_value = "totp")]
     Totp,
 }
 
 impl MfaPersistentFactorMethod {
+    /// Returns the snake_case method name shared by API and storage values.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Totp => "totp",
@@ -73,12 +82,16 @@ impl MfaPersistentFactorMethod {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum MfaMethod {
+    /// Verification via the user's persisted TOTP factor.
     Totp,
+    /// Verification via a one-time code from `mfa_recovery_codes`.
     RecoveryCode,
+    /// Verification via a short-lived code mailed to a verified address.
     EmailCode,
 }
 
 impl MfaMethod {
+    /// Returns the snake_case method name used by login flow responses.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Totp => "totp",
@@ -94,13 +107,16 @@ impl MfaMethod {
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(32))")]
 #[serde(rename_all = "snake_case")]
 pub enum MfaFirstFactor {
+    /// First factor completed with the account password.
     #[sea_orm(string_value = "password")]
     Password,
+    /// First factor completed through an external identity provider.
     #[sea_orm(string_value = "external_auth")]
     ExternalAuth,
 }
 
 impl MfaFirstFactor {
+    /// Returns the snake_case factor name used by storage and audit values.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Password => "password",
@@ -114,11 +130,14 @@ impl MfaFirstFactor {
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum TokenType {
+    /// Short-lived token used to authorize API requests.
     Access,
+    /// Long-lived token used to obtain new access tokens.
     Refresh,
 }
 
 impl TokenType {
+    /// Returns the lowercase token type name used in JWT claims.
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Access => "access",

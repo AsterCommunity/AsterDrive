@@ -25,26 +25,46 @@ use aster_drive_storage::Result;
 use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
 use aster_drive_storage::{MultipartStorageCapabilities, MultipartUploadMode};
 
+/// Connection and download-delivery settings for the Huawei OBS driver.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HuaweiObsDriverConfig {
+    /// OBS endpoint, either an official `obs.<region>.myhuaweicloud.com` host
+    /// or a custom-domain (CNAME) address.
     pub endpoint: String,
+    /// OBS bucket name, validated against the OBS bucket naming rules.
     pub bucket: String,
+    /// Key prefix prepended to every driver-relative storage path.
     pub base_path: String,
+    /// OBS region identifier, for example `cn-north-4`.
     pub region: String,
+    /// Address the bucket through a custom domain (path-style) instead of
+    /// virtual-hosted `bucket.endpoint` addressing.
     pub use_cname: bool,
+    /// Channel used for browser-facing download URLs.
     pub download_delivery: cdn::ObsDownloadDelivery,
+    /// HTTPS CDN download domain; required for
+    /// [`cdn::ObsDownloadDelivery::HuaweiCdnTypeASha256`].
     pub cdn_domain: Option<String>,
+    /// Console-side CDN Type A validity window in seconds, clamped to 1..=31_536_000.
     pub cdn_auth_validity_seconds: u32,
+    /// Query parameter name carrying the CDN Type A token, for example `auth_key`.
     pub cdn_auth_param: String,
+    /// TCP connect timeout applied to OBS requests.
     pub connect_timeout: Duration,
+    /// Idle-read timeout applied while waiting for OBS response bytes.
     pub read_timeout: Duration,
+    /// Whole-request timeout bounding each OBS operation.
     pub operation_timeout: Duration,
 }
 
+/// secret material for the Huawei OBS driver.
 #[derive(Clone, PartialEq, Eq)]
 pub struct HuaweiObsStaticCredentials {
+    /// OBS Access Key ID (AK).
     pub access_key: String,
+    /// OBS secret Access Key (SK) used for `SignatureObs` request signing.
     pub secret_key: String,
+    /// CDN Type A authentication key, required when CDN delivery is selected.
     pub cdn_auth_key: Option<String>,
 }
 
@@ -55,13 +75,19 @@ impl std::fmt::Debug for HuaweiObsStaticCredentials {
     }
 }
 
+/// Endpoint, bucket, and region values after endpoint normalization.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NormalizedHuaweiObsEndpoint {
+    /// Root endpoint with the bucket subdomain stripped in virtual-hosted mode.
     pub endpoint: String,
+    /// Validated bucket name.
     pub bucket: String,
+    /// Normalized lowercase region string.
     pub region: String,
 }
 
+/// Huawei Cloud OBS driver; requests reuse the S3 wire format while signing
+/// switches to the OBS-native `SignatureObs` scheme.
 pub struct HuaweiObsDriver {
     storage: S3CompatibleDriver,
     download_delivery: DownloadDelivery,
@@ -73,6 +99,9 @@ enum DownloadDelivery {
 }
 
 impl HuaweiObsDriver {
+    /// Normalizes the endpoint/bucket/region triple. Virtual-hosted mode requires
+    /// the official `obs.<region>.myhuaweicloud.com` host; CNAME mode rejects
+    /// official OBS hosts in favor of the mapped custom hostname.
     pub fn normalize_endpoint(
         endpoint: &str,
         bucket: &str,
@@ -151,6 +180,7 @@ impl HuaweiObsDriver {
         })
     }
 
+    /// Validates endpoint/bucket/region shape and CDN delivery options without credentials.
     pub fn validate_connection_config(config: &HuaweiObsDriverConfig) -> Result<()> {
         Self::normalize_endpoint(
             &config.endpoint,
@@ -175,6 +205,8 @@ impl HuaweiObsDriver {
         Ok(())
     }
 
+    /// Validates connection settings plus credentials; CDN delivery additionally
+    /// requires a well-formed CDN authentication key.
     pub fn validate_config(
         config: &HuaweiObsDriverConfig,
         credentials: &HuaweiObsStaticCredentials,
@@ -219,6 +251,8 @@ impl HuaweiObsDriver {
         )
     }
 
+    /// Builds the driver on the S3-compatible core with OBS signing and the
+    /// OBS UploadPart contract (100 KiB..5 GiB per part, up to 10_000 parts).
     pub fn new(
         config: HuaweiObsDriverConfig,
         credentials: HuaweiObsStaticCredentials,
@@ -292,6 +326,7 @@ impl HuaweiObsDriver {
         })
     }
 
+    /// S3 client backing all object I/O, wired with OBS `SignatureObs` signing.
     pub fn s3_driver(&self) -> Arc<S3Driver> {
         self.storage.s3_driver()
     }

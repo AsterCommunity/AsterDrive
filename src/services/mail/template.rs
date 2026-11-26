@@ -9,93 +9,143 @@ use aster_forge_mail::{
     StoredMailPayload, TemplatePlaceholderSet, TemplateVariableSpec, escape_html, render_template,
 };
 
+/// Template variables for the register activation mail.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RegisterActivationPayload {
+    /// Display name of the account awaiting activation.
     pub username: String,
+    /// Activation token embedded in the verification URL.
     pub token: String,
+    /// Branding title shown in the mail body, defaulted for old stored rows.
     #[serde(default = "default_site_name")]
     pub site_name: String,
 }
 
+/// Template variables for the contact-change confirmation mail sent to the new address.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContactChangeConfirmationPayload {
+    /// Display name of the user changing their contact address.
     pub username: String,
+    /// Confirmation token embedded in the verification URL.
     pub token: String,
+    /// Branding title shown in the mail body, defaulted for old stored rows.
     #[serde(default = "default_site_name")]
     pub site_name: String,
 }
 
+/// Template variables for the password reset request mail.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PasswordResetPayload {
+    /// Display name of the user who requested the reset.
     pub username: String,
+    /// Reset token embedded in the reset URL.
     pub token: String,
+    /// Branding title shown in the mail body, defaulted for old stored rows.
     #[serde(default = "default_site_name")]
     pub site_name: String,
 }
 
+/// Template variables for the notice sent after a password reset succeeded.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PasswordResetNoticePayload {
+    /// Display name of the user whose password was changed.
     pub username: String,
+    /// Branding title shown in the mail body, defaulted for old stored rows.
     #[serde(default = "default_site_name")]
     pub site_name: String,
 }
 
+/// Template variables for the contact-change notice sent to the previous address.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContactChangeNoticePayload {
+    /// Display name of the user who changed their contact address.
     pub username: String,
+    /// Address the mail is sent to, now replaced by the new address.
     pub previous_email: String,
+    /// Address that became active after the confirmation.
     pub new_email: String,
+    /// Branding title shown in the mail body, defaulted for old stored rows.
     #[serde(default = "default_site_name")]
     pub site_name: String,
 }
 
+/// Template variables for the external-auth email verification mail.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExternalAuthEmailVerificationPayload {
+    /// Address being verified for the pending external-auth login.
     pub email: String,
+    /// Verification token embedded in the verification URL.
     pub token: String,
+    /// Display name of the external auth provider, e.g. an OIDC issuer.
     #[serde(default = "default_external_auth_provider_name")]
     pub provider_name: String,
+    /// Branding title shown in the mail body, defaulted for old stored rows.
     #[serde(default = "default_site_name")]
     pub site_name: String,
+    /// Human-readable validity window of the link, e.g. `"30 minutes"`.
     #[serde(default = "default_external_auth_expires_in")]
     pub expires_in: String,
 }
 
+/// Template variables for the one-time login code mail.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LoginEmailCodePayload {
+    /// Display name of the user requesting the login code.
     pub username: String,
+    /// One-time login code the recipient must enter to finish signing in.
     pub code: String,
+    /// Branding title shown in the mail body, defaulted for old stored rows.
     #[serde(default = "default_site_name")]
     pub site_name: String,
+    /// Human-readable validity window of the code, e.g. `"10 minutes"`.
     #[serde(default = "default_login_email_code_expires_in")]
     pub expires_in: String,
+    /// BCP 47 language tag for the HTML mail, e.g. `"en"`; falls back to
+    /// `"en"` when missing or not alphanumeric-dash.
     #[serde(default = "default_mail_template_lang")]
     pub lang: String,
 }
 
+/// Template variables for the user invitation mail.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UserInvitationPayload {
+    /// Address the invitation is sent to.
     pub email: String,
+    /// Pre-authorized URL the invitee opens to accept the invitation.
     pub invitation_url: String,
+    /// Branding title shown in the mail body, defaulted for old stored rows.
     #[serde(default = "default_site_name")]
     pub site_name: String,
+    /// Human-readable validity window of the invitation, e.g. `"72 hours"`.
     #[serde(default = "default_user_invitation_expires_in")]
     pub expires_in: String,
 }
 
+/// Typed payload for one of the built-in mail templates, stored as JSON in
+/// the outbox and turned into placeholder sets at delivery time.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MailTemplatePayload {
+    /// Payload for the register activation mail.
     RegisterActivation(RegisterActivationPayload),
+    /// Payload for the contact-change confirmation mail.
     ContactChangeConfirmation(ContactChangeConfirmationPayload),
+    /// Payload for the password reset mail.
     PasswordReset(PasswordResetPayload),
+    /// Payload for the post-reset security notice mail.
     PasswordResetNotice(PasswordResetNoticePayload),
+    /// Payload for the contact-change notice mail.
     ContactChangeNotice(ContactChangeNoticePayload),
+    /// Payload for the external-auth email verification mail.
     ExternalAuthEmailVerification(ExternalAuthEmailVerificationPayload),
+    /// Payload for the login email code mail.
     LoginEmailCode(LoginEmailCodePayload),
+    /// Payload for the user invitation mail.
     UserInvitation(UserInvitationPayload),
 }
 
 impl MailTemplatePayload {
+    /// Builds the payload for the register activation mail; `token` is
+    /// exchanged at the contact-verification confirm endpoint.
     pub fn register_activation(username: &str, token: &str, site_name: &str) -> Self {
         Self::RegisterActivation(RegisterActivationPayload {
             username: username.to_string(),
@@ -104,6 +154,8 @@ impl MailTemplatePayload {
         })
     }
 
+    /// Builds the payload for the contact-change confirmation mail sent to
+    /// the new address; `token` is exchanged at the confirm endpoint.
     pub fn contact_change_confirmation(username: &str, token: &str, site_name: &str) -> Self {
         Self::ContactChangeConfirmation(ContactChangeConfirmationPayload {
             username: username.to_string(),
@@ -112,6 +164,8 @@ impl MailTemplatePayload {
         })
     }
 
+    /// Builds the payload for the password reset mail; `token` is exchanged
+    /// at the reset endpoint.
     pub fn password_reset(username: &str, token: &str, site_name: &str) -> Self {
         Self::PasswordReset(PasswordResetPayload {
             username: username.to_string(),
@@ -120,6 +174,8 @@ impl MailTemplatePayload {
         })
     }
 
+    /// Builds the payload for the security notice sent after a password
+    /// reset has been applied; carries no token or link.
     pub fn password_reset_notice(username: &str, site_name: &str) -> Self {
         Self::PasswordResetNotice(PasswordResetNoticePayload {
             username: username.to_string(),
@@ -127,6 +183,8 @@ impl MailTemplatePayload {
         })
     }
 
+    /// Builds the payload for the notice sent to the previous address once
+    /// the contact change has been confirmed.
     pub fn contact_change_notice(
         username: &str,
         previous_email: &str,
@@ -141,6 +199,8 @@ impl MailTemplatePayload {
         })
     }
 
+    /// Builds the payload for the external-auth email verification mail;
+    /// `expires_in` is a pre-formatted human-readable duration.
     pub fn external_auth_email_verification(
         email: &str,
         token: &str,
@@ -157,6 +217,8 @@ impl MailTemplatePayload {
         })
     }
 
+    /// Builds the payload for the login email code mail; the template
+    /// language stays at its default so rendering normalizes it.
     pub fn login_email_code(username: &str, code: &str, site_name: &str, expires_in: &str) -> Self {
         Self::LoginEmailCode(LoginEmailCodePayload {
             username: username.to_string(),
@@ -167,6 +229,8 @@ impl MailTemplatePayload {
         })
     }
 
+    /// Builds the payload for the user invitation mail; `invitation_url` is
+    /// the pre-authorized acceptance link built by the caller.
     pub fn user_invitation(
         email: &str,
         invitation_url: &str,
@@ -181,6 +245,7 @@ impl MailTemplatePayload {
         })
     }
 
+    /// Returns the template code this payload renders under.
     pub fn template_code(&self) -> MailTemplateCode {
         match self {
             Self::RegisterActivation(_) => MailTemplateCode::RegisterActivation,
@@ -196,6 +261,7 @@ impl MailTemplatePayload {
         }
     }
 
+    /// Serializes this payload into the JSON stored on the outbox row.
     pub fn to_stored(&self) -> Result<StoredMailPayload> {
         match self {
             Self::RegisterActivation(payload) => serialize_payload(payload).map(StoredMailPayload),
@@ -213,6 +279,8 @@ impl MailTemplatePayload {
         }
     }
 
+    /// Deserializes the JSON stored on an outbox row into the payload
+    /// matching `template_code`; fails when the stored shape does not fit.
     pub fn from_stored(
         template_code: MailTemplateCode,
         payload: &StoredMailPayload,
@@ -405,15 +473,31 @@ const MAIL_TEMPLATE_DEFINITIONS: &[MailTemplateDefinition] = &[
     ),
 ];
 
+/// Static registry describing every built-in mail template and its variables.
+///
+/// Backs the admin template editing UI and the rendering config keys; the
+/// variable groups are asserted complete and valid at startup.
 pub const MAIL_TEMPLATE_REGISTRY: MailTemplateRegistry =
     MailTemplateRegistry::new(MAIL_TEMPLATE_DEFINITIONS);
 
+/// Validates that every template in the registry declares unique codes and
+/// known variables.
+///
+/// Invoked at startup so a bad built-in template definition fails fast
+/// instead of producing broken admin settings or renders.
 pub fn validate_template_registry() -> Result<()> {
     MAIL_TEMPLATE_REGISTRY.validate().map_err(|error| {
         AsterError::internal_error(format!("invalid mail template registry: {error}"))
     })
 }
 
+/// Renders the subject and HTML body for `template_code` from a stored payload.
+///
+/// Decodes the payload, builds raw and HTML-escaped placeholder sets, and
+/// fills in the subject and HTML templates configured in runtime config; the
+/// plain-text body is derived from the rendered HTML. Link variables such as
+/// `verification_url` and `reset_url` are built here from the token embedded
+/// in the payload.
 pub fn render(
     runtime_config: &RuntimeConfig,
     template_code: MailTemplateCode,

@@ -21,6 +21,8 @@ use aster_forge_api::LimitOffsetQuery;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use aster_forge_api::OffsetPage;
 
+/// Creates a user account directly (no invitation) and records the change in the
+/// audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/users",
@@ -58,6 +60,7 @@ pub async fn create_user(
     Ok(HttpResponse::Created().json(crate::api::response::success(output)))
 }
 
+/// Lists users with pagination, keyword filtering, and sorting.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/users",
@@ -92,6 +95,7 @@ pub async fn list_users(
     Ok(HttpResponse::Ok().json(crate::api::response::success(users)))
 }
 
+/// Creates an email invitation for a new user and records the change in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/users/invitations",
@@ -129,6 +133,7 @@ pub async fn create_user_invitation(
     Ok(HttpResponse::Created().json(crate::api::response::success(invitation)))
 }
 
+/// Lists user invitations with pagination.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/users/invitations",
@@ -152,6 +157,7 @@ pub async fn list_user_invitations(
     Ok(HttpResponse::Ok().json(crate::api::response::success(invitations)))
 }
 
+/// Revokes a pending user invitation and records the change in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/users/invitations/{id}/revoke",
@@ -201,6 +207,7 @@ fn invitation_audit_details(
     })
 }
 
+/// Returns a single user by ID.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/users/{id}",
@@ -223,6 +230,8 @@ pub async fn get_user(
     Ok(HttpResponse::Ok().json(crate::api::response::success(user)))
 }
 
+/// Revokes all active sessions of a user, forcing re-login, and records the action
+/// in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/users/{id}/sessions/revoke",
@@ -248,6 +257,8 @@ pub async fn revoke_user_sessions(
     Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
+/// Updates user role, status, quota, or policy group assignment and records the
+/// change in the audit log.
 #[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/admin/users/{id}",
@@ -292,6 +303,8 @@ pub async fn update_user(
     Ok(HttpResponse::Ok().json(crate::api::response::success(user)))
 }
 
+/// Resets a user's password to an admin-provided value and records the change in the
+/// audit log. The password never appears in audit or log output.
 #[aster_forge_api_docs_macros::path(
     put,
     path = "/api/v1/admin/users/{id}/password",
@@ -321,6 +334,8 @@ pub async fn reset_user_password(
     Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
+/// Clears a user's MFA configuration (authenticators, recovery codes, and pending
+/// login flows) and records the action in the audit log.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/admin/users/{id}/mfa",
@@ -346,6 +361,8 @@ pub async fn reset_user_mfa(
     Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
+/// Permanently deletes a user and all associated data, and records the action in the
+/// audit log. Cannot target an admin user.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/admin/users/{id}",
@@ -372,6 +389,7 @@ pub async fn force_delete_user(
     Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
+/// Returns a user's avatar image in WebP format at the requested size (512 or 1024).
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/users/{id}/avatar/{size}",

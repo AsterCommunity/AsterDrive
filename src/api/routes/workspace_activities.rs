@@ -24,6 +24,7 @@ async fn response(
     Ok(HttpResponse::Ok().json(crate::api::response::success(page)))
 }
 
+/// Lists a personal file's activity feed with pagination.
 #[aster_forge_api_docs_macros::path(get,path="/api/v1/files/{id}/activities",tag="files",operation_id="list_file_activities",params(("id"=i64,Path),ActivityListQuery),responses((status=200,body=inline(ApiResponse<WorkspaceActivityPage>))),security(("bearer"=[])))]
 pub async fn file(
     state: web::Data<PrimaryAppState>,
@@ -42,6 +43,7 @@ pub async fn file(
     .await
 }
 
+/// Lists a personal folder's activity feed with pagination.
 #[aster_forge_api_docs_macros::path(get,path="/api/v1/folders/{id}/activities",tag="folders",operation_id="list_folder_activities",params(("id"=i64,Path),ActivityListQuery),responses((status=200,body=inline(ApiResponse<WorkspaceActivityPage>))),security(("bearer"=[])))]
 pub async fn folder(
     state: web::Data<PrimaryAppState>,
@@ -60,6 +62,7 @@ pub async fn folder(
     .await
 }
 
+/// Lists a team file's activity feed with pagination.
 #[aster_forge_api_docs_macros::path(get,path="/api/v1/teams/{team_id}/files/{id}/activities",tag="teams",operation_id="list_team_file_activities",params(("team_id"=i64,Path),("id"=i64,Path),ActivityListQuery),responses((status=200,body=inline(ApiResponse<WorkspaceActivityPage>))),security(("bearer"=[])))]
 pub async fn team_file(
     state: web::Data<PrimaryAppState>,
@@ -77,6 +80,7 @@ pub async fn team_file(
     .await
 }
 
+/// Lists a team folder's activity feed with pagination.
 #[aster_forge_api_docs_macros::path(get,path="/api/v1/teams/{team_id}/folders/{id}/activities",tag="teams",operation_id="list_team_folder_activities",params(("team_id"=i64,Path),("id"=i64,Path),ActivityListQuery),responses((status=200,body=inline(ApiResponse<WorkspaceActivityPage>))),security(("bearer"=[])))]
 pub async fn team_folder(
     state: web::Data<PrimaryAppState>,
@@ -94,6 +98,7 @@ pub async fn team_folder(
     .await
 }
 
+/// Lists a team workspace's whole activity feed with pagination.
 #[aster_forge_api_docs_macros::path(get,path="/api/v1/teams/{id}/activities",tag="teams",operation_id="list_team_activities",params(("id"=i64,Path),ActivityListQuery),responses((status=200,body=inline(ApiResponse<WorkspaceActivityPage>))),security(("bearer"=[])))]
 pub async fn team(
     state: web::Data<PrimaryAppState>,
@@ -104,6 +109,7 @@ pub async fn team(
     response(&state, super::team_scope(*id, claims.user_id), None, &query).await
 }
 
+/// Streams a team workspace's activities as a UTF-8 CSV download attachment.
 #[aster_forge_api_docs_macros::path(get,path="/api/v1/teams/{id}/activities/export",tag="teams",operation_id="export_team_activities",params(("id"=i64,Path)),responses((status=200,description="Workspace activity CSV")),security(("bearer"=[])))]
 pub async fn export_team(
     state: web::Data<PrimaryAppState>,
@@ -128,6 +134,7 @@ pub async fn export_team(
         .streaming(export.stream))
 }
 
+/// Lists any team's activity feed for administrators with pagination.
 #[aster_forge_api_docs_macros::path(get,path="/api/v1/admin/teams/{id}/activities",tag="admin",operation_id="admin_list_team_activities",params(("id"=i64,Path),ActivityListQuery),responses((status=200,body=inline(ApiResponse<WorkspaceActivityPage>))),security(("bearer"=[])))]
 pub async fn admin_team(
     state: web::Data<PrimaryAppState>,
@@ -138,6 +145,7 @@ pub async fn admin_team(
     Ok(HttpResponse::Ok().json(crate::api::response::success(page)))
 }
 
+/// Streams any team's activities as a UTF-8 CSV download for administrators.
 #[aster_forge_api_docs_macros::path(get,path="/api/v1/admin/teams/{id}/activities/export",tag="admin",operation_id="admin_export_team_activities",params(("id"=i64,Path)),responses((status=200,description="Workspace activity CSV")),security(("bearer"=[])))]
 pub async fn admin_export_team(
     state: web::Data<PrimaryAppState>,

@@ -9,6 +9,8 @@ pub use crate::config::definitions::{
     WEBDAV_ENABLED_KEY, WEBDAV_MAX_ACTIVE_LOCKS_PER_USER_KEY,
 };
 
+/// Upper bound on WebDAV locks one user may hold at the same time, read from
+/// the runtime config; missing, zero, or unparseable values keep the default.
 pub fn max_active_locks_per_user(runtime_config: &RuntimeConfig) -> u64 {
     match runtime_config.get(WEBDAV_MAX_ACTIVE_LOCKS_PER_USER_KEY) {
         Some(raw) => match raw.trim().parse::<u64>() {
@@ -26,6 +28,8 @@ pub fn max_active_locks_per_user(runtime_config: &RuntimeConfig) -> u64 {
     }
 }
 
+/// Validates the stored lock limit as a positive integer and returns its
+/// canonical decimal form.
 pub fn normalize_max_active_locks_per_user_config_value(value: &str) -> Result<String> {
     let parsed = value.trim().parse::<u64>().ok().filter(|value| *value > 0);
     parsed.map(|value| value.to_string()).ok_or_else(|| {

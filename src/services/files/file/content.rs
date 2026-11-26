@@ -199,15 +199,22 @@ pub(crate) async fn stream_request_body_to_temp_upload(
 ///
 /// 返回创建/更新的文件记录。临时文件可能被 put_file rename 走，调用方不要依赖它存在。
 pub struct StoreFromTempRequest<'a> {
+    /// Target folder; `None` stores at the personal root.
     pub folder_id: Option<i64>,
+    /// File name to create or overwrite; normalized to a unique name on create.
     pub filename: &'a str,
+    /// Path of the uploaded temp file handed to the blob store.
     pub temp_path: &'a str,
+    /// Size of the temp file in bytes; must match the actual blob length.
     pub size: i64,
+    /// Existing file to overwrite; `None` creates a new file record.
     pub existing_file_id: Option<i64>,
+    /// Lock holder credentials permitting mutation of a locked file.
     pub lock_credentials: crate::services::files::lock::LockMutationCredentials,
 }
 
 impl<'a> StoreFromTempRequest<'a> {
+    /// Creates a create-new request without lock credentials.
     pub fn new(folder_id: Option<i64>, filename: &'a str, temp_path: &'a str, size: i64) -> Self {
         Self {
             folder_id,
@@ -219,11 +226,13 @@ impl<'a> StoreFromTempRequest<'a> {
         }
     }
 
+    /// Marks the request as an overwrite of the given existing file.
     pub fn overwrite(mut self, existing_file_id: i64) -> Self {
         self.existing_file_id = Some(existing_file_id);
         self
     }
 
+    /// Sets the lock holder allowed to mutate a locked file.
     pub fn with_lock_holder(mut self, user_id: i64) -> Self {
         self.lock_credentials =
             crate::services::files::lock::LockMutationCredentials::HolderUser(user_id);
@@ -231,6 +240,11 @@ impl<'a> StoreFromTempRequest<'a> {
     }
 }
 
+/// Stores a blob from a temp file and creates a new file record in the
+/// caller's personal workspace.
+///
+/// Thin wrapper over the shared `store_from_temp_internal` pipeline with
+/// default constraints, unique-name resolution, and no lock holder.
 pub async fn store_from_temp(
     state: &PrimaryAppState,
     user_id: i64,

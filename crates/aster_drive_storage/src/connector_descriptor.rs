@@ -16,6 +16,7 @@ use crate::ConnectorId;
 
 use super::field_contract::{StorageDescriptorFieldKind, StorageDescriptorFieldSemantics};
 
+/// Credential modes a connector may require.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -51,6 +52,7 @@ pub enum StorageConnectorDeploymentScope {
 }
 
 impl StorageConnectorDeploymentScope {
+    /// Stable wire name used in serialized descriptor payloads and diagnostics.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::InstanceLocal => "instance_local",
@@ -59,6 +61,8 @@ impl StorageConnectorDeploymentScope {
         }
     }
 
+    /// Whether this scope allows the same policy to resolve identically on
+    /// every primary instance, enabling cluster-wide storage reuse.
     pub const fn is_cluster_eligible(self) -> bool {
         matches!(
             self,
@@ -67,6 +71,7 @@ impl StorageConnectorDeploymentScope {
     }
 }
 
+/// Which persisted config domain a descriptor field writes into.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -81,14 +86,20 @@ pub enum StorageConnectorFieldScope {
     ActionInput,
 }
 
+/// Widget and validation class of one descriptor field in the admin form.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum StorageConnectorFieldKind {
+    /// Single-line free-form text value.
     Text,
+    /// Credential value; the UI masks it and the backend never echoes it back.
     Secret,
+    /// One value chosen from the select contract declared on the field.
     Select,
+    /// A `true`/`false` switch.
     Boolean,
+    /// An integer value such as a timeout or limit.
     Number,
 }
 
@@ -136,18 +147,24 @@ impl From<StorageConnectorFieldKind> for StorageDescriptorFieldKind {
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum StorageConnectorSelectValueKind {
+    /// Options carry string values.
     String,
+    /// Options carry integer values, for example remote node ids.
     Integer,
 }
 
+/// Scalar value carried by one select option.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(untagged)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum StorageConnectorSelectOptionValue {
+    /// Submitted when the select's `value_kind` is `integer`.
     Integer(i64),
+    /// Submitted when the select's `value_kind` is `string`.
     String(String),
 }
 
+/// One selectable choice of a fixed-options select field.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorSelectOption {
@@ -173,13 +190,19 @@ pub struct StorageConnectorSelectOption {
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum StorageConnectorSelectDataSource {
+    /// Registered remote nodes; integer values, no `depends_on`.
     RemoteNodes,
+    /// Storage targets exposed by the remote node selected in `depends_on`;
+    /// string values.
     RemoteStorageTargets,
 }
 
+/// UI contract of one select field: value type, fixed options or dynamic
+/// platform catalog, and custom-value behavior.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorSelectDescriptor {
+    /// Value shape shared by every option of this select field.
     pub value_kind: StorageConnectorSelectValueKind,
     /// Connector-owned fixed choices. Mutually exclusive with `data_source`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -214,8 +237,11 @@ fn is_false(value: &bool) -> bool {
 #[serde(untagged)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum StorageConnectorFieldDefaultValue {
+    /// Default for a boolean field.
     Boolean(bool),
+    /// Default for a number (integer) field.
     Integer(i64),
+    /// Default for a text, secret, or string-valued select field.
     String(String),
 }
 
@@ -231,7 +257,10 @@ pub struct StorageConnectorFieldCondition {
     /// requiredness may explicitly depend on non-secret connector config.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<StorageConnectorFieldScope>,
+    /// Name of the sibling field whose value is inspected.
     pub field: String,
+    /// Scalar value the referenced field must carry (or must not, when
+    /// `negate` is set).
     pub value: StorageConnectorFieldDefaultValue,
     /// Require a present value different from `value`. Missing and null values never
     /// match, including negated conditions.
@@ -243,16 +272,21 @@ pub struct StorageConnectorFieldCondition {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorFieldDefaultRule {
+    /// All conditions in this rule must match for it to apply.
     pub conditions: Vec<StorageConnectorFieldCondition>,
+    /// Scalar default applied when this rule wins.
     pub value: StorageConnectorFieldDefaultValue,
 }
 
+/// What happens to a field's submitted value when it is not rendered.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum StorageConnectorInactiveValueBehavior {
+    /// Keep the submitted value even though the field is not rendered.
     #[default]
     Preserve,
+    /// Drop the value when the field is not rendered.
     Clear,
 }
 
@@ -272,8 +306,11 @@ impl StorageConnectorInactiveValueBehavior {
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum StorageConnectorFieldDefaultMode {
+    /// Apply the default only when the field is absent.
     #[default]
     MissingOnly,
+    /// Apply the default when the field is absent or an optional text field is
+    /// submitted empty.
     MissingOrEmptyText,
 }
 
@@ -283,13 +320,18 @@ impl StorageConnectorFieldDefaultMode {
     }
 }
 
+/// Basic numeric and length constraints re-checked by the backend, usable by
+/// the frontend for immediate feedback.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorFieldValidation {
+    /// Lower bound accepted for a number field, inclusive.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub min_integer: Option<i64>,
+    /// Upper bound accepted for a number field, inclusive.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_integer: Option<i64>,
+    /// Maximum character count accepted for a text/secret field.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_length: Option<u32>,
 }
@@ -306,17 +348,21 @@ pub struct StorageConnectorFieldValidation {
     derive(ToSchema),
     schema(value_type = String)
 )]
+/// Stable action identity owned by one connector.
 pub struct StorageConnectorActionId(String);
 
 impl StorageConnectorActionId {
+    /// Wraps a connector-declared action id without validating it.
     pub fn declared(value: impl Into<String>) -> Self {
         Self(value.into())
     }
 
+    /// Returns the action id as a string slice.
     pub fn as_str(&self) -> &str {
         &self.0
     }
 
+    /// Checks the id against [`is_valid_stable_descriptor_id`].
     pub fn validate(&self) -> Result<(), StorageConnectorActionIdError> {
         if !is_valid_stable_descriptor_id(self.as_str()) {
             return Err(StorageConnectorActionIdError);
@@ -325,6 +371,7 @@ impl StorageConnectorActionId {
     }
 }
 
+/// Returned when an action id fails stable-id validation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StorageConnectorActionIdError;
 
@@ -346,17 +393,21 @@ impl std::error::Error for StorageConnectorActionIdError {}
     derive(ToSchema),
     schema(value_type = String)
 )]
+/// Stable identity for one target-owned in-place connector promotion.
 pub struct StorageConnectorPromotionId(String);
 
 impl StorageConnectorPromotionId {
+    /// Wraps a target-declared promotion id without validating it.
     pub fn declared(value: impl Into<String>) -> Self {
         Self(value.into())
     }
 
+    /// Returns the promotion id as a string slice.
     pub fn as_str(&self) -> &str {
         &self.0
     }
 
+    /// Checks the id against [`is_valid_stable_descriptor_id`].
     pub fn validate(&self) -> Result<(), StorageConnectorPromotionIdError> {
         if !is_valid_stable_descriptor_id(self.as_str()) {
             return Err(StorageConnectorPromotionIdError);
@@ -365,6 +416,7 @@ impl StorageConnectorPromotionId {
     }
 }
 
+/// Returned when a promotion id fails stable-id validation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StorageConnectorPromotionIdError;
 
@@ -397,41 +449,67 @@ fn is_valid_stable_descriptor_id(value: &str) -> bool {
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum StorageConnectorPromotionValueMatcher {
+    /// Matches when the source value equals the expected text.
     StringEquals {
+        /// Expected source value.
         value: String,
+        /// Compare case-insensitively when `false` (the serialized default).
         #[serde(default)]
         case_sensitive: bool,
     },
+    /// Matches when the source value ends with the given text.
     StringSuffix {
+        /// Text the source value must end with.
         suffix: String,
+        /// Compare case-insensitively when `false` (the serialized default).
         #[serde(default)]
         case_sensitive: bool,
     },
+    /// Matches when the source value starts with the given text.
     StringPrefix {
+        /// Text the source value must start with.
         prefix: String,
+        /// Compare case-insensitively when `false` (the serialized default).
         #[serde(default)]
         case_sensitive: bool,
     },
+    /// Matches when the URL host ends with the given DNS label boundary,
+    /// for example `.example.com`.
     UrlHostSuffix {
+        /// Host suffix including its leading `.` or `-` label boundary.
         suffix: String,
     },
+    /// Matches when any dot-separated DNS label of the URL host equals the
+    /// given label.
     UrlHostContainsLabel {
+        /// Exact DNS label searched for in the URL host.
         label: String,
     },
+    /// Matches when any DNS label of the URL host equals the string value of
+    /// another connector config field.
     UrlHostContainsField {
+        /// Connector config field whose string value is compared against
+        /// each DNS label of the URL host.
         field: String,
     },
+    /// Matches when the URL host ends with any of the given DNS label
+    /// boundaries.
     UrlHostSuffixAny {
+        /// Acceptable host suffixes, each including its leading `.` or `-`
+        /// label boundary.
         suffixes: Vec<String>,
     },
 }
 
+/// One source-condition a saved policy must satisfy before a promotion is
+/// offered or executed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorPromotionRequirement {
     /// Source connector config field inspected by the generic recommendation
     /// and server-side eligibility checks.
     pub source_field: String,
+    /// Condition the source field value must satisfy.
     pub matcher: StorageConnectorPromotionValueMatcher,
     /// Negate the matcher result. This keeps exclusions composable without
     /// adding a second inverse variant for every matcher kind.
@@ -439,10 +517,13 @@ pub struct StorageConnectorPromotionRequirement {
     pub negate: bool,
 }
 
+/// One source-to-target field copy rule of a promotion.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorPromotionFieldMapping {
+    /// Field name in the source connector's config or credential payload.
     pub source_field: String,
+    /// Field name declared by this target connector.
     pub target_field: String,
     /// Require the target connector's normalized value to remain exactly equal
     /// to the normalized source value. Use this for object-namespace fields.
@@ -454,15 +535,24 @@ pub struct StorageConnectorPromotionFieldMapping {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorPromotionDescriptor {
+    /// Stable id of this promotion contract, unique within the target
+    /// connector.
     pub promotion_id: StorageConnectorPromotionId,
+    /// Connector whose saved policies are eligible for this promotion.
     pub source_connector_id: ConnectorId,
     /// Target-owned recommendation copy rendered by the generic UI.
     pub description_key: String,
     /// Target-owned confirmation copy rendered before mutating a saved policy.
     pub confirmation_key: String,
+    /// Source-field conditions a saved policy must satisfy before the
+    /// generic UI recommends this promotion.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub requirements: Vec<StorageConnectorPromotionRequirement>,
+    /// Mapping of source connector config fields into this connector's
+    /// connector-config fields; at least one mapping is required.
     pub config_mappings: Vec<StorageConnectorPromotionFieldMapping>,
+    /// Mapping of source credential fields into this connector's static
+    /// credential fields.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub credential_mappings: Vec<StorageConnectorPromotionFieldMapping>,
 }
@@ -566,6 +656,8 @@ fn validate_promotion_mappings(
     Ok(())
 }
 
+/// Which backend entry this action routes through, and which endpoint kinds
+/// it may declare.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -580,28 +672,42 @@ pub enum StorageConnectorActionKind {
     ConnectionTest,
 }
 
+/// Backend endpoint through which an action can be invoked. Each action kind
+/// accepts only the endpoints matched by [`action_kind_accepts_endpoint`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum StorageConnectorActionEndpoint {
+    /// Execute a custom action on unsaved draft policy parameters.
     ExecuteDraftStoragePolicyAction,
+    /// Execute a custom action on an already saved policy.
     ExecuteSavedStoragePolicyAction,
+    /// Launch the delegated authorization flow for a saved policy.
     StartStorageAuthorization,
+    /// Validate the stored credential of a saved policy.
     ValidateStoragePolicyCredential,
+    /// Test connectivity using draft policy parameters.
     TestPolicyParams,
+    /// Test connectivity of an already saved policy.
     TestPolicyConnection,
 }
 
+/// Wire shape of one structured action output field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum StorageConnectorActionOutputValueKind {
+    /// A string value rendered as text.
     Text,
+    /// A numeric value.
     Number,
+    /// A boolean rendered via `true_key`/`false_key` labels.
     Boolean,
+    /// A list of strings rendered as multiple lines or chips.
     StringList,
 }
 
+/// Presentation contract for one structured action output field.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorActionOutputFieldDescriptor {
@@ -658,6 +764,8 @@ impl StorageConnectorActionOutputFieldDescriptor {
     }
 }
 
+/// One executable connector action: id, localization, routing endpoints,
+/// input/output schema, and execution preconditions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorActionDescriptor {
@@ -803,6 +911,7 @@ fn action_kind_accepts_endpoint(
     )
 }
 
+/// Returned when an action descriptor fails catalog registration validation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StorageConnectorActionDescriptorError(String);
 
@@ -814,6 +923,7 @@ impl fmt::Display for StorageConnectorActionDescriptorError {
 
 impl std::error::Error for StorageConnectorActionDescriptorError {}
 
+/// Connector 声明支持的全部上传工作流开关与逐项语义。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorUploadWorkflows {
@@ -844,6 +954,7 @@ pub struct StorageConnectorUploadWorkflows {
         Option<StorageConnectorProviderResumableUploadCapabilities>,
 }
 
+/// 单请求 simple upload 的具体语义。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorSimpleUploadCapabilities {
@@ -856,6 +967,7 @@ pub struct StorageConnectorSimpleUploadCapabilities {
     pub max_provider_single_request_size: Option<u64>,
 }
 
+/// 对象存储 multipart/block upload 的逐项约束。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorObjectMultipartUploadCapabilities {
@@ -880,6 +992,7 @@ pub struct StorageConnectorObjectMultipartUploadCapabilities {
     pub list_parts_supported: bool,
 }
 
+/// Provider-native resumable/session upload 的逐项参数。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorProviderResumableUploadCapabilities {
@@ -930,6 +1043,7 @@ impl From<crate::ProviderResumableUploadCapabilities>
     }
 }
 
+/// Connector 对底层对象内容的读写能力开关。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorCapabilities {
@@ -955,21 +1069,28 @@ pub struct StorageConnectorCapabilities {
     pub object_naming: StorageConnectorObjectNamingMode,
 }
 
+/// How uploaded objects are named on the provider side.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum StorageConnectorObjectNamingMode {
+    /// Objects are stored under opaque UUID names.
     OpaqueUuid,
+    /// Objects keep the original filename as the provider item name.
     OriginalFilename,
 }
 
+/// 编辑已有 policy 时字段值如何处理。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum StorageConnectorFieldUpdateBehavior {
+    /// The field can be freely changed on edit.
     #[default]
     Mutable,
+    /// The field is ignored on edit and keeps its creation-time value.
     CreateOnly,
+    /// The field can only be filled once if it was empty at creation.
     SetOnce,
 }
 
@@ -979,6 +1100,8 @@ impl StorageConnectorFieldUpdateBehavior {
     }
 }
 
+/// 管理端表单里一个字段的完整 contract：payload 名、scope、控件类型、
+/// 本地化、默认值与条件行为。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorFieldDescriptor {
@@ -1059,6 +1182,9 @@ pub struct StorageConnectorFieldDescriptor {
 }
 
 impl StorageConnectorFieldDescriptor {
+    /// Checks field-level descriptor invariants: non-empty name/label keys,
+    /// endpoint protocol rules requiring their message key, default-mode
+    /// applicability, and select contract consistency.
     pub fn validate(&self) -> Result<(), StorageConnectorFieldDescriptorError> {
         if self.name.trim().is_empty() {
             return Err(StorageConnectorFieldDescriptorError(
@@ -1366,6 +1492,7 @@ fn field_value_matches_kind(
     )
 }
 
+/// Returned when one field descriptor violates its own contract.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StorageConnectorFieldDescriptorError(String);
 
@@ -1383,12 +1510,19 @@ impl std::error::Error for StorageConnectorFieldDescriptorError {}
 /// Implementations are normally generated by [`crate::storage_connector_config`]
 /// so persisted serde fields and descriptor fields cannot drift independently.
 pub trait StorageConnectorConfigSchema {
+    /// Descriptor fields written into the versioned connector config
+    /// envelope, in declaration order.
     fn connector_config_fields() -> Vec<StorageConnectorFieldDescriptor>;
 
+    /// Credential mode this config type requires.
     fn credential_mode() -> StorageConnectorCredentialMode;
 
+    /// Descriptor fields written into the separate static credential
+    /// channel, in declaration order.
     fn credential_fields() -> Vec<StorageConnectorFieldDescriptor>;
 
+    /// Config fields followed by credential fields; the combined form field
+    /// list used by admin validation and UI rendering.
     fn descriptor_fields() -> Vec<StorageConnectorFieldDescriptor> {
         let mut fields = Self::connector_config_fields();
         fields.extend(Self::credential_fields());
@@ -1402,49 +1536,87 @@ pub trait StorageConnectorConfigSchema {
 /// [`crate::storage_connector_action_schema`]. Connector code deserializes the
 /// validated action values into this type instead of manually assembling JSON.
 pub trait StorageConnectorActionSchema {
+    /// UI field schema for this action's input, all with `action_input`
+    /// scope.
     fn action_fields() -> Vec<StorageConnectorFieldDescriptor>;
 }
 
+/// Failure modes when normalizing connector config or action input against a
+/// descriptor.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StorageConnectorOptionsValidationError {
+    /// Payload envelope uses a different `format_version` than the platform
+    /// currently accepts.
     FormatVersionMismatch {
+        /// Envelope format version required by the platform.
         expected: u32,
+        /// Format version carried by the rejected payload.
         actual: u32,
     },
+    /// Payload namespace does not match the descriptor being applied.
     NamespaceMismatch {
+        /// Connector id the descriptor expects.
         expected: String,
+        /// Connector id carried by the payload.
         actual: String,
     },
+    /// Payload schema version is not the version the descriptor resolves.
     SchemaVersionMismatch {
+        /// Schema version declared by the descriptor.
         expected: u32,
+        /// Schema version carried by the payload.
         actual: u32,
     },
+    /// A declared field descriptor itself failed structural validation.
     InvalidFieldDescriptor {
+        /// Name of the offending field.
         field: String,
+        /// Human-readable explanation of the descriptor violation.
         reason: String,
     },
+    /// The same field name is declared more than once in one scope.
     DuplicateField(String),
+    /// Payload carries a field the descriptor does not declare.
     UnknownField(String),
+    /// A required field is absent (or null) in the payload.
     MissingRequiredField(String),
+    /// A secret/secret field was submitted through the connector config
+    /// channel instead of credential storage.
     SecretField(String),
+    /// Value shape does not match the field kind.
     TypeMismatch {
+        /// Name of the offending field.
         field: String,
+        /// Field kind the value must satisfy.
         expected: StorageConnectorFieldKind,
     },
+    /// A select value is not among the declared options and the field does
+    /// not accept custom values.
     InvalidOption {
+        /// Name of the offending field.
         field: String,
+        /// Rejected value as submitted.
         value: String,
     },
+    /// A number field is below its declared minimum.
     IntegerBelowMinimum {
+        /// Name of the offending field.
         field: String,
+        /// Inclusive lower bound from the field validation.
         minimum: i64,
     },
+    /// A number field is above its declared maximum.
     IntegerAboveMaximum {
+        /// Name of the offending field.
         field: String,
+        /// Inclusive upper bound from the field validation.
         maximum: i64,
     },
+    /// A text field exceeds its declared maximum length.
     StringTooLong {
+        /// Name of the offending field.
         field: String,
+        /// Maximum character count from the field validation.
         maximum: u32,
     },
 }
@@ -1608,13 +1780,20 @@ pub fn normalize_storage_connector_custom_action_invocation(
         .map_err(StorageConnectorActionInvocationError::InvalidInput)
 }
 
+/// Failure to resolve or normalize one connector action invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StorageConnectorActionInvocationError {
+    /// The connector does not declare this custom action for the requested
+    /// endpoint.
     Unsupported {
+        /// Connector the invocation was addressed to.
         connector_id: ConnectorId,
+        /// Action id that could not be resolved.
         action_id: StorageConnectorActionId,
+        /// Endpoint the action was not declared on.
         endpoint: StorageConnectorActionEndpoint,
     },
+    /// The action resolved but its input failed schema normalization.
     InvalidInput(StorageConnectorOptionsValidationError),
 }
 
@@ -1911,16 +2090,22 @@ fn normalize_and_validate_connector_field_value(
     Ok(())
 }
 
+/// Styling tone applied by the generic credential panel to a status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum StorageConnectorCredentialStatusTone {
+    /// Ordinary informational status.
     Neutral,
+    /// Healthy credential state.
     Success,
+    /// Degraded state that still works.
     Warning,
+    /// Broken state requiring administrator action.
     Danger,
 }
 
+/// One connector-owned rewrite rule for a sanitized credential status reason.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorCredentialReasonRule {
@@ -1951,6 +2136,7 @@ impl StorageConnectorCredentialReasonRule {
     }
 }
 
+/// Connector-owned presentation for one credential status wire value.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorCredentialStatusPresentation {
@@ -2023,6 +2209,7 @@ impl StorageConnectorCredentialStatusPresentation {
     }
 }
 
+/// Connector-owned copy slots for the generic credential management panel.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorCredentialManagementDescriptor {
@@ -2194,6 +2381,8 @@ impl StorageConnectorCredentialManagementDescriptor {
     }
 }
 
+/// Connector 对管理端与后端服务声明的完整能力清单：凭据模式、部署范围、
+/// 能力开关、表单字段和可执行动作。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorDescriptor {
@@ -2637,6 +2826,7 @@ fn collect_field_localization_message_ids<'a>(
     }
 }
 
+/// Returned when a connector descriptor fails registration-time validation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StorageConnectorDescriptorError(String);
 
@@ -2648,6 +2838,7 @@ impl fmt::Display for StorageConnectorDescriptorError {
 
 impl std::error::Error for StorageConnectorDescriptorError {}
 
+/// 管理端 connector 展示与文案槽位。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorUiDescriptor {
@@ -2679,44 +2870,80 @@ pub struct StorageConnectorUiDescriptor {
     pub base_path_placeholder: String,
 }
 
+/// Connector 图标资产的定位与缓存信息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorIconDescriptor {
+    /// Serving path of the icon asset; the application resolves it to a full
+    /// URL.
     pub url: String,
+    /// MIME type of the icon asset, for example `image/svg+xml`.
     pub content_type: String,
+    /// Cache-busting revision string changed whenever the icon changes.
     pub revision: String,
 }
 
+/// 徽标 accent 颜色的结构化 RGB 通道。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorBadgeRgb {
+    /// Red channel, 0-255.
     pub red: u8,
+    /// Green channel, 0-255.
     pub green: u8,
+    /// Blue channel, 0-255.
     pub blue: u8,
 }
 
 impl StorageConnectorBadgeRgb {
+    /// Builds a badge color from the three channel values.
     pub const fn new(red: u8, green: u8, blue: u8) -> Self {
         Self { red, green, blue }
     }
 }
 
+/// Constructor input for [`object_storage_connector_descriptor`]; all fields
+/// map one-to-one onto the resulting [`StorageConnectorDescriptor`].
 pub struct ObjectStorageConnectorDescriptorInput {
+    /// Stable persisted connector id.
     pub connector_id: ConnectorId,
+    /// Human-readable connector name.
     pub label: &'static str,
+    /// Human-readable connector description.
     pub description: &'static str,
+    /// Admin UI presentation metadata.
     pub ui: StorageConnectorUiDescriptorInput,
+    /// Visibility of this connector's policy data across primary instances.
     pub deployment_scope: StorageConnectorDeploymentScope,
+    /// Whether a usable default policy can be created during first-time
+    /// system setup.
     pub supports_initial_setup: bool,
+    /// Primary credential mode of the connector.
     pub credential_mode: StorageConnectorCredentialMode,
+    /// Connector-config and static credential field declarations.
     pub fields: Vec<StorageConnectorFieldDescriptor>,
+    /// Whether browser presigned part uploads must read the ETag from the
+    /// response, as required by S3-compatible multipart.
     pub presigned_part_etag_required: bool,
+    /// Whether the provider offers storage-native thumbnail and media
+    /// metadata extraction.
     pub storage_native_processing: bool,
+    /// Version of the connector config schema this descriptor resolves.
     pub config_schema_version: u32,
+    /// Independent schema version of the credential payload.
     pub credential_schema_version: Option<u32>,
+    /// Development-tracking issue numbers, not used by business logic.
     pub related_issues: Vec<u16>,
 }
 
+/// Builds the descriptor for an S3-compatible object storage family
+/// connector, presetting the shared capability and upload-workflow profile.
+///
+/// The constructor fixes `requires_authorization` to `false`, enables
+/// efficient range reads, listing, presigned download, and multipart upload,
+/// and selects [`StorageConnectorObjectNamingMode::OpaqueUuid`]; caller inputs
+/// only customize per-provider flags such as native media processing or
+/// presigned part ETag requirements.
 pub fn object_storage_connector_descriptor(
     input: ObjectStorageConnectorDescriptorInput,
 ) -> StorageConnectorDescriptor {
@@ -2773,6 +3000,9 @@ pub fn object_storage_connector_descriptor(
     }
 }
 
+/// Builds simple-upload capabilities for the server-relay profile: the
+/// browser sends the object to AsterDrive, which relays it to the provider,
+/// with the per-request limit owned by policy `chunk_size`.
 pub fn server_relay_simple_upload_capabilities(
     max_provider_single_request_size: Option<u64>,
 ) -> StorageConnectorSimpleUploadCapabilities {
@@ -2783,10 +3013,17 @@ pub fn server_relay_simple_upload_capabilities(
     }
 }
 
+/// Caller-tunable knobs for the shared object multipart upload capability
+/// profile.
 pub struct ObjectMultipartUploadCapabilitiesInput {
+    /// Whether browser presigned part uploads must read the response ETag.
     pub presigned_part_etag_required: bool,
 }
 
+/// Builds the shared multipart/block upload capability profile: relay and
+/// presigned part uploads enabled, explicit complete required, abort and
+/// part listing supported, with [`OBJECT_MULTIPART_MIN_PART_SIZE`] as the
+/// floor.
 pub fn object_multipart_upload_capabilities(
     input: ObjectMultipartUploadCapabilitiesInput,
 ) -> StorageConnectorObjectMultipartUploadCapabilities {
@@ -2802,19 +3039,34 @@ pub fn object_multipart_upload_capabilities(
     }
 }
 
+/// Constructor input for [`custom_action_descriptor`]; endpoint flags are
+/// mapped onto `endpoints` and `requires_saved_policy` by the constructor.
 pub struct StorageConnectorCustomActionDescriptorInput {
+    /// Connector-unique, stable action id.
     pub action_id: StorageConnectorActionId,
+    /// Frontend localization label key.
     pub label_key: &'static str,
+    /// Frontend localization description key.
     pub description_key: &'static str,
+    /// Action input schema; values are never persisted into the policy.
     pub fields: Vec<StorageConnectorFieldDescriptor>,
+    /// Presentation schema for successful structured output.
     pub output_fields: Vec<StorageConnectorActionOutputFieldDescriptor>,
+    /// Whether the action can run against unsaved draft policy parameters.
     pub supports_draft: bool,
+    /// Whether the action can run against an already saved policy.
     pub supports_saved: bool,
+    /// Whether a usable authorization credential must exist before running.
     pub requires_authorization: bool,
+    /// Whether the action modifies provider remote state.
     pub mutates_remote_state: bool,
+    /// Whether the UI should show an explicit confirmation step.
     pub requires_confirmation: bool,
 }
 
+/// Builds a `custom`-kind action descriptor, mapping `supports_draft` and
+/// `supports_saved` onto the matching execution endpoints and deriving
+/// `requires_saved_policy` from the absence of a draft endpoint.
 pub fn custom_action_descriptor(
     input: StorageConnectorCustomActionDescriptorInput,
 ) -> StorageConnectorActionDescriptor {
@@ -2840,6 +3092,8 @@ pub fn custom_action_descriptor(
     }
 }
 
+/// Builds the shared `start_authorization` action that launches the delegated
+/// authorization flow for a saved policy.
 pub fn start_authorization_action_descriptor() -> StorageConnectorActionDescriptor {
     StorageConnectorActionDescriptor {
         action_id: StorageConnectorActionId::declared("start_authorization"),
@@ -2856,6 +3110,8 @@ pub fn start_authorization_action_descriptor() -> StorageConnectorActionDescript
     }
 }
 
+/// Builds the shared `validate_credential` action that re-validates the
+/// stored credential of a saved policy.
 pub fn validate_credential_action_descriptor() -> StorageConnectorActionDescriptor {
     StorageConnectorActionDescriptor {
         action_id: StorageConnectorActionId::declared("validate_credential"),
@@ -2872,6 +3128,8 @@ pub fn validate_credential_action_descriptor() -> StorageConnectorActionDescript
     }
 }
 
+/// Builds the shared `test_draft_connection` action that probes connectivity
+/// using unsaved draft policy parameters.
 pub fn draft_connection_test_action_descriptor() -> StorageConnectorActionDescriptor {
     StorageConnectorActionDescriptor {
         action_id: StorageConnectorActionId::declared("test_draft_connection"),
@@ -2888,6 +3146,8 @@ pub fn draft_connection_test_action_descriptor() -> StorageConnectorActionDescri
     }
 }
 
+/// Builds the shared `test_saved_connection` action that probes connectivity
+/// of an already saved policy, optionally requiring an authorized credential.
 pub fn saved_connection_test_action_descriptor(
     requires_authorization: bool,
 ) -> StorageConnectorActionDescriptor {
@@ -2906,6 +3166,9 @@ pub fn saved_connection_test_action_descriptor(
     }
 }
 
+/// Builds a minimal field descriptor with the given name, scope, kind,
+/// requiredness, and secret flag; all presentation and default slots stay
+/// empty.
 pub fn storage_connector_field(
     name: &str,
     scope: StorageConnectorFieldScope,
@@ -2930,22 +3193,41 @@ pub fn storage_connector_field(
     })
 }
 
+/// Constructor input for [`storage_connector_field_with_display`], carrying
+/// the display-oriented slots a plain field builder leaves empty.
 pub struct StorageConnectorFieldDisplayInput<'a> {
+    /// Field name in the submitted payload.
     pub name: &'a str,
+    /// Config domain the field writes into.
     pub scope: StorageConnectorFieldScope,
+    /// Base control type available to the frontend.
     pub kind: StorageConnectorFieldKind,
+    /// Whether the field must be non-empty to save.
     pub required: bool,
+    /// Whether the field holds credential material.
     pub secret: bool,
+    /// Frontend localization label key.
     pub label_key: &'a str,
+    /// Optional placeholder text.
     pub placeholder: Option<&'a str>,
+    /// Optional help copy key.
     pub help_key: Option<&'a str>,
+    /// Frontend copy key for the required-validation failure.
     pub required_message_key: Option<&'a str>,
+    /// Frontend copy key for an invalid endpoint protocol.
     pub invalid_protocol_message_key: Option<&'a str>,
+    /// URL protocols the endpoint accepts, matching browser
+    /// `URL.protocol` spelling (for example `https:`).
     pub allowed_endpoint_protocols: Vec<&'a str>,
+    /// Whether the endpoint may omit the URL scheme.
     pub allow_endpoint_without_protocol: bool,
+    /// Whether the frontend may safely trim the value on blur.
     pub trim_on_blur: bool,
 }
 
+/// Builds a field descriptor from explicit display inputs, resolving the
+/// required/secret bits through [`StorageDescriptorFieldSemantics`]; select
+/// and default slots stay empty.
 pub fn storage_connector_field_with_display(
     input: StorageConnectorFieldDisplayInput<'_>,
 ) -> StorageConnectorFieldDescriptor {
@@ -2985,6 +3267,8 @@ pub fn storage_connector_field_with_display(
     }
 }
 
+/// Builds a string-valued select field whose fixed options use each value as
+/// its own localization key.
 pub fn storage_connector_field_with_options(
     name: &str,
     scope: StorageConnectorFieldScope,
@@ -3015,12 +3299,18 @@ pub fn storage_connector_field_with_options(
     }
 }
 
+/// One fixed select option as passed to [`storage_connector_select_field`].
 pub struct StorageConnectorSelectOptionInput<'a> {
+    /// Stable value submitted in the connector payload.
     pub value: &'a str,
+    /// Connector-owned localization key for the option label.
     pub label_key: &'a str,
+    /// Optional connector-owned explanation key for richer selectors.
     pub description_key: Option<&'a str>,
 }
 
+/// Builds a required-string select field with fixed options and no dynamic
+/// data source.
 pub fn storage_connector_select_field(
     name: &str,
     scope: StorageConnectorFieldScope,
@@ -3055,6 +3345,8 @@ pub fn storage_connector_select_field(
     }
 }
 
+/// Builds a select field whose options are populated at runtime from a
+/// platform-provided catalog instead of fixed connector options.
 pub fn storage_connector_dynamic_select_field(
     name: &str,
     scope: StorageConnectorFieldScope,
@@ -3083,18 +3375,31 @@ pub fn storage_connector_dynamic_select_field(
     }
 }
 
+/// Constructor input for [`storage_connector_ui_descriptor`], carrying the
+/// localization keys and badge color of the admin presentation.
 pub struct StorageConnectorUiDescriptorInput {
+    /// Frontend i18n label key.
     pub label_key: &'static str,
+    /// Frontend i18n description key.
     pub description_key: &'static str,
+    /// Connector-owned badge accent color.
     pub badge_rgb: StorageConnectorBadgeRgb,
+    /// Create-wizard helper copy key.
     pub helper_key: &'static str,
+    /// Create-wizard config step title key.
     pub config_step_title_key: &'static str,
+    /// Create-wizard config step description key.
     pub config_step_description_key: &'static str,
+    /// Edit page context copy key.
     pub edit_context_key: &'static str,
+    /// Fallback copy shown when `base_path` is empty.
     pub base_path_empty_display: &'static str,
+    /// `base_path` input placeholder.
     pub base_path_placeholder: &'static str,
 }
 
+/// Builds UI presentation metadata from static input keys; the icon slot
+/// starts empty and providers attach it separately when they serve one.
 pub fn storage_connector_ui_descriptor(
     input: StorageConnectorUiDescriptorInput,
 ) -> StorageConnectorUiDescriptor {

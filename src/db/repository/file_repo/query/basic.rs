@@ -49,6 +49,7 @@ pub async fn sum_live_file_bytes(db: &DatabaseConnection) -> Result<i64> {
         .unwrap_or(0))
 }
 
+/// 按 id 查文件，不存在时报 file-not-found。
 pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<file::Model> {
     File::find_by_id(id)
         .one(db)
@@ -76,6 +77,7 @@ pub async fn lock_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<file::Mod
     }
 }
 
+/// 按 id 批量查文件（含已删除），只返回实际存在的行，顺序不保证。
 pub async fn find_by_ids<C: ConnectionTrait>(db: &C, ids: &[i64]) -> Result<Vec<file::Model>> {
     if ids.is_empty() {
         return Ok(vec![]);
@@ -103,6 +105,8 @@ pub(super) async fn find_by_ids_in_scope<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// 个人空间版本：在属主范围内（`owner_user_id` 且 `team_id IS NULL`）批量按 id 查文件
+/// （含已删除），越权的 id 静默跳过。
 pub async fn find_by_ids_in_personal_scope<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -111,6 +115,7 @@ pub async fn find_by_ids_in_personal_scope<C: ConnectionTrait>(
     find_by_ids_in_scope(db, FileScope::Personal { user_id }, ids).await
 }
 
+/// 团队空间版本：在 `team_id` 范围内批量按 id 查文件（含已删除），越权的 id 静默跳过。
 pub async fn find_by_ids_in_team_scope<C: ConnectionTrait>(
     db: &C,
     team_id: i64,
@@ -128,6 +133,7 @@ pub async fn find_by_folders<C: ConnectionTrait>(
     find_by_folders_in_scope(db, FileScope::Personal { user_id }, folder_ids).await
 }
 
+/// 团队空间版本的 [`find_by_folders`]：批量查询多个文件夹下的未删除文件。
 pub async fn find_by_team_folders<C: ConnectionTrait>(
     db: &C,
     team_id: i64,
@@ -192,6 +198,7 @@ pub async fn find_by_folder<C: ConnectionTrait>(
     find_by_folder_in_scope(db, FileScope::Personal { user_id }, folder_id).await
 }
 
+/// 团队空间版本的 [`find_by_folder`]：查询团队文件夹下的文件（排除已删除）。
 pub async fn find_by_team_folder<C: ConnectionTrait>(
     db: &C,
     team_id: i64,
@@ -226,6 +233,8 @@ async fn find_by_folder_after_id_in_scope<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// 个人空间目录枚举的 keyset 分页：按不可变的文件 id 升序返回 `after_id` 之后的最多
+/// `limit` 条（排除已删除）。
 pub async fn find_by_folder_after_id<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -243,6 +252,7 @@ pub async fn find_by_folder_after_id<C: ConnectionTrait>(
     .await
 }
 
+/// 团队空间版本的 [`find_by_folder_after_id`]。
 pub async fn find_by_team_folder_after_id<C: ConnectionTrait>(
     db: &C,
     team_id: i64,
@@ -334,6 +344,8 @@ pub(crate) async fn find_ids_by_folder_after_id_in_scope<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// 个人空间下跨多个文件夹的 keyset 分页：按文件 id 升序返回 `after_id` 之后的最多
+/// `limit` 条（排除已删除）。
 pub async fn find_by_folders_after_id<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -351,6 +363,7 @@ pub async fn find_by_folders_after_id<C: ConnectionTrait>(
     .await
 }
 
+/// 团队空间版本的 [`find_by_folders_after_id`]。
 pub async fn find_by_team_folders_after_id<C: ConnectionTrait>(
     db: &C,
     team_id: i64,

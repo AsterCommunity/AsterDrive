@@ -7,25 +7,36 @@ use serde::{Deserialize, Serialize};
 use crate::config::operations::OfflineDownloadEngine;
 use crate::errors::{AsterError, MapAsterErr, Result};
 
+/// Schema version of the stored engine registry JSON; entries with a different
+/// version are rejected.
 pub const OFFLINE_DOWNLOAD_ENGINE_REGISTRY_VERSION: i32 = 1;
 
+/// Stored registry of offline download engines (system_config JSON value).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OfflineDownloadEngineRegistryConfig {
+    /// Registry schema version; must equal
+    /// [`OFFLINE_DOWNLOAD_ENGINE_REGISTRY_VERSION`].
     #[serde(default = "default_offline_download_engine_registry_version")]
     pub version: i32,
+    /// One entry per known engine; duplicates of the same kind are rejected.
     #[serde(default)]
     pub engines: Vec<OfflineDownloadEngineConfig>,
 }
 
+/// A single engine entry: its kind plus the enabled switch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OfflineDownloadEngineConfig {
+    /// Which engine this entry configures.
     pub kind: OfflineDownloadEngine,
+    /// Whether downloads may use this engine; defaults to true.
     #[serde(default = "default_true")]
     pub enabled: bool,
 }
 
+/// Registry containing every known engine with its built-in default enabled
+/// state.
 pub fn default_offline_download_engine_registry() -> OfflineDownloadEngineRegistryConfig {
     OfflineDownloadEngineRegistryConfig {
         version: OFFLINE_DOWNLOAD_ENGINE_REGISTRY_VERSION,
@@ -39,6 +50,9 @@ pub fn default_offline_download_engine_registry() -> OfflineDownloadEngineRegist
     }
 }
 
+/// Pretty-printed JSON of [`default_offline_download_engine_registry`], used
+/// as the stored default; degrades to compact JSON or `{}` if serialization
+/// fails.
 pub fn default_offline_download_engine_registry_json() -> String {
     serde_json::to_string_pretty(&default_offline_download_engine_registry()).unwrap_or_else(
         |error| {
@@ -55,6 +69,8 @@ pub fn default_offline_download_engine_registry_json() -> String {
     )
 }
 
+/// Validates a stored registry value and returns its canonical pretty-printed
+/// JSON form.
 pub fn normalize_offline_download_engine_registry_config_value(value: &str) -> Result<String> {
     let registry = parse_offline_download_engine_registry_config_value(value)?;
     serde_json::to_string_pretty(&registry).map_aster_err_ctx(
@@ -63,6 +79,8 @@ pub fn normalize_offline_download_engine_registry_config_value(value: &str) -> R
     )
 }
 
+/// Parses and validates a stored registry value: enforces the schema version
+/// and rejects duplicate engine kinds.
 pub fn parse_offline_download_engine_registry_config_value(
     value: &str,
 ) -> Result<OfflineDownloadEngineRegistryConfig> {
@@ -75,6 +93,7 @@ pub fn parse_offline_download_engine_registry_config_value(
     Ok(registry)
 }
 
+/// Engine kinds enabled for new offline downloads under the stored registry.
 pub fn enabled_offline_download_engines_from_registry_value(
     value: &str,
 ) -> Result<Vec<OfflineDownloadEngine>> {

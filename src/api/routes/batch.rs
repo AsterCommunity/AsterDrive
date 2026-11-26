@@ -24,6 +24,8 @@ use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};
 use aster_forge_middleware::actix::rate_limit::RateLimit;
 
+/// Builds the personal `/api/v1/batch` route scope (delete, move, copy, archive)
+/// behind JWT auth and the write rate limiter.
 pub fn routes(
     rl: &RateLimitConfig,
     network_trust: &NetworkTrustConfig,
@@ -44,6 +46,8 @@ pub fn routes(
         )
 }
 
+/// Builds the team batch route scope mounted under `/api/v1/teams/{team_id}/batch`;
+/// permission checks are delegated to the shared scope helpers.
 pub fn team_routes() -> actix_web::Scope {
     web::scope("/{team_id}/batch")
         .route("/delete", web::post().to(team_batch_delete))
@@ -57,6 +61,8 @@ pub fn team_routes() -> actix_web::Scope {
         )
 }
 
+/// Batch-deletes personal files and folders into trash; rejected while a trash purge
+/// is pending or active.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/batch/delete",
@@ -90,6 +96,7 @@ pub async fn batch_delete(
     .await
 }
 
+/// Batch-moves personal files and folders to a target folder.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/batch/move",
@@ -122,6 +129,7 @@ pub async fn batch_move(
     .await
 }
 
+/// Batch-copies personal files and folders to a target folder.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/batch/copy",
@@ -154,6 +162,8 @@ pub async fn batch_copy(
     .await
 }
 
+/// Issues a one-time ticket for streaming a personal archive of the selected files
+/// and folders.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/batch/archive-download",
@@ -187,6 +197,8 @@ pub async fn archive_download(
     .await
 }
 
+/// Creates a background task that compresses the selected personal files and folders
+/// into an archive stored in a target folder.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/batch/archive-compress",
@@ -219,6 +231,7 @@ pub async fn archive_compress(
     .await
 }
 
+/// Streams the archive for a previously issued download ticket.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/batch/archive-download/{token}",
@@ -249,6 +262,8 @@ pub async fn archive_download_stream(
     .await
 }
 
+/// Batch-deletes files and folders into trash within a team workspace; rejected
+/// while a trash purge is pending or active.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/batch/delete",
@@ -284,6 +299,7 @@ pub(crate) async fn team_batch_delete(
     .await
 }
 
+/// Batch-moves files and folders to a target folder within a team workspace.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/batch/move",
@@ -318,6 +334,7 @@ pub(crate) async fn team_batch_move(
     .await
 }
 
+/// Batch-copies files and folders to a target folder within a team workspace.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/batch/copy",
@@ -352,6 +369,8 @@ pub(crate) async fn team_batch_copy(
     .await
 }
 
+/// Issues a one-time ticket for streaming a team archive of the selected files and
+/// folders.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/batch/archive-download",
@@ -386,6 +405,8 @@ pub(crate) async fn team_archive_download(
     .await
 }
 
+/// Creates a background task that compresses the selected team files and folders
+/// into an archive stored in a target folder.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/batch/archive-compress",
@@ -420,6 +441,7 @@ pub(crate) async fn team_archive_compress(
     .await
 }
 
+/// Streams the archive for a previously issued team download ticket.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/batch/archive-download/{token}",

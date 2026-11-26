@@ -3,9 +3,13 @@
 use crate::errors::AsterError;
 use actix_web::{Error, HttpRequest, error::JsonPayloadError, web};
 
+/// Default JSON request body size limit in bytes (1 MiB).
 pub const DEFAULT_JSON_LIMIT: usize = 1024 * 1024;
+/// Default multipart payload size limit in bytes (10 MiB).
 pub const DEFAULT_PAYLOAD_LIMIT: usize = 10 * 1024 * 1024;
 
+/// Builds a [`web::JsonConfig`] capped at `limit` bytes that maps JSON payload
+/// failures onto Drive's error envelope.
 pub fn json_config(limit: usize) -> web::JsonConfig {
     web::JsonConfig::default()
         .limit(limit)

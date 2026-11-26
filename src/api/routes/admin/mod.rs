@@ -92,6 +92,8 @@ pub use users::{
     revoke_user_sessions, update_user,
 };
 
+/// Builds the `/api/v1/admin` route scope: public storage-authorization callback plus
+/// the JWT-authenticated admin-only endpoints with rate limiting applied.
 pub fn routes(
     rl: &RateLimitConfig,
     network_trust: &NetworkTrustConfig,

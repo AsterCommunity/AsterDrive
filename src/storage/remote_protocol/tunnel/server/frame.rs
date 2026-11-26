@@ -7,28 +7,49 @@ use aster_drive_storage::StorageErrorKind;
 pub(super) const REMOTE_TUNNEL_STREAM_META_LIMIT: usize = 64 * 1024;
 pub(super) const REMOTE_TUNNEL_STREAM_FRAME_VERSION: u8 = 1;
 
+/// Frame types carried on a reverse tunnel streaming lane; a well-formed
+/// exchange is `RequestStart`/`RequestBody`*/`RequestEnd` followed by
+/// `ResponseStart`/`ResponseBody`*/`ResponseEnd`, or `Error` at any point.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RemoteTunnelStreamFrameKind {
+    /// Opens a request; carries method, target, headers, and content length.
     RequestStart,
+    /// One chunk of the request body, primary to follower.
     RequestBody,
+    /// Closes the request body.
     RequestEnd,
+    /// Opens the response; carries status and headers.
     ResponseStart,
+    /// One chunk of the response body, follower to primary.
     ResponseBody,
+    /// Closes the response body.
     ResponseEnd,
+    /// Aborts the request; `message` explains the failure to the peer.
     Error,
 }
 
+/// One frame on a reverse tunnel streaming lane. Only the fields relevant to
+/// `kind` are populated; `request_id` ties together all frames of one request.
 #[derive(Debug, Clone)]
 pub struct RemoteTunnelStreamFrame {
+    /// Which stage of the exchange this frame belongs to.
     pub kind: RemoteTunnelStreamFrameKind,
+    /// Identifier of the request this frame belongs to.
     pub request_id: String,
+    /// HTTP method; set on `RequestStart` only.
     pub method: Option<String>,
+    /// Request target; set on `RequestStart` only.
     pub path_and_query: Option<String>,
+    /// Header pairs; set on `RequestStart` and `ResponseStart`.
     pub headers: Vec<(String, String)>,
+    /// Declared body length in bytes; set on `RequestStart` when known.
     pub content_length: Option<u64>,
+    /// HTTP status code; set on `ResponseStart` only.
     pub status: Option<u16>,
+    /// Diagnostic message; set on `Error` frames.
     pub message: Option<String>,
+    /// Body bytes carried by this frame; empty on control frames.
     pub body: Bytes,
 }
 
@@ -66,6 +87,9 @@ struct RemoteTunnelStreamFrameMeta {
     message: Option<String>,
 }
 
+/// Encodes one frame as the version byte, a big-endian 64-bit metadata
+/// length, the JSON metadata, then the raw body bytes. Fails when the metadata
+/// exceeds the 64 KiB wire budget.
 pub fn encode_stream_frame(frame: &RemoteTunnelStreamFrame) -> Result<Bytes> {
     let meta = RemoteTunnelStreamFrameMeta {
         kind: frame.kind,
@@ -101,6 +125,8 @@ pub fn encode_stream_frame(frame: &RemoteTunnelStreamFrame) -> Result<Bytes> {
     Ok(Bytes::from(bytes))
 }
 
+/// Decodes a frame produced by [`encode_stream_frame`], validating the wire
+/// version and metadata bounds before parsing the JSON header.
 pub fn decode_stream_frame(bytes: Bytes) -> Result<RemoteTunnelStreamFrame> {
     if bytes.len() < 9 {
         return Err(AsterError::validation_error(

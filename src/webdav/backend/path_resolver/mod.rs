@@ -400,6 +400,9 @@ async fn resolve_folder_chain<C: ConnectionTrait>(
     }
 }
 
+/// Resolves a WebDAV path for the user's personal workspace to its entity,
+/// using the path cache and validating hits against the writer DB so
+/// write-sensitive operations never act on stale entries.
 pub async fn resolve_path_cached(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -523,6 +526,8 @@ async fn validate_cached_parent(
     }
 }
 
+/// Resolves the parent folder id and final path segment for the user's
+/// personal workspace, with cached hits validated against the writer DB.
 pub async fn resolve_parent_cached(
     state: &impl SharedRuntimeState,
     user_id: i64,

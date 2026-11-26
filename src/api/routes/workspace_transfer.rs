@@ -17,6 +17,8 @@ use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};
 use aster_forge_middleware::actix::rate_limit::RateLimit;
 
+/// Builds the `/api/v1/workspace-transfer` route scope (cross-workspace copy and
+/// move) behind JWT auth and the write rate limiter.
 pub fn routes(
     rl: &RateLimitConfig,
     network_trust: &NetworkTrustConfig,
@@ -30,6 +32,7 @@ pub fn routes(
         .route("/move", web::post().to(move_to_workspace))
 }
 
+/// Batch-copies files and folders between two workspaces (personal or team).
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/workspace-transfer/copy",
@@ -70,6 +73,7 @@ pub async fn copy_to_workspace(
     Ok(HttpResponse::Ok().json(crate::api::response::success(result)))
 }
 
+/// Batch-moves files and folders between two workspaces (personal or team).
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/workspace-transfer/move",

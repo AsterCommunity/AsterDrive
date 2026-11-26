@@ -10,14 +10,21 @@ use serde::Serialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
+/// 实体（文件/文件夹）上的单个自定义属性，面向用户 API 的只读投影。
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct EntityProperty {
+    /// 属性记录的主键 ID。
     pub id: i64,
+    /// 属性所属实体的类型（文件或文件夹）。
     pub entity_type: EntityType,
+    /// 属性所属实体的 ID。
     pub entity_id: i64,
+    /// 属性命名空间；`DAV:` 与 system 命名空间为只读，不会出现在用户可见列表中。
     pub namespace: String,
+    /// 命名空间内的属性名，与 `namespace` 一起构成唯一键。
     pub name: String,
+    /// 属性值；`None` 表示属性存在但值为空（等价于 WebDAV 的空属性）。
     pub value: Option<String>,
 }
 

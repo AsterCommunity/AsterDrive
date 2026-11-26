@@ -6,27 +6,44 @@ use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
+/// File entry: name, workspace placement, current content blob, and attribution.
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(as = FileEntity))]
 #[sea_orm(table_name = "files")]
 pub struct Model {
+    /// Auto-incrementing surrogate key.
     #[sea_orm(primary_key)]
     pub id: i64,
+    /// Display name including the extension; unique among live siblings within the same
+    /// workspace folder.
     pub name: String,
+    /// Parent folder; references `folders.id`. `None` places the file at the workspace
+    /// root level outside any folder row.
     pub folder_id: Option<i64>,
+    /// Owning team workspace; `None` for personal files. Exactly one of `team_id` and
+    /// `owner_user_id` identifies the workspace root.
     pub team_id: Option<i64>,
+    /// Content blob holding the current version; references `file_blobs.id`.
     pub blob_id: i64,
+    /// Logical content size in bytes; mirrored from the blob and quota-accounted.
     pub size: i64,
+    /// Owner account for personal files; references `users.id`. `None` for team-owned files.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner_user_id: Option<i64>,
+    /// Account that created the file; `None` when the creator was deleted or unknown.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_by_user_id: Option<i64>,
+    /// Creator username snapshotted at creation so history survives account deletion.
     pub created_by_username: String,
+    /// Account behind the latest modification; `None` when the modifier was deleted or unknown.
     pub modified_by_user_id: Option<i64>,
+    /// Modifier username snapshotted at modification; `None` when never modified.
     pub modified_by_username: Option<String>,
+    /// UTC instant of the latest content or metadata modification; `None` when never modified.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub modified_at: Option<DateTimeUtc>,
+    /// MIME type of the current content, as reported at upload or reclassification.
     pub mime_type: String,
     /// Lowercase final extension without a leading dot. Empty when the file name has no extension.
     pub extension: String,
@@ -36,41 +53,51 @@ pub struct Model {
     pub compound_extension: Option<String>,
     /// Category derived from the extension first, then MIME type as fallback.
     pub file_category: aster_forge_file_classification::FileCategory,
+    /// UTC instant the file entry was created.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: DateTimeUtc,
+    /// UTC instant of the latest row update.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: DateTimeUtc,
+    /// UTC instant the file was moved to trash; `None` while the file is live. Soft delete
+    /// marker — purged rows are removed physically.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub deleted_at: Option<DateTimeUtc>,
 }
 
+/// Declared database relations for this entity.
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
+    /// Owning account of a personal file, matched on `owner_user_id` to `users.id`.
     #[sea_orm(
         belongs_to = "super::user::Entity",
         from = "Column::OwnerUserId",
         to = "super::user::Column::Id"
     )]
     OwnerUser,
+    /// Creating account, matched on `created_by_user_id` to `users.id`.
     #[sea_orm(
         belongs_to = "super::user::Entity",
         from = "Column::CreatedByUserId",
         to = "super::user::Column::Id"
     )]
     CreatedByUser,
+    /// Parent folder, matched on `folder_id` to `folders.id`.
     #[sea_orm(
         belongs_to = "super::folder::Entity",
         from = "Column::FolderId",
         to = "super::folder::Column::Id"
     )]
     Folder,
+    /// Owning team workspace, matched on `team_id` to `teams.id`.
     #[sea_orm(
         belongs_to = "super::team::Entity",
         from = "Column::TeamId",
         to = "super::team::Column::Id"
     )]
     Team,
+    /// Content blob of the current version, matched on `blob_id` to `file_blobs.id`.
     #[sea_orm(
         belongs_to = "super::file_blob::Entity",
         from = "Column::BlobId",

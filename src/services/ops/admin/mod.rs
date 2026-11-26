@@ -37,25 +37,32 @@ const ADMIN_OVERVIEW_AUDIT_ACTION_BATCH_SIZE: u64 = 1_000;
     all(debug_assertions, feature = "openapi"),
     derive(IntoParams, ToSchema)
 )]
+/// Query parameters shaping the administrator overview report.
 pub struct AdminOverviewQuery {
+    /// Report window in days; clamped to `1..=MAX_DAYS` when set.
     pub days: Option<u32>,
+    /// IANA time zone daily reports are bucketed in; empty falls back to UTC.
     pub timezone: Option<String>,
+    /// Number of recent audit events and background tasks to include.
     pub event_limit: Option<u64>,
 }
 
 impl AdminOverviewQuery {
+    /// Resolved window length in days, defaulting to [`DEFAULT_DAYS`].
     pub fn days_or_default(&self) -> u32 {
         self.days
             .map(|days| days.clamp(1, MAX_DAYS))
             .unwrap_or(DEFAULT_DAYS)
     }
 
+    /// Resolved recent-event limit, defaulting to [`DEFAULT_EVENT_LIMIT`].
     pub fn event_limit_or_default(&self) -> u64 {
         self.event_limit
             .map(|limit| limit.clamp(1, MAX_EVENT_LIMIT))
             .unwrap_or(DEFAULT_EVENT_LIMIT)
     }
 
+    /// Resolved IANA time zone name, empty values falling back to UTC.
     pub fn timezone_name(&self) -> &str {
         self.timezone
             .as_deref()
@@ -64,102 +71,164 @@ impl AdminOverviewQuery {
     }
 }
 
+/// Instance-wide counters shown on the administrator overview.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct AdminOverviewStats {
+    /// All user accounts regardless of status.
     pub total_users: u64,
+    /// Users whose status is active.
     pub active_users: u64,
+    /// Users whose status is disabled.
     pub disabled_users: u64,
+    /// Live (non-deleted) files.
     pub total_files: u64,
+    /// Sum of live file logical sizes in bytes.
     pub total_file_bytes: i64,
+    /// All stored blob rows.
     pub total_blobs: u64,
+    /// Sum of blob physical sizes in bytes.
     pub total_blob_bytes: i64,
+    /// All shares.
     pub total_shares: u64,
+    /// Audit events recorded today in the report time zone.
     pub audit_events_today: u64,
+    /// New users created today in the report time zone.
     pub new_users_today: u64,
+    /// File uploads today in the report time zone.
     pub uploads_today: u64,
+    /// Shares created today in the report time zone.
     pub shares_today: u64,
 }
 
+/// One day of activity counts, bucketed in the report time zone.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct AdminOverviewDailyReport {
+    /// Local calendar date (ISO 8601) the counts belong to.
     pub date: String,
+    /// Successful sign-ins of any authentication method.
     pub sign_ins: u64,
+    /// Newly created accounts.
     pub new_users: u64,
+    /// File uploads.
     pub uploads: u64,
+    /// Shares created.
     pub share_creations: u64,
+    /// File, folder and batch deletions.
     pub deletions: u64,
+    /// All audit events recorded that day.
     pub total_events: u64,
 }
 
+/// One recent background task rendered for the administrator overview.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct AdminBackgroundTaskEvent {
+    /// Task row ID.
     pub id: i64,
+    /// Task kind identifying the background job type.
     pub kind: BackgroundTaskKind,
+    /// Current task lifecycle status.
     pub status: BackgroundTaskStatus,
+    /// Human-readable task name shown in the overview list.
     pub display_name: String,
+    /// Creator summary, `None` for system-triggered tasks.
     pub creator: Option<account::UserSummary>,
+    /// Owning team ID, `None` for instance-level tasks.
     pub team_id: Option<i64>,
+    /// Latest human-readable status text, e.g. a health summary.
     pub status_text: Option<String>,
+    /// Structured progress presentation, skipped when unavailable.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub presentation: Option<crate::services::task::types::TaskPresentation>,
+    /// Error message from the most recent failed attempt.
     pub last_error: Option<String>,
+    /// When the task row was created.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: DateTimeUtc,
+    /// When the first attempt started, `None` while queued.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub started_at: Option<DateTimeUtc>,
+    /// When the task finished, `None` while still running.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub finished_at: Option<DateTimeUtc>,
+    /// Last row update time.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: DateTimeUtc,
+    /// Wall-clock duration in milliseconds, `None` when not yet finished.
     pub duration_ms: Option<i64>,
 }
 
+/// Administrator-facing view of the system health status.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum AdminSystemHealthStatus {
+    /// No completed health-check result is available yet.
     Unknown,
+    /// All checked components are healthy.
     Healthy,
+    /// At least one component is degraded.
     Degraded,
+    /// At least one component is unhealthy.
     Unhealthy,
 }
 
+/// One health-checked component as reported to administrators.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct AdminSystemHealthComponent {
+    /// Component identifier, e.g. `database`, `cache`, `remote_nodes`.
     pub name: String,
+    /// Component health status.
     pub status: AdminSystemHealthStatus,
+    /// Human-readable probe outcome.
     pub message: String,
+    /// Structured probe details, omitted when the component reports none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub details: Vec<aster_forge_runtime::HealthComponentDetail>,
 }
 
+/// Latest system health result derived from the most recent health-check task.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct AdminSystemHealthSummary {
+    /// Overall status; [`AdminSystemHealthStatus::Unknown`] before any check ran.
     pub status: AdminSystemHealthStatus,
+    /// Status text written by the latest health-check task.
     pub summary: Option<String>,
+    /// Issue details written by the latest health-check task.
     pub details: Option<String>,
+    /// Per-component reports of the latest check.
     pub components: Vec<AdminSystemHealthComponent>,
+    /// When the latest check finished, falling back to its last update time.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub checked_at: Option<DateTimeUtc>,
+    /// Background task the summary was derived from.
     pub task_id: Option<i64>,
 }
 
+/// Complete administrator overview payload.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct AdminOverview {
+    /// Instant the report was generated (UTC).
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub generated_at: DateTimeUtc,
+    /// IANA time zone the daily reports are bucketed in.
     pub timezone: String,
+    /// Report window length in days.
     pub days: u32,
+    /// Instance-wide counters.
     pub stats: AdminOverviewStats,
+    /// Latest system health summary.
     pub system_health: AdminSystemHealthSummary,
+    /// Daily activity reports, newest first.
     pub daily_reports: Vec<AdminOverviewDailyReport>,
+    /// Most recent audit events.
     pub recent_events: Vec<audit::AuditLogEntry>,
+    /// Most recent background tasks.
     pub recent_background_tasks: Vec<AdminBackgroundTaskEvent>,
 }
 
@@ -192,6 +261,9 @@ impl AdminOverviewCore {
     }
 }
 
+/// Builds the administrator overview report for the requested window,
+/// time zone and event limit, serving the recent-event slice and the cached
+/// counter core independently.
 pub async fn get_overview(
     state: &impl SharedRuntimeState,
     days: u32,

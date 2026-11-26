@@ -3,6 +3,9 @@ use super::routes;
 use actix_web::web;
 use aster_forge_metrics::ObservabilityConfig;
 
+/// Configures the primary node's full HTTP surface: the `/api/v1` REST scope,
+/// WebDAV, health routes, direct share routes, OpenAPI (debug builds) and the
+/// frontend asset service.
 pub fn configure_primary(
     cfg: &mut web::ServiceConfig,
     db: &sea_orm::DatabaseConnection,

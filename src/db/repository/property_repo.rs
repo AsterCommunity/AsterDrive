@@ -97,11 +97,17 @@ pub(crate) fn user_namespace_condition(backend: DbBackend) -> sea_orm::Condition
         .add(prefix_not_match)
 }
 
+/// One property to insert for a newly created entity.
 pub struct NewEntityProperty {
+    /// Kind of entity the property binds to.
     pub entity_type: EntityType,
+    /// Id of the entity the property binds to.
     pub entity_id: i64,
+    /// XML namespace of the property, case-sensitive.
     pub namespace: String,
+    /// Property name within the namespace, case-sensitive.
     pub name: String,
+    /// Property value; `None` encodes a present-but-empty (dead) property.
     pub value: Option<String>,
 }
 
@@ -458,11 +464,17 @@ pub async fn delete_namespace_for_entity<C: ConnectionTrait>(
 /// 批量查找实体绑定的 tag id。
 #[derive(Debug, FromQueryResult)]
 pub struct EntityTagBindingRow {
+    /// Kind of entity carrying the tag binding.
     pub entity_type: EntityType,
+    /// Id of the entity carrying the tag binding.
     pub entity_id: i64,
+    /// Tag id parsed from the property name.
     pub tag_id: String,
 }
 
+/// Loads the tag bindings (property names in the given namespace) of the given
+/// files and folders. Empty id lists skip the corresponding entity filter.
+/// Returns one row per bound property, unsorted.
 pub async fn find_tag_bindings_for_entities(
     db: &DatabaseConnection,
     namespace: &str,
@@ -502,6 +514,9 @@ pub async fn find_tag_bindings_for_entities(
         .map_err(AsterError::from)
 }
 
+/// Returns the distinct entity ids of one entity type that carry any of the
+/// given tag ids (matched as property names) in the namespace. An empty tag id
+/// list short-circuits to an empty vector; ordering is unspecified.
 pub async fn find_entity_ids_by_tag_ids(
     db: &DatabaseConnection,
     namespace: &str,
@@ -527,6 +542,9 @@ pub async fn find_entity_ids_by_tag_ids(
     Ok(rows)
 }
 
+/// Counts, per tag id, the rows in the namespace carrying that tag as a
+/// property name. Tags with no binding are absent from the map; non-numeric
+/// names are ignored. An empty tag id list short-circuits to an empty map.
 pub async fn count_entities_by_tag_ids(
     db: &DatabaseConnection,
     namespace: &str,

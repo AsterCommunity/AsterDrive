@@ -1,13 +1,22 @@
+//! 审计日志运行时配置：记录开关、可配置的审计动作范围及其预编译位掩码。
+
 use crate::config::bool_like::parse_bool_like;
 pub use crate::config::definitions::{AUDIT_LOG_ENABLED_KEY, AUDIT_LOG_RECORDED_ACTIONS_KEY};
 use crate::errors::{AsterError, Result};
 use aster_drive_model::types::AuditAction;
 
+/// Default value of [`AUDIT_LOG_ENABLED_KEY`] when the runtime config is
+/// missing or unparseable: audit logging is on.
 pub const DEFAULT_AUDIT_LOG_ENABLED: bool = true;
 // Ceiling division: AuditAction::COUNT is the number of action bits, and
 // u64::BITS is each word's capacity, yielding the required u64 word count.
+/// Number of `u64` words in the per-action bitmask; one bit per [`AuditAction`].
 pub const AUDIT_ACTION_MASK_WORDS: usize = AuditAction::COUNT.div_ceil(u64::BITS as usize);
 
+/// Precompiled audit recording scope for the request hot path.
+///
+/// Holds the enabled flag plus a bitmask over [`AuditAction`] values, so
+/// `should_record` is a cheap mask test instead of re-parsing config strings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuditLogRuntimeSettings {
     enabled: bool,
@@ -16,6 +25,10 @@ pub struct AuditLogRuntimeSettings {
 
 impl AuditLogRuntimeSettings {
     // Precompute the scope once so the audit hot path only does a bitmask check.
+    /// Builds the recording scope from raw runtime config values.
+    ///
+    /// `enabled_raw` falls back to [`DEFAULT_AUDIT_LOG_ENABLED`] when missing or
+    /// invalid; `actions_raw` falls back to recording all non-workspace actions.
     pub fn from_raw_values(enabled_raw: Option<&str>, actions_raw: Option<&str>) -> Self {
         let enabled = enabled_raw
             .and_then(parse_bool_like)
@@ -30,6 +43,10 @@ impl AuditLogRuntimeSettings {
         }
     }
 
+    /// Whether an audit entry should be written for `action`.
+    ///
+    /// Workspace-mutation actions are always recorded regardless of the mask;
+    /// every other action requires both `enabled` and mask membership.
     pub fn should_record(&self, action: AuditAction) -> bool {
         self.enabled && !action.is_workspace_mutation() && mask_contains(self.action_mask, action)
     }
@@ -44,6 +61,10 @@ impl Default for AuditLogRuntimeSettings {
     }
 }
 
+/// JSON array stored as the default value of [`AUDIT_LOG_RECORDED_ACTIONS_KEY`].
+///
+/// Contains every non-workspace audit action in authoritative [`AuditAction::ALL`]
+/// order so schema and storage stay stable.
 pub fn default_recorded_actions_value() -> String {
     // Keep the stored default in authoritative action order so schema and storage stay stable.
     let values: Vec<&'static str> = AuditAction::ALL
@@ -69,6 +90,11 @@ fn full_recorded_actions_json_fallback() -> String {
     serde_json::json!(values).to_string()
 }
 
+/// Normalizes a stored [`AUDIT_LOG_RECORDED_ACTIONS_KEY`] value.
+///
+/// Validates and deduplicates the action list, rejects workspace-mutation
+/// actions (they are always recorded and not configurable), and re-serializes
+/// the selection in authoritative [`AuditAction::ALL`] order.
 pub fn normalize_recorded_actions_config_value(value: &str) -> Result<String> {
     let actions = parse_recorded_actions_config_value(value)?;
     let mut selected = [false; AuditAction::COUNT];
@@ -96,6 +122,10 @@ pub fn normalize_recorded_actions_config_value(value: &str) -> Result<String> {
     })
 }
 
+/// Parses a recorded-actions JSON value into [`AuditAction`] entries.
+///
+/// Rejects unknown names and duplicates, but does not filter workspace-mutation
+/// actions; callers that normalize stored values must reject those themselves.
 pub fn parse_recorded_actions_config_value(value: &str) -> Result<Vec<AuditAction>> {
     let values = parse_string_array(value, "string_enum_set")?;
     let mut seen = [false; AuditAction::COUNT];
@@ -120,6 +150,8 @@ pub fn parse_recorded_actions_config_value(value: &str) -> Result<Vec<AuditActio
     Ok(actions)
 }
 
+/// Whether `key` is a runtime audit setting whose changes must rebuild the
+/// precompiled recording scope.
 pub fn is_audit_runtime_key(key: &str) -> bool {
     matches!(key, AUDIT_LOG_ENABLED_KEY | AUDIT_LOG_RECORDED_ACTIONS_KEY)
 }

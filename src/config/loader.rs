@@ -16,6 +16,8 @@ pub struct LoadedConfig {
     pub report: ConfigLoadReport,
 }
 
+/// What the loader did while producing a [`Config`]: where it loaded from and
+/// whether it had to create or backfill the file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigLoadReport {
     config_path: PathBuf,
@@ -24,10 +26,13 @@ pub struct ConfigLoadReport {
 }
 
 impl ConfigLoadReport {
+    /// Absolute or cwd-resolved path of the configuration file that was loaded.
     pub fn config_path(&self) -> &Path {
         &self.config_path
     }
 
+    /// Human-readable `[INFO]` messages describing the load outcome, for
+    /// startup logging and CLI output.
     pub fn messages(&self) -> Vec<String> {
         let mut messages = Vec::with_capacity(4);
         if self.default_created {
@@ -399,6 +404,12 @@ pub struct ConfigLocation {
 }
 
 impl ConfigLocation {
+    /// Resolves the effective configuration location from CLI overrides.
+    ///
+    /// `config_file` wins over `data_dir` (which implies `<data_dir>/config.toml`);
+    /// passing both is rejected. With neither, the loader falls back to the
+    /// default config path under the current directory. Relative paths are
+    /// resolved against the caller's working directory.
     pub fn resolve(config_file: Option<&Path>, data_dir: Option<&Path>) -> Result<Self> {
         let cwd = std::env::current_dir()
             .map_aster_err_ctx("failed to resolve current dir", AsterError::config_error)?;
@@ -422,6 +433,7 @@ impl ConfigLocation {
         })
     }
 
+    /// Absolute path of the configuration file for this location.
     pub fn path(&self) -> &Path {
         &self.path
     }
@@ -461,6 +473,9 @@ impl ConfigLocation {
         }
     }
 
+    /// Loads and validates the configuration without creating or modifying any
+    /// file. When `require_existing` is true, a missing file is an error even
+    /// for implicitly resolved locations.
     pub fn load_read_only(&self, require_existing: bool) -> Result<Config> {
         if (self.explicit || require_existing) && !self.path.is_file() {
             return Err(AsterError::config_error(format!(
@@ -473,11 +488,16 @@ impl ConfigLocation {
         Ok(config)
     }
 
+    /// Creates the default configuration file at this location when it does
+    /// not exist yet, returning the file path.
     pub fn ensure_default(&self, default: &Config) -> Result<PathBuf> {
         ensure_default_config_exists(&self.path, default)?;
         Ok(self.path.clone())
     }
 
+    /// Fully initializes this location: creates the default file and backfills
+    /// generated stable keys as needed, loads and validates the configuration,
+    /// and absolutizes runtime paths against this location.
     pub fn initialize(&self) -> Result<LoadedConfig> {
         let mut loaded = load_from_path(self.base_dir(), &self.path, None, true)?;
         self.absolutize(&mut loaded.config);

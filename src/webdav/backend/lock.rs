@@ -80,6 +80,8 @@ pub struct DbLockSystem {
 }
 
 impl DbLockSystem {
+    /// Creates a lock system for the user's personal workspace, optionally
+    /// confined to `root_folder_id` and its subtree.
     pub fn new(state: PrimaryAppState, user_id: i64, root_folder_id: Option<i64>) -> Box<Self> {
         Box::new(Self {
             state,

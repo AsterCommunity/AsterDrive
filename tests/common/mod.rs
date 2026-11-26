@@ -2001,6 +2001,7 @@ macro_rules! login_user {
 }
 
 #[macro_export]
+/// Test helper: consume the latest contact-verification mail token and confirm it via the API.
 macro_rules! confirm_latest_contact_verification {
     ($app:expr, $db:expr, $mail_sender:expr) => {{
         use actix_web::test;
@@ -2138,6 +2139,7 @@ pub async fn upload_via_server_session(
 }
 
 #[macro_export]
+/// Test helper: create a file with content in the given folder and return its row.
 macro_rules! upload_test_file {
     ($app:expr, $token:expr) => {{
         let (status, body) = common::upload_via_server_session(
@@ -2228,6 +2230,7 @@ macro_rules! setup_with_webdav {
 }
 
 #[macro_export]
+/// Test helper: bootstrap an app state with WebDAV enabled and a stub mail sender.
 macro_rules! setup_with_webdav_and_mail {
     () => {{
         use actix_web::{App, test, web};

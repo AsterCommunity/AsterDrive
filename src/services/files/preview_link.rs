@@ -21,12 +21,17 @@ use aster_drive_model::entities::{file, share};
 
 const PREVIEW_LINK_TTL_SECS: i64 = 5 * 60;
 
+/// Signed short-lived preview link returned to clients.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PreviewLinkInfo {
+    /// Absolute or site-relative `/pv/{token}/{name}` URL to open the
+    /// preview with.
     pub path: String,
+    /// Instant the signed token expires, 5 minutes after issuance.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub expires_at: DateTime<Utc>,
+    /// Quoted current-revision ETag, usable for conditional preview fetches.
     pub etag: String,
 }
 
@@ -52,9 +57,13 @@ struct PreviewTokenPayload {
     nonce: Option<String>,
 }
 
+/// Request scheme and host used to pick a matching public site URL when
+/// minting absolute preview links.
 #[derive(Debug, Clone, Copy)]
 pub struct RequestOrigin<'a> {
+    /// Request scheme, e.g. `https`.
     pub scheme: &'a str,
+    /// Request host without port, e.g. `panel.example.com`.
     pub host: &'a str,
 }
 
@@ -74,6 +83,7 @@ pub(crate) async fn create_token_for_file_in_scope_for_origin(
     build_link_for_file(state, &file, &payload, Some(request_origin)).await
 }
 
+/// Mints a preview link for a file shared through a direct share token.
 pub async fn create_token_for_shared_file(
     state: &impl SharedRuntimeState,
     share_token: &str,
@@ -86,6 +96,8 @@ pub async fn create_token_for_shared_file(
     build_link_for_shared_file(state, &share, &file, &payload, None).await
 }
 
+/// Same as [`create_token_for_shared_file`], but the request origin is
+/// matched against the configured public site URLs to build an absolute link.
 pub async fn create_token_for_shared_file_for_origin(
     state: &impl SharedRuntimeState,
     share_token: &str,
@@ -99,6 +111,8 @@ pub async fn create_token_for_shared_file_for_origin(
     build_link_for_shared_file(state, &share, &file, &payload, Some(request_origin)).await
 }
 
+/// Mints a preview link for a file inside a folder shared by
+/// `share_token`, after verifying the file belongs to the shared tree.
 pub async fn create_token_for_shared_folder_file(
     state: &impl SharedRuntimeState,
     share_token: &str,
@@ -113,6 +127,9 @@ pub async fn create_token_for_shared_folder_file(
     build_link_for_shared_file(state, &share, &file, &payload, None).await
 }
 
+/// Same as [`create_token_for_shared_folder_file`], but the request
+/// origin is matched against the configured public site URLs to build an
+/// absolute link.
 pub async fn create_token_for_shared_folder_file_for_origin(
     state: &impl SharedRuntimeState,
     share_token: &str,

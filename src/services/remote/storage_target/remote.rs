@@ -45,6 +45,8 @@ fn referenced_target_error(target_key: &str, policy_ids: &[i64]) -> crate::error
     )
 }
 
+/// Lists storage targets registered on the remote follower, fetched live
+/// from the follower's storage-target API rather than cached locally.
 pub async fn list_remote<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node_id: i64,
@@ -55,6 +57,8 @@ pub async fn list_remote<S: RemoteProtocolRuntimeState>(
         .await
 }
 
+/// Fetches the follower's connector catalog (localized) for building remote
+/// storage targets on that follower.
 pub async fn list_remote_connector_catalog<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node_id: i64,
@@ -66,6 +70,9 @@ pub async fn list_remote_connector_catalog<S: RemoteProtocolRuntimeState>(
         .await
 }
 
+/// Creates a storage target on the remote follower. The node must have
+/// completed enrollment, and the requested connector must be declared in
+/// the follower's cached remote storage target capabilities.
 pub async fn create_remote<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node_id: i64,
@@ -82,6 +89,11 @@ pub async fn create_remote<S: RemoteProtocolRuntimeState>(
         .await
 }
 
+/// Updates a storage target on the remote follower. When the request carries
+/// a connection, the target key must be canonical, the connector immutable,
+/// and targets still referenced by storage policies cannot change their
+/// connector configuration; these checks run under the storage topology
+/// lock against the follower's live target state.
 pub async fn update_remote<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node_id: i64,
@@ -135,6 +147,10 @@ pub async fn update_remote<S: RemoteProtocolRuntimeState>(
         .await
 }
 
+/// Deletes a storage target on the remote follower, rejected while any
+/// storage policy still references it. The reference check and the delete
+/// call are separated by the storage topology lock, and the transaction
+/// commits only after the follower confirms the deletion.
 pub async fn delete_remote<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node_id: i64,

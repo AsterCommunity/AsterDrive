@@ -80,6 +80,10 @@ pub async fn reconcile_all<S: FollowerRuntimeState>(
     all_reconciled
 }
 
+/// Marks each stored master binding as having applied its desired revision.
+/// Called by the tunnel worker after a reconciliation round reports the
+/// binding registry and worker topology both ready; failure to mark one
+/// binding is logged and retried on the next reconcile pass.
 pub async fn mark_all_applied<S: FollowerRuntimeState>(state: &S) {
     let bindings = match master_binding_repo::find_all(state.writer_db()).await {
         Ok(bindings) => bindings,

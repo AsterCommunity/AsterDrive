@@ -93,6 +93,7 @@ fn connector_action_mutates_remote_state(
     }
 }
 
+/// Creates a storage policy and records the admin create audit entry.
 pub async fn create_with_audit(
     state: &(impl RemoteProtocolRuntimeState + Sync),
     input: CreateStoragePolicyInput,
@@ -112,6 +113,7 @@ pub async fn create_with_audit(
     Ok(policy)
 }
 
+/// Updates a storage policy and records the admin update audit entry.
 pub async fn update_with_audit(
     state: &(impl RemoteProtocolRuntimeState + Sync),
     id: i64,
@@ -132,6 +134,8 @@ pub async fn update_with_audit(
     Ok(policy)
 }
 
+/// Promotes a policy onto a different connector via a declared promotion and
+/// records the promotion audit trail inside the promotion execution.
 pub async fn promote_connector_with_audit(
     state: &(impl RemoteProtocolRuntimeState + Sync),
     id: i64,
@@ -141,6 +145,7 @@ pub async fn promote_connector_with_audit(
     promotion::execute_connector_promotion(state, id, input, audit_ctx).await
 }
 
+/// Deletes a storage policy and records the admin delete audit entry.
 pub async fn delete_with_audit(
     state: &(impl TaskRuntimeState + Sync),
     id: i64,
@@ -162,6 +167,9 @@ pub async fn delete_with_audit(
     Ok(())
 }
 
+/// Runs a connector action against a saved policy and records the action audit
+/// entry. The original error is still returned to the caller, but its
+/// sanitized diagnostic feeds the audit details.
 pub async fn execute_saved_action_with_audit(
     state: &(impl SharedRuntimeState + Sync),
     id: i64,
@@ -203,6 +211,9 @@ pub async fn execute_saved_action_with_audit(
     result
 }
 
+/// Runs a connector action with draft connection values and records the action
+/// audit entry. The original error is still returned to the caller, but its
+/// sanitized diagnostic feeds the audit details.
 pub async fn execute_draft_action_with_audit(
     state: &(impl RemoteProtocolRuntimeState + Sync),
     input: ExecuteDraftStorageConnectorActionInput,
@@ -247,6 +258,7 @@ pub async fn execute_draft_action_with_audit(
     result
 }
 
+/// Creates a policy group and records the admin create audit entry.
 pub async fn create_group_with_audit(
     state: &impl SharedRuntimeState,
     input: CreateStoragePolicyGroupInput,
@@ -274,6 +286,7 @@ pub async fn create_group_with_audit(
     Ok(group)
 }
 
+/// Updates a policy group and records the admin update audit entry.
 pub async fn update_group_with_audit(
     state: &impl SharedRuntimeState,
     id: i64,
@@ -302,6 +315,7 @@ pub async fn update_group_with_audit(
     Ok(group)
 }
 
+/// Deletes a policy group and records the admin delete audit entry.
 pub async fn delete_group_with_audit(
     state: &impl SharedRuntimeState,
     id: i64,
@@ -330,6 +344,8 @@ pub async fn delete_group_with_audit(
     Ok(())
 }
 
+/// Migrates policy group assignments and records the admin migration audit
+/// entry with both source and target group details.
 pub async fn migrate_group_assignments_with_audit(
     state: &impl SharedRuntimeState,
     source_group_id: i64,

@@ -13,6 +13,8 @@ use crate::services::ops::audit::{self, AuditContext};
 use crate::services::{auth::local, user::account, user::profile};
 use actix_web::{HttpRequest, HttpResponse, web};
 
+/// Requests an email change for the current account by queuing a confirmation email
+/// to the new address.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/email/change",
@@ -44,6 +46,9 @@ pub async fn request_email_change(
     Ok(HttpResponse::Ok().json(crate::api::response::success(user_info)))
 }
 
+/// Resends the confirmation email for a pending email change. The response is
+/// intentionally uniform (with a timing floor) and does not reveal whether an email
+/// change is actually pending.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/email/change/resend",
@@ -152,6 +157,8 @@ pub async fn patch_preferences(
     Ok(HttpResponse::Ok().json(crate::api::response::success(prefs)))
 }
 
+/// Updates the current user's profile (display name) and records the change in the
+/// audit log.
 #[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/auth/profile",
@@ -191,6 +198,8 @@ pub async fn patch_profile(
     Ok(HttpResponse::Ok().json(crate::api::response::success(profile)))
 }
 
+/// Uploads an avatar image for the current user and records the change in the
+/// audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/profile/avatar/upload",
@@ -231,6 +240,8 @@ pub async fn upload_avatar(
     Ok(HttpResponse::Ok().json(crate::api::response::success(result)))
 }
 
+/// Sets the avatar source (none, Gravatar, or upload) for the current user and
+/// records the change in the audit log.
 #[aster_forge_api_docs_macros::path(
     put,
     path = "/api/v1/auth/profile/avatar/source",
@@ -273,6 +284,8 @@ pub async fn put_avatar_source(
     Ok(HttpResponse::Ok().json(crate::api::response::success(profile)))
 }
 
+/// Returns the current user's avatar image in WebP format at the requested size
+/// (512 or 1024).
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/auth/profile/avatar/{size}",

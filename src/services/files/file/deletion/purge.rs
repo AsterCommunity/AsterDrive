@@ -232,6 +232,12 @@ async fn batch_purge_in_resource_scope_internal(
     Ok(finish_purged_files(state, scope, purged).await)
 }
 
+/// Permanently purges files from the given user's personal workspace.
+///
+/// The files must already be in trash (`deleted_at` set); purging retires
+/// revision histories, deletes share links and file records, and decrements
+/// blob reference counts within one transaction. Returns the number of
+/// files actually purged.
 pub async fn batch_purge(
     state: &PrimaryAppState,
     files: Vec<file::Model>,

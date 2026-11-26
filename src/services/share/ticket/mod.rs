@@ -14,11 +14,20 @@ use crate::services::{task, workspace::storage::WorkspaceStorageScope};
 
 const STREAM_TICKET_TTL_SECS: i64 = 5 * 60;
 
+/// Short-lived ticket authorizing an archive download through the public
+/// site URL.
+///
+/// The ticket payload lives in the server-side cache and expires after five
+/// minutes; an expired or unknown ticket is rejected on redemption.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StreamTicketInfo {
+    /// Opaque ticket token (`st_`-prefixed) presented when starting the
+    /// download; stored server-side and only valid until `expires_at`.
     pub token: String,
+    /// Download endpoint URL resolved against the configured public site URL.
     pub download_path: String,
+    /// Instant after which the ticket is rejected and purged from the cache.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub expires_at: DateTime<Utc>,
 }

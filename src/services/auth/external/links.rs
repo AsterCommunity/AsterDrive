@@ -10,6 +10,8 @@ use aster_drive_model::entities::{external_auth_identity, external_auth_provider
 
 use super::ExternalAuthLinkInfo;
 
+/// Lists every external identity linked to a user, enriched with the current provider
+/// display data. Identities whose provider row no longer resolves are omitted.
 pub async fn list_links(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -50,10 +52,16 @@ fn link_to_info(
     }
 }
 
+/// Removes one external identity link owned by the user.
+///
+/// Returns whether a row was deleted; `false` means the link does not exist for that user.
 pub async fn delete_link(state: &impl SharedRuntimeState, user_id: i64, id: i64) -> Result<bool> {
     external_auth_identity_repo::delete_for_user(state.writer_db(), id, user_id).await
 }
 
+/// Deletes expired external login flows and pending email-verification flows.
+///
+/// Returns the total number of rows removed; intended for the periodic cleanup task.
 pub async fn cleanup_expired_flows(state: &impl SharedRuntimeState) -> Result<u64> {
     let now = Utc::now();
     let login_flows =

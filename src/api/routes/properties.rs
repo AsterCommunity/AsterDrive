@@ -16,6 +16,8 @@ use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};
 use aster_forge_middleware::actix::rate_limit::RateLimit;
 
+/// Builds the `/api/v1/properties` route scope behind JWT auth and the API rate
+/// limiter (WebDAV-style entity properties).
 pub fn routes(
     rl: &RateLimitConfig,
     network_trust: &NetworkTrustConfig,
@@ -33,6 +35,7 @@ pub fn routes(
         )
 }
 
+/// Lists all properties of a file or folder.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/properties/{entity_type}/{entity_id}",
@@ -66,6 +69,8 @@ pub async fn list_props(
     Ok(HttpResponse::Ok().json(crate::api::response::success(props)))
 }
 
+/// Sets or upserts one property on a file or folder; the `DAV:` namespace is
+/// read-only.
 #[aster_forge_api_docs_macros::path(
     put,
     path = "/api/v1/properties/{entity_type}/{entity_id}",
@@ -126,6 +131,7 @@ pub async fn set_prop(
     Ok(HttpResponse::Ok().json(crate::api::response::success(prop)))
 }
 
+/// Deletes one property of a file or folder; the `DAV:` namespace is read-only.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/properties/{entity_type}/{entity_id}/{namespace}/{name}",

@@ -48,9 +48,13 @@ pub use response::{
     tunnel_response_from_reqwest,
 };
 
+/// Reverse tunnel endpoint path prefix shared by poll/complete/connect routes.
 pub const REMOTE_TUNNEL_BASE_PATH: &str = "/api/v1/internal/remote-tunnel";
+/// Follower poll endpoint: long-polls for one queued tunnel request.
 pub const REMOTE_TUNNEL_POLL_PATH: &str = "/api/v1/internal/remote-tunnel/poll";
+/// Follower completion endpoint: returns the buffered response of one tunnel request.
 pub const REMOTE_TUNNEL_COMPLETE_PATH: &str = "/api/v1/internal/remote-tunnel/complete";
+/// Follower streaming endpoint: upgrades to a WebSocket streaming lane.
 pub const REMOTE_TUNNEL_CONNECT_PATH: &str = "/api/v1/internal/remote-tunnel/connect";
 
 const REMOTE_TUNNEL_POLL_TIMEOUT: Duration = Duration::from_secs(25);
@@ -58,17 +62,28 @@ const REMOTE_TUNNEL_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
 const REMOTE_TUNNEL_HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(45);
 const REMOTE_TUNNEL_CLOSE_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 const REMOTE_TUNNEL_SHUTDOWN_DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
+/// Maximum buffered tunnel request/response body in bytes; larger transfers
+/// must use the streaming lane or direct transport.
 pub const REMOTE_TUNNEL_BODY_LIMIT: usize = 64 * 1024 * 1024;
+/// JSON payload ceiling for poll/complete endpoints: a buffered response plus
+/// its base64 headroom, in bytes.
 pub const REMOTE_TUNNEL_JSON_LIMIT: usize = REMOTE_TUNNEL_BODY_LIMIT * 2 + 1024 * 1024;
+/// Bytes of the follower control-plane body limit reserved for poll response
+/// JSON metadata, in bytes.
 pub const REMOTE_TUNNEL_POLL_METADATA_BUDGET: usize = 64 * 1024;
+/// Poll transport request body ceiling, in bytes: the follower control-plane
+/// limit minus the metadata budget, three-quarters of which goes to base64 body.
 pub const REMOTE_TUNNEL_POLL_BODY_LIMIT: usize =
     ((crate::storage::remote_protocol::REMOTE_CONTROL_PLANE_BODY_LIMIT
         - REMOTE_TUNNEL_POLL_METADATA_BUDGET)
         / 4)
         * 3;
+/// Streaming lane body chunk size, in bytes.
 pub const REMOTE_TUNNEL_STREAM_CHUNK_SIZE: usize = 64 * 1024;
+/// Maximum accepted WebSocket frame size for streaming lanes, in bytes.
 pub const REMOTE_TUNNEL_STREAM_FRAME_LIMIT: usize = 256 * 1024;
 
+/// Reverse tunnel liveness of one follower as surfaced to operators.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
@@ -79,6 +94,8 @@ pub enum RemoteTunnelOnlineStatus {
     Offline,
 }
 
+/// Reverse tunnel telemetry for one follower, combining in-memory registry
+/// state with persisted handshake data.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct RemoteTunnelInfo {
@@ -92,6 +109,9 @@ pub struct RemoteTunnelInfo {
     pub last_handshake_at: Option<chrono::DateTime<Utc>>,
 }
 
+/// Handles a follower long-poll: claims tunnel ownership in a clustered
+/// deployment, registers the connection, records a successful handshake, and
+/// waits up to the poll timeout for one queued request.
 pub async fn poll<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node: &managed_follower::Model,
@@ -137,6 +157,8 @@ fn persist_poll_handshake(
     });
 }
 
+/// Handles a follower completion for a buffered tunnel request, matching it
+/// against the pending queue and enforcing the buffered body limit.
 pub async fn complete<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node: &managed_follower::Model,
@@ -171,6 +193,9 @@ pub async fn complete<S: RemoteProtocolRuntimeState>(
     }
 }
 
+/// Upgrades a follower WebSocket into a streaming tunnel lane: claims cluster
+/// tunnel ownership first, then pumps frames in both directions until the lane
+/// disconnects, the owner lease is lost, or the primary shuts down.
 pub async fn connect_stream<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node: managed_follower::Model,
@@ -562,6 +587,7 @@ fn tunnel_owned_by_another_primary_error(
     )
 }
 
+/// Builds the tunnel telemetry snapshot for one follower.
 pub fn tunnel_info_for_node<S: RemoteProtocolRuntimeState>(
     state: &S,
     node: &managed_follower::Model,
@@ -600,6 +626,8 @@ pub(crate) fn ensure_reverse_tunnel_transport(remote_node: &managed_follower::Mo
     }
 }
 
+/// Persists a tunnel runtime error for the follower identified by
+/// `access_key`; unknown access keys are ignored.
 pub async fn mark_tunnel_error<S: RemoteProtocolRuntimeState>(
     state: &S,
     access_key: &str,

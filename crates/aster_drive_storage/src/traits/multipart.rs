@@ -28,20 +28,38 @@ const MAX_DEFAULT_MULTIPART_READER_SIZE: usize = 64 * 1024 * 1024;
 /// 流式发送，并不意味着进程需要分配 1 GiB 的 `Vec`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MultipartStorageCapabilities {
+    /// Provider-required minimum part size in bytes.
     pub min_part_size: u64,
+    /// Provider protocol limit for one part in bytes; `None` when the
+    /// provider declares no cap.
     pub max_part_size: Option<u64>,
+    /// Maximum number of parts per upload.
     pub max_parts: u64,
+    /// Provider object size limit in bytes; `None` when unbounded by protocol.
     pub max_object_size: Option<u64>,
+    /// How the driver consumes part bytes locally.
     pub upload_mode: MultipartUploadMode,
 }
 
+/// How a driver consumes part bytes while uploading them to the provider.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MultipartUploadMode {
+    /// Part bytes are streamed to the provider without full buffering.
     NativeStreaming,
-    Buffered { max_size: u64 },
+    /// Part bytes are buffered locally first; `max_size` is the largest part
+    /// size this mode accepts.
+    Buffered {
+        /// Upper bound in bytes for a part under buffered upload.
+        max_size: u64,
+    },
 }
 
 impl MultipartStorageCapabilities {
+    /// Conservative fallback for drivers that do not override
+    /// [`MultipartStorageDriver::capabilities`].
+    ///
+    /// Mirrors common S3-compatible limits (5 MiB minimum part, 10k parts)
+    /// and declares buffered upload capped by the default reader budget.
     pub const fn conservative_default() -> Self {
         Self {
             min_part_size: 5 * 1024 * 1024,
@@ -59,7 +77,9 @@ impl MultipartStorageCapabilities {
 /// Provider 端已经接收的 multipart part 明细。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UploadedMultipartPart {
+    /// 1-based part number the provider recorded.
     pub part_number: i32,
+    /// Part size in bytes as recorded by the provider (not the caller's claim).
     pub size: i64,
 }
 
@@ -105,6 +125,11 @@ pub trait MultipartStorageDriver: Send + Sync {
         ))
     }
 
+    /// 为浏览器直传一个 part 生成完整请求描述。
+    ///
+    /// 默认实现基于 [`Self::presigned_upload_part_request`] 构造 PUT 请求，
+    /// 并声明从 `ETag` 响应头收集完成回执；不支持 presigned PUT 的 provider
+    /// 应覆盖此方法提供自己的协议形态。
     async fn browser_part_request(
         &self,
         path: &str,
@@ -146,6 +171,8 @@ pub trait MultipartStorageDriver: Send + Sync {
     ) -> Result<String>;
 
     /// 服务端直接上传一个 multipart part，接收拥有所有权的 Bytes。
+    ///
+    /// 默认实现退化为 [`Self::upload_multipart_part`]；覆盖以避免一次额外复制。
     ///
     /// HTTP relay 上传入口已经拿到 `web::Bytes`，S3 等驱动可以覆盖该方法直接构造
     /// provider body，避免先退回 `&[u8]` 再复制成 `Vec<u8>`。

@@ -299,6 +299,8 @@ async fn force_delete_archived_team(state: &PrimaryAppState, team: team::Model) 
     Ok(())
 }
 
+/// Force deletes archived teams whose archive time passed the retention window,
+/// returning the number of teams removed and writing a cleanup audit record per team.
 pub async fn cleanup_expired_archived_teams(state: &PrimaryAppState) -> Result<u64> {
     let retention_days = load_team_archive_retention_days(state);
     let cutoff = Utc::now() - chrono::Duration::days(retention_days);

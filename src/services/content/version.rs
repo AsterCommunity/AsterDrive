@@ -284,6 +284,7 @@ async fn delete_version_in_scope(
     delete_version_inner(state, scope, &file, version_id).await
 }
 
+/// List a file's version history in the caller's personal scope.
 pub async fn list_versions(
     state: &impl SharedRuntimeState,
     file_id: i64,
@@ -299,6 +300,7 @@ pub async fn list_versions(
     .await
 }
 
+/// List a file's version history in a team scope; `user_id` is the acting member.
 pub async fn list_versions_for_team(
     state: &impl SharedRuntimeState,
     team_id: i64,
@@ -318,6 +320,7 @@ pub async fn list_versions_for_team(
     .await
 }
 
+/// Restore a historical version as the file's new current head, returning the updated file.
 pub async fn restore_version(
     state: &PrimaryAppState,
     file_id: i64,
@@ -334,6 +337,7 @@ pub async fn restore_version(
     .map(FileInfo::from)
 }
 
+/// Restore a historical version in the caller's personal scope and record a file-version audit entry.
 pub async fn restore_version_with_audit(
     state: &PrimaryAppState,
     file_id: i64,
@@ -355,6 +359,7 @@ pub async fn restore_version_with_audit(
     Ok(file)
 }
 
+/// Restore a historical version in a team scope; `user_id` is the acting member.
 pub async fn restore_version_for_team(
     state: &PrimaryAppState,
     team_id: i64,
@@ -375,6 +380,7 @@ pub async fn restore_version_for_team(
     .map(FileInfo::from)
 }
 
+/// Restore a historical version in a team scope and record a file-version audit entry.
 pub async fn restore_version_for_team_with_audit(
     state: &PrimaryAppState,
     team_id: i64,
@@ -397,6 +403,7 @@ pub async fn restore_version_for_team_with_audit(
     Ok(file)
 }
 
+/// Delete a historical (non-current) version of a file in the caller's personal scope.
 pub async fn delete_version(
     state: &PrimaryAppState,
     file_id: i64,
@@ -412,6 +419,7 @@ pub async fn delete_version(
     .await
 }
 
+/// Delete a historical version in the caller's personal scope and record a file-version audit entry.
 pub async fn delete_version_with_audit(
     state: &PrimaryAppState,
     file_id: i64,
@@ -428,6 +436,7 @@ pub async fn delete_version_with_audit(
     Ok(())
 }
 
+/// Delete a historical version in a team scope; `user_id` is the acting member.
 pub async fn delete_version_for_team(
     state: &PrimaryAppState,
     team_id: i64,
@@ -447,6 +456,7 @@ pub async fn delete_version_for_team(
     .await
 }
 
+/// Delete a historical version in a team scope and record a file-version audit entry.
 pub async fn delete_version_for_team_with_audit(
     state: &PrimaryAppState,
     team_id: i64,
@@ -484,6 +494,9 @@ async fn audit_version_delete(
     .await;
 }
 
+/// Trim a file's history down to the configured retention limit, one revision per
+/// transaction, reclaiming blob references and storage usage. Publishes a storage-change
+/// event when any revision was deleted.
 pub async fn cleanup_excess(state: &PrimaryAppState, file_id: i64) -> Result<()> {
     let file = file_repo::find_by_id(state.writer_db(), file_id).await?;
     let scope = resource_scope_from_file(&file)?;

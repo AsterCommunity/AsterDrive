@@ -11,6 +11,7 @@ use aster_forge_api::LimitOffsetQuery;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use aster_forge_api::OffsetPage;
 
+/// Lists all shares across users with pagination, filtering, and sorting.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/shares",
@@ -42,6 +43,7 @@ pub async fn list_all_shares(
     Ok(HttpResponse::Ok().json(crate::api::response::success(shares)))
 }
 
+/// Deletes any share by ID regardless of owner, and records the action in the audit log.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/admin/shares/{id}",

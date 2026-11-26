@@ -12,7 +12,11 @@ use std::fmt;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
+/// Envelope layout version for the persisted policy behavior payload.
 pub const STORAGE_POLICY_BEHAVIOR_FORMAT_VERSION: u32 = 1;
+
+/// Version of the core-owned behavior fields themselves; bumped when the
+/// meaning or set of those fields changes.
 pub const STORAGE_POLICY_BEHAVIOR_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -61,19 +65,37 @@ impl StoragePolicyBehaviorConfig {
         self
     }
 
+    /// Reports whether provider-native thumbnail candidates are enabled for
+    /// this policy.
+    ///
+    /// `true` means the switch alone is on; actual eligibility still requires
+    /// an extension match via
+    /// [`storage_native_thumbnail_matches_file_name`](Self::storage_native_thumbnail_matches_file_name).
     pub fn uses_storage_native_thumbnail(&self) -> bool {
         self.storage_native_thumbnail_enabled
     }
 
+    /// Decides whether a file is eligible for provider-native thumbnails.
+    ///
+    /// Requires the switch to be enabled and the file to carry a non-empty
+    /// extension present (ASCII case-insensitively) in the configured list;
+    /// an empty list matches no files.
     pub fn storage_native_thumbnail_matches_file_name(&self, file_name: &str) -> bool {
         self.uses_storage_native_thumbnail()
             && extension_matches(file_name, &self.storage_native_thumbnail_extensions)
     }
 
+    /// Reports whether provider-native media metadata extraction is enabled
+    /// for this policy.
     pub fn uses_storage_native_media_metadata(&self) -> bool {
         self.storage_native_media_metadata_enabled
     }
 
+    /// Decides whether a file is eligible for provider-native media metadata.
+    ///
+    /// Same contract as
+    /// [`storage_native_thumbnail_matches_file_name`](Self::storage_native_thumbnail_matches_file_name):
+    /// switch on, non-empty extension, case-insensitive list match.
     pub fn storage_native_media_metadata_matches_file_name(&self, file_name: &str) -> bool {
         self.uses_storage_native_media_metadata()
             && extension_matches(file_name, &self.storage_native_media_metadata_extensions)
@@ -105,16 +127,27 @@ fn extension_matches(file_name: &str, extensions: &[String]) -> bool {
             .any(|candidate| candidate.eq_ignore_ascii_case(extension))
 }
 
+/// Versioned persistence envelope wrapping core-owned policy behavior.
+///
+/// One envelope is stored atomically with the storage policy; unknown fields
+/// are rejected on deserialize so core semantics cannot drift silently.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StoragePolicyBehaviorConfigEnvelope {
+    /// Envelope layout version; decoders expect
+    /// [`STORAGE_POLICY_BEHAVIOR_FORMAT_VERSION`].
     pub format_version: u32,
+    /// Behavior schema version; decoders expect
+    /// [`STORAGE_POLICY_BEHAVIOR_SCHEMA_VERSION`].
     pub schema_version: u32,
+    /// Core-owned behavior values, already normalized.
     pub values: StoragePolicyBehaviorConfig,
 }
 
 impl StoragePolicyBehaviorConfigEnvelope {
+    /// Builds an envelope with the current version constants and the values
+    /// normalized through [`StoragePolicyBehaviorConfig::normalized`].
     pub fn new(values: StoragePolicyBehaviorConfig) -> Self {
         Self {
             format_version: STORAGE_POLICY_BEHAVIOR_FORMAT_VERSION,
@@ -123,16 +156,33 @@ impl StoragePolicyBehaviorConfigEnvelope {
         }
     }
 
+    /// Builds an envelope for a policy with every behavior switch disabled.
     pub fn empty() -> Self {
         Self::new(StoragePolicyBehaviorConfig::default())
     }
 }
 
+/// Failure modes of the policy behavior codec.
 #[derive(Debug)]
 pub enum StoragePolicyBehaviorConfigCodecError {
+    /// The payload is not valid JSON or contains unknown fields.
     InvalidJson(serde_json::Error),
-    FormatVersionMismatch { expected: u32, actual: u32 },
-    SchemaVersionMismatch { expected: u32, actual: u32 },
+    /// Envelope layout version differs from
+    /// [`STORAGE_POLICY_BEHAVIOR_FORMAT_VERSION`].
+    FormatVersionMismatch {
+        /// Layout version this build was compiled with.
+        expected: u32,
+        /// Layout version stored in the payload.
+        actual: u32,
+    },
+    /// Behavior schema version differs from
+    /// [`STORAGE_POLICY_BEHAVIOR_SCHEMA_VERSION`].
+    SchemaVersionMismatch {
+        /// Behavior schema version this build understands.
+        expected: u32,
+        /// Behavior schema version stored in the payload.
+        actual: u32,
+    },
 }
 
 impl fmt::Display for StoragePolicyBehaviorConfigCodecError {
@@ -160,6 +210,11 @@ impl std::error::Error for StoragePolicyBehaviorConfigCodecError {
     }
 }
 
+/// Serializes core-owned behavior values into the versioned persistence envelope.
+///
+/// Values are normalized before encoding, so the stored form always carries
+/// canonical extension lists. Serialization failure maps to
+/// [`StoragePolicyBehaviorConfigCodecError::InvalidJson`].
 pub fn encode_storage_policy_behavior_config(
     values: StoragePolicyBehaviorConfig,
 ) -> Result<String, StoragePolicyBehaviorConfigCodecError> {
@@ -167,6 +222,12 @@ pub fn encode_storage_policy_behavior_config(
         .map_err(StoragePolicyBehaviorConfigCodecError::InvalidJson)
 }
 
+/// Parses a persisted behavior envelope and validates both version fields.
+///
+/// Returns [`StoragePolicyBehaviorConfigCodecError::FormatVersionMismatch`] or
+/// [`StoragePolicyBehaviorConfigCodecError::SchemaVersionMismatch`] instead of
+/// guessing when the stored versions differ from the constants compiled into
+/// this build.
 pub fn decode_storage_policy_behavior_config(
     raw: &str,
 ) -> Result<StoragePolicyBehaviorConfig, StoragePolicyBehaviorConfigCodecError> {

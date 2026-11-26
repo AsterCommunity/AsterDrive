@@ -127,6 +127,9 @@ impl RetryWarningState {
     }
 }
 
+/// Follower-side reverse tunnel worker loop: reconciles master bindings with
+/// the primary and keeps one tunnel worker alive per enabled reverse-tunnel
+/// binding until `shutdown_token` fires.
 pub async fn run_follower_tunnel_worker(
     state: actix_web::web::Data<FollowerAppState>,
     shutdown_token: CancellationToken,

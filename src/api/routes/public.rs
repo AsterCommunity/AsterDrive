@@ -17,20 +17,26 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 use validator::Validate;
 
+/// Request body for redeeming a remote node enrollment token.
 #[derive(Debug, Deserialize, Validate)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct RedeemRemoteEnrollmentReq {
+    /// Single-use enrollment token issued by an administrator.
     #[validate(custom(function = "crate::api::dto::validation::validate_non_blank"))]
     pub token: String,
 }
 
+/// Request body for acknowledging a redeemed remote enrollment session.
 #[derive(Debug, Deserialize, Validate)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct AckRemoteEnrollmentReq {
+    /// One-time acknowledgment token returned by the redeem call.
     #[validate(custom(function = "crate::api::dto::validation::validate_non_blank"))]
     pub ack_token: String,
 }
 
+/// Builds the unauthenticated `/api/v1/public` route scope; the enrollment exchange
+/// routes get an extra public-tier rate limit.
 pub fn routes(
     rl: &RateLimitConfig,
     network_trust: &NetworkTrustConfig,
@@ -64,6 +70,7 @@ pub fn routes(
         )
 }
 
+/// Returns the public frontend bootstrap config (branding and feature switches).
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/public/frontend-config",
@@ -78,6 +85,7 @@ pub async fn get_frontend_config(state: web::Data<PrimaryAppState>) -> Result<Ht
     Ok(public_config_response(config))
 }
 
+/// Returns the public preview app registry (WOPI apps and URL-template viewers).
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/public/preview-apps",
@@ -92,6 +100,8 @@ pub async fn get_preview_apps(state: web::Data<PrimaryAppState>) -> Result<HttpR
     Ok(public_config_response(preview_apps))
 }
 
+/// Returns the custom config entries visible to the request identity; authenticated
+/// requests without a pending password change also receive authenticated-only entries.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/public/custom-config",
@@ -119,6 +129,7 @@ pub async fn get_custom_config(
     Ok(public_config_response(custom_config))
 }
 
+/// Returns which file types the deployment can render thumbnails for.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/public/thumbnail-support",
@@ -133,6 +144,7 @@ pub async fn get_thumbnail_support(state: web::Data<PrimaryAppState>) -> Result<
     Ok(public_config_response(support))
 }
 
+/// Returns which file types support media metadata extraction.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/public/media-data-support",
@@ -167,6 +179,8 @@ async fn request_has_unrestricted_access_token(
     Ok(!claims.password_change)
 }
 
+/// Exchanges a remote node enrollment token for node bootstrap credentials, and
+/// records the redeem phase in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/public/remote-enrollment/redeem",
@@ -204,6 +218,8 @@ pub async fn redeem_remote_enrollment(
     Ok(HttpResponse::Ok().json(crate::api::response::success(bootstrap)))
 }
 
+/// Confirms that a redeemed remote node enrollment session completed successfully,
+/// finalizing the enrollment on the master side.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/public/remote-enrollment/ack",

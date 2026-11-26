@@ -15,19 +15,25 @@ use url::Url;
 
 use super::TencentCosDriver;
 
+/// Download delivery channel for COS objects.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CosDownloadDelivery {
+    /// Presigned URL with COS Q-Sign against the myqcloud.com endpoint.
     #[default]
     CosOrigin,
+    /// COS Q-Sign URL against a custom HTTPS download domain.
     CustomOrigin,
+    /// Tencent CDN Type D (SHA-256) URL against the Tencent CDN edge.
     TencentCdnTypeDSha256,
 }
 
+/// Default CDN Type D validity in seconds, within the 1..=3600 console range.
 pub const fn default_cdn_auth_validity_seconds() -> u32 {
     300
 }
 
+/// Requires a 6..=32 character ASCII alphanumeric CDN authentication key.
 pub fn validate_cdn_auth_key(key: &str) -> Result<()> {
     if !(6..=32).contains(&key.len()) || !key.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
         return Err(storage_driver_error(

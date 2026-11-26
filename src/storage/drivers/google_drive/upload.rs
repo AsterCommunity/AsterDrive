@@ -387,6 +387,8 @@ fn map_reader_error(error: std::io::Error) -> StorageError {
     )
 }
 
+/// Browser-facing resumable upload capabilities for Google Drive, exposing the
+/// provider's 256 KiB-aligned fragment contract and 8 MiB chunk size.
 pub fn google_drive_upload_capabilities() -> ProviderResumableUploadCapabilities {
     ProviderResumableUploadCapabilities {
         browser_upload_protocol: Some(aster_drive_storage::BrowserUploadProtocol {

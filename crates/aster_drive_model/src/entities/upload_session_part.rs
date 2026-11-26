@@ -5,25 +5,39 @@ use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
+/// Successfully uploaded chunk of a multipart upload session; one row per
+/// acknowledged part, used to assemble or complete the upload.
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(as = UploadSessionPart))]
 #[sea_orm(table_name = "upload_session_parts")]
 pub struct Model {
+    /// Primary key.
     #[sea_orm(primary_key)]
     pub id: i64,
+    /// Owning upload session id (UUID string of `upload_sessions.id`).
     pub upload_id: String,
+    /// 1-based part index within the session, matching the protocol's part
+    /// numbering convention.
     pub part_number: i32,
+    /// Server-returned integrity tag (ETag) for the stored part, used at
+    /// completion time to prove part identity.
     pub etag: String,
+    /// Part size in bytes as received.
     pub size: i64,
+    /// Row creation timestamp (UTC).
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: DateTimeUtc,
+    /// Row last-update timestamp (UTC).
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: DateTimeUtc,
 }
 
+/// SeaORM relation definitions for this entity.
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
+    /// The upload session this part belongs to (FK `upload_id`, cascade
+    /// deleted with the session).
     #[sea_orm(
         belongs_to = "super::upload_session::Entity",
         from = "Column::UploadId",

@@ -18,6 +18,10 @@ pub use crate::config::definitions::{
     MAIL_TEMPLATE_USER_INVITATION_HTML_KEY, MAIL_TEMPLATE_USER_INVITATION_SUBJECT_KEY,
 };
 
+/// Builds the outbound SMTP settings from the runtime config.
+///
+/// Missing values fall back to the defaults from `aster_forge_mail` (secure
+/// port/TLS); an invalid stored port keeps the default port.
 pub fn runtime_mail_settings(runtime_config: &RuntimeConfig) -> MailRuntimeSettings {
     MailRuntimeSettings {
         smtp_host: runtime_config.get(MAIL_SMTP_HOST_KEY).unwrap_or_default(),
@@ -40,6 +44,7 @@ pub fn runtime_mail_settings(runtime_config: &RuntimeConfig) -> MailRuntimeSetti
     }
 }
 
+/// Runtime config key holding the subject template for `code`.
 pub fn template_subject_key(code: MailTemplateCode) -> &'static str {
     match code {
         MailTemplateCode::RegisterActivation => MAIL_TEMPLATE_REGISTER_ACTIVATION_SUBJECT_KEY,
@@ -57,6 +62,7 @@ pub fn template_subject_key(code: MailTemplateCode) -> &'static str {
     }
 }
 
+/// Runtime config key holding the HTML body template for `code`.
 pub fn template_html_key(code: MailTemplateCode) -> &'static str {
     match code {
         MailTemplateCode::RegisterActivation => MAIL_TEMPLATE_REGISTER_ACTIVATION_HTML_KEY,
@@ -74,6 +80,8 @@ pub fn template_html_key(code: MailTemplateCode) -> &'static str {
     }
 }
 
+/// Built-in default subject line for `code`, embedded from the bundled
+/// template files at compile time.
 pub fn default_template_subject(code: MailTemplateCode) -> &'static str {
     match code {
         MailTemplateCode::RegisterActivation => {
@@ -110,6 +118,8 @@ pub fn default_template_subject(code: MailTemplateCode) -> &'static str {
     }
 }
 
+/// Built-in default HTML body for `code`, embedded from the bundled template
+/// files at compile time.
 pub fn default_template_html(code: MailTemplateCode) -> &'static str {
     match code {
         MailTemplateCode::RegisterActivation => {
@@ -141,6 +151,8 @@ pub fn default_template_html(code: MailTemplateCode) -> &'static str {
     }
 }
 
+/// Effective subject for `code`: the configured template, or the built-in
+/// default when the runtime value is missing or blank.
 pub fn template_subject(runtime_config: &RuntimeConfig, code: MailTemplateCode) -> String {
     runtime_config
         .get(template_subject_key(code))
@@ -148,6 +160,8 @@ pub fn template_subject(runtime_config: &RuntimeConfig, code: MailTemplateCode) 
         .unwrap_or_else(|| default_template_subject(code).to_string())
 }
 
+/// Effective HTML body for `code`: the configured template, or the built-in
+/// default when the runtime value is missing or blank.
 pub fn template_html(runtime_config: &RuntimeConfig, code: MailTemplateCode) -> String {
     runtime_config
         .get(template_html_key(code))

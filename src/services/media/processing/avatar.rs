@@ -78,6 +78,11 @@ async fn acquire_avatar_render_permit(
     })
 }
 
+/// Validates a `vips` CLI command for the config test action.
+///
+/// Normalizes the command, checks availability, runs `vips --version` under
+/// the CLI timeout, and returns a status message including the version output
+/// when present.
 pub async fn probe_vips_cli_command(command: &str) -> Result<String> {
     let command = media_processing_config::normalize_vips_command(command)?;
     if !media_processing_config::command_is_available(&command) {
@@ -131,6 +136,13 @@ pub async fn probe_vips_cli_command(command: &str) -> Result<String> {
     }
 }
 
+/// Renders the staged avatar source into square WebP variants.
+///
+/// Crops the source to a centered square and produces the small (512 px) and
+/// large (1024 px) variants via the configured processor: the in-process
+/// `images` decoder or the `vips_cli` thumbnail command. Render concurrency is
+/// bounded by the avatar render runtime, and dimensions/rejections are
+/// recorded as metrics.
 pub async fn process_staged_avatar(
     state: &PrimaryAppState,
     file_name: &str,

@@ -20,6 +20,12 @@ pub(crate) mod allocations {
 
     pub(crate) struct CountingAllocator;
 
+    #[expect(
+        unsafe_code,
+        reason = "implementing `GlobalAlloc` requires unsafe trait methods by definition; every \
+                  operation delegates to `System` with the caller-supplied pointer and layout, so \
+                  no memory is managed manually and the thread-local counters are observational."
+    )]
     // SAFETY: every operation delegates to `System` with the original pointer and layout. The
     // thread-local counters are observational and do not alter allocator behavior.
     unsafe impl GlobalAlloc for CountingAllocator {

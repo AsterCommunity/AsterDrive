@@ -9,17 +9,27 @@ use bytes::Bytes;
 use crate::services::workspace::storage;
 
 /// 缩略图查询结果：有数据直接返回，正在生成则标记 pending
+/// 缩略图查询结果：有数据直接返回，正在生成则标记 pending
 pub struct ThumbnailResult {
+    /// Rendered thumbnail image bytes.
     pub data: Bytes,
+    /// Content hash of the source blob the thumbnail was rendered from.
     pub blob_hash: String,
+    /// Processor pipeline that produced the thumbnail.
     pub thumbnail_processor: Option<String>,
+    /// Processor version used to render the thumbnail.
     pub thumbnail_version: Option<String>,
 }
 
+/// Successfully loaded image preview payload.
 pub struct ImagePreviewResult {
+    /// Rendered preview image bytes.
     pub data: Bytes,
+    /// Content hash of the source blob the preview was rendered from.
     pub blob_hash: String,
+    /// Processor pipeline that produced the preview.
     pub image_preview_processor: String,
+    /// Processor version used to render the preview.
     pub image_preview_version: String,
 }
 

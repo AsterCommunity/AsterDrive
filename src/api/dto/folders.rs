@@ -10,8 +10,10 @@ use validator::Validate;
 #[derive(Deserialize, Validate)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct CreateFolderReq {
+    /// Folder name; validated for characters and length.
     #[validate(custom(function = "crate::api::dto::validation::validate_name"))]
     pub name: String,
+    /// Parent folder ID; `None` = root directory.
     pub parent_id: Option<i64>,
 }
 
@@ -19,8 +21,11 @@ pub struct CreateFolderReq {
 #[derive(Deserialize, Validate)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PatchFolderReq {
+    /// New folder name; `None` leaves the current name unchanged.
     #[validate(custom(function = "crate::api::dto::validation::validate_name"))]
     pub name: Option<String>,
+    /// Move target: absent keeps the current parent, `null` moves the folder
+    /// to the root directory, a value moves it under that folder.
     #[serde(default)]
     #[cfg_attr(
         all(debug_assertions, feature = "openapi"),
@@ -33,6 +38,8 @@ pub struct PatchFolderReq {
 }
 
 impl PatchFolderReq {
+    /// Whether the request carried the admin-only `policy_id` field, which
+    /// regular folder PATCH callers must not send.
     pub fn includes_policy_id(&self) -> bool {
         self.forbidden_policy_id.is_present()
     }
@@ -42,6 +49,7 @@ impl PatchFolderReq {
 #[derive(Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct SetLockReq {
+    /// `true` locks the folder against metadata changes, `false` unlocks it.
     pub locked: bool,
 }
 

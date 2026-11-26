@@ -14,17 +14,29 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 /// Bounds a copy to the caller's verified size and selects its scratch volume.
 #[derive(Debug, Clone, Default)]
 pub struct StorageCopyOptions {
+    /// Caller-verified source size in bytes; `None` falls back to a metadata
+    /// lookup. A source whose actual size differs makes the copy fail before
+    /// the destination is published.
     pub expected_size: Option<u64>,
     /// Defaults to the system temporary directory for callers without runtime configuration.
     pub temp_root: Option<String>,
 }
 
+/// Size and content type of one stored object.
 #[derive(Debug, Clone)]
 pub struct BlobMetadata {
+    /// Object size in bytes.
     pub size: u64,
+    /// MIME type recorded by the backend, when it records one.
     pub content_type: Option<String>,
 }
 
+/// Caller-stated delivery constraints for a direct-download URL request.
+///
+/// Providers honor these overrides only where their URL format supports them;
+/// a driver that cannot authenticate the requested overrides reports that
+/// through [`DirectDownloadStorageDriver::resolve_download_url`] returning
+/// `None` so callers can fall back to relay.
 #[derive(Debug, Clone, Default)]
 pub struct DirectDownloadOptions {
     /// The caller can safely consume provider headers without the requested
@@ -39,16 +51,24 @@ pub struct DirectDownloadOptions {
     /// Providers may waive filename matching when `allow_provider_response_headers`
     /// is true: that consumer enforces the final name/MIME itself.
     pub require_download_name_match: bool,
+    /// Override for the response `Cache-Control` header, where the provider supports it.
     pub response_cache_control: Option<String>,
+    /// Override for the response `Content-Disposition` header, where the provider supports it.
     pub response_content_disposition: Option<String>,
+    /// Override for the response `Content-Type` header, where the provider supports it.
     pub response_content_type: Option<String>,
 }
 
+/// Whether a direct-download URL still carries authentication material.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub enum DirectDownloadCredentials {
+    /// Credentials are embedded in (or implied by) the URL; the browser sends
+    /// nothing additional.
     Include,
+    /// The URL is preauthenticated on its own; no credential parameters may
+    /// be appended.
     Omit,
 }
 
@@ -60,8 +80,12 @@ pub enum DirectDownloadCredentials {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct DirectDownloadRequest {
+    /// Fully signed download URL; callers must not modify it.
     pub url: String,
+    /// Whether authentication is already embedded in the URL.
     pub credentials: DirectDownloadCredentials,
+    /// When the URL stops being valid; `None` means the provider did not
+    /// report an expiry.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(
         all(debug_assertions, feature = "openapi"),
@@ -71,6 +95,11 @@ pub struct DirectDownloadRequest {
 }
 
 impl DirectDownloadRequest {
+    /// Builds a request for a temporary URL that expires after `expires_in`.
+    ///
+    /// If the duration cannot be represented as a `chrono::Duration` or the
+    /// resulting timestamp overflows, `expires_at` stays `None` rather than
+    /// failing the constructor.
     pub fn temporary_url(url: impl Into<String>, expires_in: std::time::Duration) -> Self {
         let expires_at = chrono::Duration::from_std(expires_in)
             .ok()
@@ -82,6 +111,10 @@ impl DirectDownloadRequest {
         }
     }
 
+    /// Builds a request for a URL whose validity window is stated explicitly.
+    ///
+    /// Use this for provider URLs (e.g. preauthenticated links) where the
+    /// expiry instant is known instead of a duration from now.
     pub fn preauthenticated_url(url: impl Into<String>, expires_at: Option<DateTime<Utc>>) -> Self {
         Self {
             url: url.into(),
@@ -107,10 +140,16 @@ pub struct PresignedUploadRequest {
 }
 
 impl PresignedUploadRequest {
+    /// Builds a descriptor from an already-normalized header map.
     pub fn new(url: impl Into<String>, headers: BTreeMap<String, String>) -> Self {
         Self::from_header_pairs(url, headers)
     }
 
+    /// Builds a descriptor from arbitrary header pairs.
+    ///
+    /// Header names are lowercased, and duplicate names are merged into one
+    /// comma-joined value so the map stays deterministic for signing and
+    /// forwarding.
     pub fn from_header_pairs<I, K, V>(url: impl Into<String>, headers: I) -> Self
     where
         I: IntoIterator<Item = (K, V)>,
@@ -133,11 +172,13 @@ impl PresignedUploadRequest {
         }
     }
 
+    /// Builds a descriptor for a signature that requires no extra headers.
     pub fn without_headers(url: impl Into<String>) -> Self {
         Self::new(url, BTreeMap::new())
     }
 }
 
+/// Consumer of one object path during a bounded listing scan.
 #[async_trait]
 pub trait StoragePathVisitor: Send {
     /// Consumes one object path. Implementations may perform bounded async
@@ -145,9 +186,12 @@ pub trait StoragePathVisitor: Send {
     async fn visit_path(&mut self, path: String) -> Result<StoragePathVisitControl>;
 }
 
+/// Tells the scanner whether to keep walking after a visited path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StoragePathVisitControl {
+    /// Proceed to the next path.
     Continue,
+    /// End the scan; already-delivered paths are not revisited.
     Stop,
 }
 
@@ -211,7 +255,7 @@ pub trait StorageDriver: Send + Sync {
         false
     }
 
-    /// Optional maximum size for a single non-multipart PUT accepted by the
+    /// Maximum size in bytes for a single non-multipart PUT accepted by the
     /// provider. This is distinct from multipart part/object limits.
     fn max_single_put_size(&self) -> Option<u64> {
         None
@@ -258,6 +302,9 @@ pub trait StorageDriver: Send + Sync {
     // =========================================================================
 
     /// 获取该驱动的全部可选运行期能力。
+    ///
+    /// 装饰器驱动（decorators）应把内层驱动的 bundle 原样转发；未支持的能力
+    /// 保持 `None`。默认实现返回全空的 bundle。
     fn extensions(&self) -> super::extensions::StorageDriverExtensions<'_> {
         super::extensions::StorageDriverExtensions::default()
     }
@@ -274,12 +321,23 @@ pub trait StorageDriver: Send + Sync {
     }
 
     /// Runtime freshness and timeout policy for demand-driven capacity probes.
+    ///
+    /// Drivers own these defaults (local vs network cost profiles); connector
+    /// configuration may only override the probe timeout. The value is
+    /// validated by [`StorageCapacityProbePolicy::validate`] before use.
     fn capacity_probe_policy(&self) -> super::extensions::StorageCapacityProbePolicy {
         super::extensions::StorageCapacityProbePolicy::default()
     }
 }
 
-/// Bounded fallback shared by generic drivers and native providers with a local relay path.
+/// Bounded streaming fallback shared by generic drivers and native providers with a local relay path.
+///
+/// Stage source bytes into a Forge runtime scratch directory (0600, cleaned
+/// up on drop or cancellation), verifying the transferred size against
+/// `options.expected_size`, then upload the staged file. Streaming drivers
+/// stream through the scratch file; non-streaming drivers only buffer up to
+/// 8 MiB and fail with `Unsupported` beyond that. The destination is written
+/// only after the source was fully staged and verified.
 pub async fn copy_object_via_temp_file<D: StorageDriver + ?Sized>(
     driver: &D,
     src_path: &str,

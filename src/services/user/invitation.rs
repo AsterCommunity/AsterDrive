@@ -27,37 +27,59 @@ use aster_forge_api::OffsetPage;
 use aster_forge_crypto as hash;
 use aster_forge_utils::{id, numbers::u64_to_i64};
 
+/// Admin-facing view of one user invitation.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct AdminUserInvitationInfo {
+    /// Database ID of the invitation.
     pub id: i64,
+    /// Email address the invitation was sent to.
     pub email: String,
+    /// Lifecycle state: pending, accepted, expired, or revoked.
     pub status: UserInvitationStatus,
+    /// ID of the admin who created the invitation.
     pub invited_by: i64,
+    /// ID of the account created by accepting the invitation.
     pub accepted_user_id: Option<i64>,
+    /// Time after which a pending invitation expires (UTC).
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub expires_at: DateTime<Utc>,
+    /// When the invitation was created (UTC).
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: DateTime<Utc>,
+    /// When the invitation row was last updated (UTC).
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: DateTime<Utc>,
+    /// When the invitation was accepted (UTC), if accepted.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub accepted_at: Option<DateTime<Utc>>,
+    /// When the invitation was revoked (UTC), if revoked.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub revoked_at: Option<DateTime<Utc>>,
+    /// Accept URL containing the one-time token; only included right after creation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub invitation_url: Option<String>,
+    /// Whether the invitation mail was enqueued during creation.
     pub mail_queued: bool,
 }
 
+/// Minimal invitation details exposed to the unauthenticated holder of a
+/// valid invitation token.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PublicUserInvitationInfo {
+    /// Email address the account will be created with; not editable during acceptance.
     pub email: String,
+    /// Time after which the invitation can no longer be accepted (UTC).
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub expires_at: DateTime<Utc>,
 }
 
+/// Creates a pending invitation for `email` and enqueues the invitation mail.
+///
+/// Any earlier pending invitation for the same email is revoked first, so
+/// only the newest token stays usable. The token itself is never stored,
+/// only its SHA-256 hash.
 pub async fn create_invitation(
     state: &impl MailRuntimeState,
     email: &str,
@@ -131,6 +153,8 @@ pub async fn create_invitation(
     Ok(to_admin_info(invitation, Some(invitation_url), true))
 }
 
+/// Lists invitations for the admin console with offset pagination; expired
+/// pending invitations are reported as expired without touching the rows.
 pub async fn list_invitations(
     state: &impl SharedRuntimeState,
     limit: u64,
@@ -145,6 +169,9 @@ pub async fn list_invitations(
     Ok(OffsetPage::new(infos, total, limit, offset))
 }
 
+/// Marks a pending invitation as revoked; its token becomes unusable.
+///
+/// Fails when the invitation is not in pending state.
 pub async fn revoke_invitation(
     state: &impl SharedRuntimeState,
     id: i64,
@@ -163,6 +190,8 @@ pub async fn revoke_invitation(
     Ok(to_admin_info(invitation, None, false))
 }
 
+/// Validates an invitation token for the public sign-up page and returns the
+/// email it will register plus its expiry.
 pub async fn verify_public_invitation(
     state: &impl SharedRuntimeState,
     token: &str,
@@ -174,6 +203,13 @@ pub async fn verify_public_invitation(
     })
 }
 
+/// Consumes a valid invitation token and creates the account it was issued
+/// for.
+///
+/// The account is created as an active, verified `User` with the given
+/// username and credential; email verification is inherited from the
+/// invitation. The token must still be pending and unexpired, and the email
+/// must not have been taken in the meantime.
 pub async fn accept_invitation(
     state: &impl SharedRuntimeState,
     token: &str,

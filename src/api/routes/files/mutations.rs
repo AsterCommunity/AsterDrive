@@ -15,6 +15,8 @@ use crate::services::{
 };
 use actix_web::{HttpRequest, HttpResponse, web};
 
+/// Creates an empty file placeholder in a personal workspace, honoring the optional
+/// idempotency key for safe retries.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/files/new",
@@ -48,6 +50,7 @@ pub async fn create_empty(
     .await
 }
 
+/// Creates a background task that extracts a personal archive file into a target folder.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/files/{id}/extract",
@@ -83,6 +86,7 @@ pub async fn extract_archive(
     .await
 }
 
+/// Moves a personal file to trash; rejected while a trash purge is pending or active.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/files/{id}",
@@ -115,6 +119,7 @@ pub async fn delete_file(
     .await
 }
 
+/// Renames or moves a personal file.
 #[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/files/{id}",
@@ -149,6 +154,9 @@ pub async fn patch_file(
     .await
 }
 
+/// Replaces a personal file's content by streaming the new bytes; honors `If-Match`
+/// (412 on mismatch) and rejects updates to files locked by another user (423).
+/// Returns the new content ETag.
 #[aster_forge_api_docs_macros::path(
     put,
     path = "/api/v1/files/{id}/content",
@@ -185,6 +193,7 @@ pub async fn update_content(
     .await
 }
 
+/// Toggles a personal file's manual lock state.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/files/{id}/lock",
@@ -219,6 +228,7 @@ pub async fn set_lock(
     .await
 }
 
+/// Copies a personal file into a target folder, creating a new file record.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/files/{id}/copy",
@@ -253,6 +263,8 @@ pub async fn copy_file(
     .await
 }
 
+/// Creates an empty file placeholder in a team workspace, honoring the optional
+/// idempotency key for safe retries.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/files/new",
@@ -288,6 +300,9 @@ pub(crate) async fn team_create_empty(
     .await
 }
 
+/// Replaces a team file's content by streaming the new bytes; honors `If-Match`
+/// (412 on mismatch) and rejects updates to files locked by another user (423).
+/// Returns the new content ETag.
 #[aster_forge_api_docs_macros::path(
     put,
     path = "/api/v1/teams/{team_id}/files/{id}/content",
@@ -327,6 +342,7 @@ pub(crate) async fn team_update_content(
     .await
 }
 
+/// Creates a background task that extracts a team archive file into a target folder.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/files/{id}/extract",
@@ -365,6 +381,7 @@ pub(crate) async fn team_extract_archive(
     .await
 }
 
+/// Toggles a team file's manual lock state.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/files/{id}/lock",
@@ -402,6 +419,7 @@ pub(crate) async fn team_set_lock(
     .await
 }
 
+/// Renames or moves a team file.
 #[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/teams/{team_id}/files/{id}",
@@ -439,6 +457,7 @@ pub(crate) async fn team_patch_file(
     .await
 }
 
+/// Copies a team file into a target folder, creating a new file record.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/files/{id}/copy",
@@ -476,6 +495,7 @@ pub(crate) async fn team_copy_file(
     .await
 }
 
+/// Moves a team file to trash; rejected while a trash purge is pending or active.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/teams/{team_id}/files/{id}",

@@ -17,6 +17,7 @@ use crate::errors::Result;
 use crate::runtime::StorageChangeRuntimeState;
 use crate::services::workspace::storage::{WorkspaceResourceScope, WorkspaceStorageScope};
 
+/// Capacity of the local storage-change broadcast channel, in events.
 pub const STORAGE_CHANGE_CHANNEL_CAPACITY: usize = 1024;
 const CACHE_INVALIDATION_COALESCE_DELAY: StdDuration = StdDuration::from_millis(25);
 const CACHE_INVALIDATION_RESERVATION_TTL_SECS: u64 = 1;
@@ -26,6 +27,7 @@ const AFFECTED_PARENT_LOOKUP_CHUNK_SIZE: usize = 500;
 mod transport;
 pub use transport::{build_storage_change_bus, run_cross_instance_subscription};
 
+/// Event bus carrying storage-change events, with an optional cross-instance Redis transport.
 pub type StorageChangeBus =
     aster_forge_events::TransientEventBus<StorageChangeEvent, aster_forge_events::RedisEventBus>;
 
@@ -35,10 +37,14 @@ struct CacheInvalidationTargets {
     keys: Vec<String>,
 }
 
+/// Intended recipients of a storage-change event, derived from the originating storage scope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StorageChangeAudience {
+    /// Only the named user (personal scope events).
     User(i64),
+    /// Only members of the named team (team scope events).
     Team(i64),
+    /// Everyone; used for instance-wide signals such as sync-required.
     Any,
 }
 
@@ -46,47 +52,69 @@ fn default_storage_change_audience() -> StorageChangeAudience {
     StorageChangeAudience::Any
 }
 
+/// Kind of storage mutation that produced the event; the serde wire values use dotted
+/// lowercase names and are part of the client-facing event protocol.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum StorageChangeKind {
+    /// A new file was created.
     #[serde(rename = "file.created")]
     FileCreated,
+    /// File metadata or content changed without a scope transition.
     #[serde(rename = "file.updated")]
     FileUpdated,
+    /// The file was moved to trash.
     #[serde(rename = "file.trashed")]
     FileTrashed,
+    /// The file was restored from trash.
     #[serde(rename = "file.restored_from_trash")]
     FileRestoredFromTrash,
+    /// The file was permanently deleted.
     #[serde(rename = "file.purged")]
     FilePurged,
+    /// A historical version was restored as the file's current head.
     #[serde(rename = "file.version_restored")]
     FileVersionRestored,
+    /// A historical version was deleted from the file's history.
     #[serde(rename = "file.version_deleted")]
     FileVersionDeleted,
+    /// A new folder was created.
     #[serde(rename = "folder.created")]
     FolderCreated,
+    /// Folder metadata or hierarchy changed.
     #[serde(rename = "folder.updated")]
     FolderUpdated,
+    /// The folder (with its contents) was moved to trash.
     #[serde(rename = "folder.trashed")]
     FolderTrashed,
+    /// The folder was restored from trash.
     #[serde(rename = "folder.restored_from_trash")]
     FolderRestoredFromTrash,
+    /// The folder was permanently deleted.
     #[serde(rename = "folder.purged")]
     FolderPurged,
+    /// A tag was created.
     #[serde(rename = "tag.created")]
     TagCreated,
+    /// A tag definition (name, color, order) was updated.
     #[serde(rename = "tag.updated")]
     TagUpdated,
+    /// A tag definition was deleted.
     #[serde(rename = "tag.deleted")]
     TagDeleted,
+    /// Tags were attached to or detached from entities.
     #[serde(rename = "tag.assignment_changed")]
     TagAssignmentChanged,
+    /// A lock was created on a file.
     #[serde(rename = "lock.created")]
     LockCreated,
+    /// A lock was released from a file.
     #[serde(rename = "lock.deleted")]
     LockDeleted,
+    /// All trashed items in a scope were purged at once.
     #[serde(rename = "trash.purged_all")]
     TrashPurgedAll,
+    /// Clients should re-synchronize against authoritative state; no entity ids are listed.
     #[serde(rename = "sync.required")]
     SyncRequired,
 }
@@ -140,30 +168,48 @@ impl StorageChangeKind {
     }
 }
 
+/// Workspace the change belongs to, serialized into the client-facing event payload.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum StorageChangeWorkspace {
+    /// The change happened in a user's personal storage.
     Personal,
-    Team { team_id: i64 },
+    /// The change happened in the storage of the given team.
+    Team {
+        /// Id of the team whose storage changed.
+        team_id: i64,
+    },
 }
 
+/// Broadcast event describing a change in storage contents. Distributed over the local
+/// bus and (when configured) a cross-instance Redis transport, and consumed by SSE
+/// clients plus cache invalidation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageChangeEvent {
     #[serde(skip, default = "default_storage_change_audience")]
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(ignore))]
     pub(crate) audience: StorageChangeAudience,
+    /// Type of mutation that produced this event.
     pub kind: StorageChangeKind,
+    /// Workspace the change happened in; `None` on instance-wide events without a scope.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(required = true))]
     pub workspace: Option<StorageChangeWorkspace>,
+    /// Deduplicated, sorted ids of files affected by the change.
     pub file_ids: Vec<i64>,
+    /// Deduplicated, sorted ids of folders affected by the change.
     pub folder_ids: Vec<i64>,
+    /// Deduplicated, sorted ids of the parents of affected entities; used to refresh listings.
     pub affected_parent_ids: Vec<i64>,
+    /// True when the storage root itself is an affected parent.
     pub root_affected: bool,
+    /// True when this event must be applied to stored usage accounting.
     pub affects_quota: bool,
+    /// Signed byte delta to apply to usage; `None` when only a refresh is required.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(required = true))]
     pub storage_delta: Option<i64>,
+    /// Server timestamp (UTC) at event creation.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub at: DateTime<Utc>,
 }
@@ -251,6 +297,8 @@ impl StorageChangeEvent {
         self
     }
 
+    /// Instance-wide signal telling clients to re-fetch authoritative state, e.g. after
+    /// a cross-instance subscription gap. Carries no entity ids or storage delta.
     pub fn sync_required() -> Self {
         Self {
             audience: StorageChangeAudience::Any,
@@ -266,6 +314,8 @@ impl StorageChangeEvent {
         }
     }
 
+    /// Whether the event should be delivered to the given user, based on its audience
+    /// and the user's team memberships.
     pub fn is_visible_to(&self, user_id: i64, team_ids: &HashSet<i64>) -> bool {
         match self.audience {
             StorageChangeAudience::Any => true,
@@ -275,6 +325,9 @@ impl StorageChangeEvent {
     }
 }
 
+/// Publish a storage-change event: invalidates related caches locally, broadcasts to
+/// local subscribers, and forwards the event to other instances when a transport is
+/// configured. Failures degrade to logged warnings, never to caller errors.
 pub fn publish<S: StorageChangeRuntimeState>(state: &S, event: StorageChangeEvent) {
     transport::publish_cross_instance(state, &event);
     publish_local(state, event);

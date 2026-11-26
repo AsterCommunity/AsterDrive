@@ -1,3 +1,5 @@
+//! 外部认证 provider 的回调模式与 options 存储类型。
+
 use sea_orm::{DeriveActiveEnum, DeriveValueType, EnumIter, sea_query::StringLen};
 use serde::{Deserialize, Serialize};
 
@@ -10,14 +12,17 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum ExternalAuthCallbackMode {
     // TODO(v1.0.0): Remove after legacy provider callback registrations no longer need migration.
+    /// Provider-specific callback route inherited from existing registrations.
     #[sea_orm(string_value = "legacy")]
     #[default]
     Legacy,
+    /// Shared callback route that new provider registrations should use.
     #[sea_orm(string_value = "unified")]
     Unified,
 }
 
 impl ExternalAuthCallbackMode {
+    /// Returns the snake_case route mode name shared by storage and API values.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Legacy => "legacy",
@@ -31,8 +36,10 @@ impl ExternalAuthCallbackMode {
 pub struct StoredExternalAuthProviderOptions(pub String);
 
 impl StoredExternalAuthProviderOptions {
+    /// Canonical serialized form of an empty options object.
     pub const EMPTY_JSON: &str = "{}";
 
+    /// Returns a wrapper holding the canonical empty JSON object.
     pub fn empty() -> Self {
         Self(Self::EMPTY_JSON.to_string())
     }

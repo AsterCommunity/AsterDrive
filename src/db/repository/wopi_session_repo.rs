@@ -22,6 +22,7 @@ pub(crate) async fn find_for_authorization<C: ConnectionTrait>(
     query.one(db).await.map_err(AsterError::from)
 }
 
+/// Inserts a new WOPI session from the given active model.
 pub async fn create(
     db: &DatabaseConnection,
     model: wopi_session::ActiveModel,
@@ -29,6 +30,8 @@ pub async fn create(
     model.insert(db).await.map_err(AsterError::from)
 }
 
+/// Resolves a WOPI session by the hash of its access token, regardless of
+/// expiry. Returns `None` when no session carries the hash.
 pub async fn find_by_token_hash(
     db: &DatabaseConnection,
     token_hash: &str,
@@ -40,6 +43,7 @@ pub async fn find_by_token_hash(
         .map_err(AsterError::from)
 }
 
+/// Deletes a WOPI session by id; succeeds even when the id is absent.
 pub async fn delete_by_id(db: &DatabaseConnection, id: i64) -> Result<()> {
     WopiSession::delete_by_id(id)
         .exec(db)
@@ -48,6 +52,7 @@ pub async fn delete_by_id(db: &DatabaseConnection, id: i64) -> Result<()> {
     Ok(())
 }
 
+/// Removes sessions whose expiry has passed, returning the number of deleted rows.
 pub async fn delete_expired(db: &DatabaseConnection) -> Result<u64> {
     let result = WopiSession::delete_many()
         .filter(wopi_session::Column::ExpiresAt.lt(Utc::now()))

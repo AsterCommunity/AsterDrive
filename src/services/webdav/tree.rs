@@ -29,6 +29,10 @@ async fn collect_folder_tree_models(
     .await
 }
 
+/// 递归收集文件夹树内的所有文件和子文件夹，文件以 [`FileInfo`] 返回。
+///
+/// - `include_deleted = true`：收集全部（含已软删除），用于 purge
+/// - `include_deleted = false`：只收集未删除项，用于 soft_delete
 pub async fn collect_folder_tree(
     state: &impl SharedRuntimeState,
     user_id: i64,

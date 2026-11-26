@@ -43,8 +43,12 @@ impl NetworkGrant {
 /// Host-selected resource budget. Plugins cannot increase it per request.
 #[derive(Clone, Copy, Debug)]
 pub struct PluginLimits {
+    /// Maximum request body size in bytes.
     pub request_bytes: usize,
+    /// Maximum response body size in bytes, enforced on both the declared length
+    /// and streamed chunks.
     pub response_bytes: usize,
+    /// Whole-exchange deadline covering DNS, headers and the complete body.
     pub timeout: Duration,
 }
 
@@ -58,34 +62,51 @@ impl Default for PluginLimits {
     }
 }
 
+/// One guest-issued HTTP request, executed by the host within the granted
+/// capability.
 pub struct PluginHttpRequest {
+    /// HTTP method; CONNECT and other non-standard methods are rejected.
     pub method: reqwest::Method,
+    /// Absolute HTTPS URL that must fall inside the granted origin.
     pub url: String,
+    /// Guest headers; hop-by-hop, identity and length headers are rejected.
     pub headers: reqwest::header::HeaderMap,
+    /// Full request body in bytes, bounded by [`PluginLimits::request_bytes`].
     pub body: Vec<u8>,
 }
 
+/// Response produced by the host for one completed guest request.
 pub struct PluginHttpResponse {
+    /// HTTP status code.
     pub status: u16,
+    /// Upstream response headers, unmodified.
     pub headers: reqwest::header::HeaderMap,
+    /// Full response body in bytes, bounded by [`PluginLimits::response_bytes`].
     pub body: Vec<u8>,
 }
 
 /// Safe errors intentionally contain no URL, headers, credentials, or upstream body.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum PluginTransportError {
+    /// Request, destination or headers fall outside the approved capability.
     #[error("plugin network capability denied")]
     Denied,
+    /// A resource budget was exceeded in either direction.
     #[error("plugin HTTP resource limit exceeded")]
     Limit,
+    /// The host cancelled the invocation before completion.
     #[error("plugin HTTP request cancelled")]
     Cancelled,
+    /// The exchange exceeded the configured deadline.
     #[error("plugin HTTP deadline exceeded")]
     Timeout,
+    /// DNS, connection or I/O failure; details are intentionally withheld.
     #[error("plugin HTTP transport failed")]
     Transport,
 }
 
+/// Host-side executor that runs guest HTTP requests inside one approved origin
+/// under a fixed budget.
 pub struct PluginTransport {
     grant: NetworkGrant,
     limits: PluginLimits,

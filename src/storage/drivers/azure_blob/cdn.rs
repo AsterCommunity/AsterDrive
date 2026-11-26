@@ -10,11 +10,14 @@ use url::Url;
 
 use super::AzureBlobDriverConfig;
 
+/// Download delivery channel for Azure Blob objects.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AzureBlobDownloadDelivery {
+    /// Service-SAS URL issued directly against the Blob storage endpoint.
     #[default]
     AzureBlobOrigin,
+    /// Blob service SAS embedded behind an Azure Front Door download domain.
     AzureFrontDoorSas,
 }
 

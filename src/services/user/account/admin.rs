@@ -28,26 +28,43 @@ const GENERATED_PASSWORD_SYMBOLS: &[u8] = b"!@#$%^&*-_+=";
 const GENERATED_PASSWORD_CHARSET: &[u8] =
     b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*-_+=";
 
+/// Aggregate counts produced by a successful force-delete of a user.
 #[derive(Debug, Clone)]
 pub struct ForceDeleteSummary {
+    /// ID of the deleted user.
     pub user_id: i64,
+    /// Username of the deleted user.
     pub username: String,
+    /// Number of files permanently purged along with the account.
     pub file_count: usize,
+    /// Number of folders deleted along with the account.
     pub folder_count: usize,
+    /// Number of share links removed.
     pub share_count: u64,
+    /// Number of WebDAV accounts removed.
     pub webdav_account_count: u64,
+    /// Number of upload sessions cleaned up.
     pub upload_session_count: u64,
+    /// Number of resource locks held by the user that were released.
     pub lock_count: u64,
 }
 
+/// Field-level admin update for one user; `None` leaves a field unchanged.
 #[derive(Debug, Clone, Copy)]
 pub struct UpdateUserInput {
+    /// ID of the user to update.
     pub id: i64,
+    /// New email verification state; sets or clears `email_verified_at`.
     pub email_verified: Option<bool>,
+    /// New account role. Demoting the initial admin account is rejected.
     pub role: Option<UserRole>,
+    /// New account status. Disabling the initial admin account is rejected.
     pub status: Option<UserStatus>,
+    /// Force the user to change their password before continuing.
     pub must_change_password: Option<bool>,
+    /// New storage quota in bytes.
     pub storage_quota: Option<i64>,
+    /// Storage policy group to assign; must be enabled and have an assignable target.
     pub policy_group_id: Option<i64>,
 }
 
@@ -67,18 +84,26 @@ struct UpdateAuditDiff {
     after: UserAuditSnapshot,
 }
 
+/// Payload for creating a user account through the admin API.
 #[derive(Debug, Clone, Copy)]
 pub struct CreateUserInput<'a> {
+    /// Unique login name for the new account.
     pub username: &'a str,
+    /// Email address bound to the new account.
     pub email: &'a str,
+    /// Initial login credential; blank or `None` generates a temporary one.
     pub password: Option<&'a str>,
+    /// Require a credential change at first login; forced anyway when one is generated.
     pub must_change_password: Option<bool>,
 }
 
+/// Result of a successful admin user creation.
 #[derive(Debug, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct CreateUserOutput {
+    /// Fully populated info of the created account.
     pub user: super::models::UserInfo,
+    /// Temporary credential echoed back once, only when the server generated it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub generated_password: Option<String>,
 }
@@ -106,6 +131,11 @@ fn generate_temporary_password() -> String {
     bytes.into_iter().map(|byte| byte as char).collect()
 }
 
+/// Creates a user account via the local credential flow.
+///
+/// A blank or omitted credential is replaced by a server-generated temporary
+/// one, which is validated and always marked as requiring change at first
+/// login.
 pub async fn create(
     state: &impl SharedRuntimeState,
     input: CreateUserInput<'_>,
@@ -137,6 +167,8 @@ pub async fn create(
     })
 }
 
+/// Same as [`create`], plus an `AdminCreateUser` audit entry recording the new
+/// account state and whether a temporary credential was generated.
 pub async fn create_with_audit(
     state: &impl SharedRuntimeState,
     input: CreateUserInput<'_>,
@@ -169,6 +201,11 @@ pub async fn create_with_audit(
     Ok(output)
 }
 
+/// Applies the non-`None` fields of `input` to the target user.
+///
+/// The initial admin account (id 1) cannot be disabled, demoted, or
+/// unverified. Changing status, email verification, or the must-change
+/// credential flag bumps the session version and revokes all active sessions.
 pub async fn update(
     state: &impl SharedRuntimeState,
     input: UpdateUserInput,
@@ -328,6 +365,8 @@ async fn update_with_audit_diff(
     Ok((user, UpdateAuditDiff { before, after }))
 }
 
+/// Same as [`update`], plus an `AdminUpdateUser` audit entry carrying the
+/// before/after snapshot and the list of changed field names.
 pub async fn update_with_audit(
     state: &impl SharedRuntimeState,
     input: UpdateUserInput,
@@ -502,6 +541,8 @@ pub async fn force_delete(
     })
 }
 
+/// Same as [`force_delete`], plus an `AdminForceDeleteUser` audit entry with
+/// the deletion summary counts.
 pub async fn force_delete_with_audit(
     state: &PrimaryAppState,
     target_user_id: i64,

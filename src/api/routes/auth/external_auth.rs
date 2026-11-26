@@ -33,6 +33,7 @@ fn parse_provider_kind(value: &str) -> Result<ExternalAuthProviderKind> {
     })
 }
 
+/// Lists the external auth providers enabled for public login.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/auth/external-auth/providers",
@@ -47,6 +48,8 @@ pub async fn list_providers(state: web::Data<PrimaryAppState>) -> Result<HttpRes
     Ok(HttpResponse::Ok().json(crate::api::response::success(providers)))
 }
 
+/// Starts an external auth login: validates the CSRF source, creates the browser
+/// binding cookie, and returns the provider authorization URL.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/external-auth/{kind}/{provider}/start",
@@ -108,6 +111,8 @@ pub async fn start_login(
         .json(crate::api::response::success(result.response)))
 }
 
+/// OAuth callback endpoint for external auth login: exchanges the provider code,
+/// completes or starts the login flow, and redirects the browser to the app.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/auth/external-auth/callback",
@@ -128,6 +133,8 @@ pub async fn finish_login(
 }
 
 // TODO(v1.0.0): Remove this route after administrators have migrated provider registrations.
+/// Legacy per-provider OAuth callback endpoint kept for old provider registrations;
+/// behaves like the unified callback.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/auth/external-auth/{kind}/{provider}/callback",
@@ -258,6 +265,8 @@ async fn finish_login_inner(
     external_auth_login_redirect_response(state.get_ref(), &audit_info, result).await
 }
 
+/// Queues the email verification mail for a pending external auth registration or
+/// linking flow.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/external-auth/email-verification/start",
@@ -291,6 +300,8 @@ pub async fn start_email_verification(
     Ok(HttpResponse::Ok().json(crate::api::response::success(response)))
 }
 
+/// Links a pending external auth identity to an existing account by verifying the
+/// local password; returns a login response or an MFA challenge.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/external-auth/password-link",
@@ -330,6 +341,8 @@ pub async fn link_with_password(
     external_auth_login_json_response(state.get_ref(), &audit_info, result).await
 }
 
+/// Email link landing endpoint that confirms an external auth email verification and
+/// redirects the browser to the app.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/auth/external-auth/email-verification/confirm",
@@ -605,6 +618,7 @@ impl From<external::ExternalAuthPasswordLinkResult> for ExternalAuthLoginRedirec
     }
 }
 
+/// Lists the external auth identities linked to the current account.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/auth/external-auth/links",
@@ -624,6 +638,8 @@ pub async fn list_links(
     Ok(HttpResponse::Ok().json(crate::api::response::success(links)))
 }
 
+/// Unlinks an external auth identity from the current account and records the
+/// change in the audit log.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/auth/external-auth/links/{id}",

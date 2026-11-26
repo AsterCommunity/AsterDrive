@@ -14,6 +14,8 @@ use super::common::{
 };
 use super::models::{TrashContents, TrashFileCursor};
 
+/// Converts a client-facing expiry cursor back into the internal
+/// `(deleted_at, id)` cursor by subtracting the configured retention days.
 pub fn expires_cursor_to_deleted_cursor(
     state: &impl SharedRuntimeState,
     expires_at: chrono::DateTime<chrono::Utc>,
@@ -169,7 +171,8 @@ pub(crate) async fn list_authorized_trash(
     Ok(contents)
 }
 
-/// 列出用户回收站内容（分页）
+/// 列出用户回收站内容（分页）；文件按删除时间 cursor 排序，文件夹按
+/// offset 分页。
 pub async fn list_trash(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -189,6 +192,8 @@ pub async fn list_trash(
     .await
 }
 
+/// List the trash contents of one team with offset pagination for folders and
+/// cursor pagination for files.
 pub async fn list_team_trash(
     state: &impl SharedRuntimeState,
     team_id: i64,

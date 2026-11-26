@@ -24,6 +24,7 @@ use super::shared::{
 };
 use super::{AddTeamMemberInput, TeamMemberInfo, TeamMemberListFilters, TeamMemberPage};
 
+/// Lists a team's members for the admin console with filters and offset pagination.
 pub async fn list_admin_members(
     state: &impl SharedRuntimeState,
     team_id: i64,
@@ -68,6 +69,7 @@ async fn invalidate_webdav_auth_for_team_member_change(
     }
 }
 
+/// Loads one member's admin view by user ID, regardless of the member's status.
 pub async fn get_admin_member(
     state: &impl SharedRuntimeState,
     team_id: i64,
@@ -84,6 +86,7 @@ pub async fn get_admin_member(
     build_team_member_info(state, membership, user).await
 }
 
+/// Adds a user to a team without membership checks; the caller supplies the target role directly.
 pub async fn add_admin_member(
     state: &impl SharedRuntimeState,
     team_id: i64,
@@ -126,6 +129,7 @@ pub async fn add_admin_member(
     build_team_member_info(state, membership, target_user).await
 }
 
+/// Changes a member's role while guarding the last-owner and last-manager invariants.
 pub async fn update_admin_member_role(
     state: &impl SharedRuntimeState,
     team_id: i64,
@@ -165,6 +169,7 @@ pub async fn update_admin_member_role(
     build_team_member_info(state, updated, target_user).await
 }
 
+/// Removes a member without membership checks, still guarding the last-owner and last-manager invariants.
 pub async fn remove_admin_member(
     state: &impl SharedRuntimeState,
     team_id: i64,
@@ -206,6 +211,7 @@ pub async fn remove_admin_member(
     Ok(())
 }
 
+/// Lists a team's members for a member-facing view; the caller must hold a membership.
 pub async fn list_members(
     state: &impl SharedRuntimeState,
     team_id: i64,
@@ -218,6 +224,7 @@ pub async fn list_members(
     load_team_member_page(state, team_id, &filters, limit, offset).await
 }
 
+/// Loads one member's view for a team member; the caller must hold a membership.
 pub async fn get_member(
     state: &impl SharedRuntimeState,
     team_id: i64,
@@ -235,6 +242,7 @@ pub async fn get_member(
     build_team_member_info(state, membership, user).await
 }
 
+/// Adds a member from within the team; managers may add members and admins, only owners may mint owners.
 pub async fn add_member(
     state: &impl SharedRuntimeState,
     team_id: i64,
@@ -291,6 +299,8 @@ pub async fn add_member(
     build_team_member_info(state, membership, target_user).await
 }
 
+/// Changes a member's role; owner roles can only be granted or revoked by an owner,
+/// and the last-owner and last-manager invariants are enforced.
 pub async fn update_member_role(
     state: &impl SharedRuntimeState,
     team_id: i64,
@@ -347,6 +357,8 @@ pub async fn update_member_role(
     build_team_member_info(state, updated, target_user).await
 }
 
+/// Removes a member or lets a member leave on their own; removing others requires manager role,
+/// removing an owner requires owner role, and the last-owner and last-manager invariants hold.
 pub async fn remove_member(
     state: &impl SharedRuntimeState,
     team_id: i64,

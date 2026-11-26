@@ -1,3 +1,5 @@
+//! 标签作用域类型。
+
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
@@ -9,8 +11,10 @@ use utoipa::ToSchema;
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(16))")]
 #[serde(rename_all = "lowercase")]
 pub enum TagScopeType {
+    /// Visible only to the owning user.
     #[sea_orm(string_value = "personal")]
     Personal,
+    /// Shared across the owning team workspace.
     #[sea_orm(string_value = "team")]
     Team,
 }

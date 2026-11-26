@@ -8,6 +8,7 @@ use crate::runtime::PrimaryAppState;
 use crate::services::{auth::local::Claims, content::version, ops::audit::AuditContext};
 use actix_web::{HttpRequest, HttpResponse, web};
 
+/// Lists a personal file's version history.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/files/{id}/versions",
@@ -33,6 +34,8 @@ pub async fn list_versions(
     Ok(HttpResponse::Ok().json(crate::api::response::success(versions)))
 }
 
+/// Restores a personal file to a previous version, and records the change in the
+/// audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/files/{id}/versions/{version_id}/restore",
@@ -67,6 +70,8 @@ pub async fn restore_version(
     Ok(HttpResponse::Ok().json(crate::api::response::success(file)))
 }
 
+/// Deletes one version from a personal file's history, and records the change in
+/// the audit log.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/files/{id}/versions/{version_id}",
@@ -101,6 +106,7 @@ pub async fn delete_version(
     Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
+/// Lists a team file's version history.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/files/{id}/versions",
@@ -131,6 +137,7 @@ pub(crate) async fn team_list_versions(
     Ok(HttpResponse::Ok().json(crate::api::response::success(versions)))
 }
 
+/// Restores a team file to a previous version, and records the change in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/files/{id}/versions/{version_id}/restore",
@@ -169,6 +176,8 @@ pub(crate) async fn team_restore_version(
     Ok(HttpResponse::Ok().json(crate::api::response::success(file)))
 }
 
+/// Deletes one version from a team file's history, and records the change in the
+/// audit log.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/teams/{team_id}/files/{id}/versions/{version_id}",

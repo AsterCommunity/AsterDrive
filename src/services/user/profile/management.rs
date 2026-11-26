@@ -27,6 +27,8 @@ fn normalize_display_name(value: &str) -> Result<Option<String>> {
     Ok(Some(trimmed.to_string()))
 }
 
+/// Loads a user's display profile from the reader database, resolving the
+/// avatar URLs for the given audience.
 pub async fn get_profile_info(
     state: &impl SharedRuntimeState,
     user: &user::Model,
@@ -42,6 +44,11 @@ pub async fn get_profile_info(
     ))
 }
 
+/// Sets or clears the user's display name; `None` leaves the stored value
+/// untouched and just returns the current profile.
+///
+/// The name is trimmed, capped at 64 characters, and an all-blank value
+/// clears it. The profile row is created lazily on first set.
 pub async fn update_profile(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -98,6 +105,7 @@ pub async fn update_profile(
     ))
 }
 
+/// Returns the stored WOPI user info blob for a user, if any.
 pub async fn get_wopi_user_info(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -109,6 +117,8 @@ pub async fn get_wopi_user_info(
     )
 }
 
+/// Stores or replaces the WOPI user info blob for a user; unchanged values
+/// skip the write. The profile row is created lazily.
 pub async fn update_wopi_user_info(
     state: &impl SharedRuntimeState,
     user_id: i64,

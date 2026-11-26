@@ -49,6 +49,7 @@ struct ExternalAuthProviderTestParamsAuditDetails<'a> {
     success: bool,
 }
 
+/// Lists configured external auth providers with pagination.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/external-auth/providers",
@@ -77,6 +78,8 @@ pub async fn list_external_auth_providers(
     Ok(HttpResponse::Ok().json(crate::api::response::success(providers)))
 }
 
+/// Lists the external auth provider kinds supported by this deployment, including
+/// their configuration requirements and callback URLs derived from the request origin.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/external-auth/provider-kinds",
@@ -97,6 +100,7 @@ pub async fn list_external_auth_provider_kinds(
     Ok(HttpResponse::Ok().json(crate::api::response::success(kinds)))
 }
 
+/// Creates an external auth provider and records the change in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/external-auth/providers",
@@ -133,6 +137,7 @@ pub async fn create_external_auth_provider(
     Ok(HttpResponse::Created().json(crate::api::response::success(provider)))
 }
 
+/// Returns a single external auth provider by ID.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/external-auth/providers/{id}",
@@ -157,6 +162,7 @@ pub async fn get_external_auth_provider(
     Ok(HttpResponse::Ok().json(crate::api::response::success(provider)))
 }
 
+/// Updates an external auth provider and records the change in the audit log.
 #[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/admin/external-auth/providers/{id}",
@@ -201,6 +207,7 @@ pub async fn update_external_auth_provider(
     Ok(HttpResponse::Ok().json(crate::api::response::success(provider)))
 }
 
+/// Deletes an external auth provider and records the change in the audit log.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/admin/external-auth/providers/{id}",
@@ -238,6 +245,8 @@ pub async fn delete_external_auth_provider(
     Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
+/// Tests draft provider parameters (before saving) by running OIDC discovery against
+/// the given settings, and records the attempt in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/external-auth/providers/test",
@@ -287,6 +296,8 @@ pub async fn test_external_auth_provider_params(
     Ok(HttpResponse::Ok().json(crate::api::response::success(result)))
 }
 
+/// Tests a saved external auth provider by running OIDC discovery against its stored
+/// settings, and records the attempt in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/external-auth/providers/{id}/test",

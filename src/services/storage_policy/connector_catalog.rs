@@ -7,6 +7,12 @@ use aster_drive_storage::{StorageConnectorDescriptor, StorageConnectorLocalizati
 use sea_orm::ConnectionTrait;
 use sha2::{Digest, Sha256};
 
+/// Audience a connector catalog is listed for.
+///
+/// Drives the deployment-compatibility filter: management listings keep every
+/// declared connector so existing policies stay addressable, while creation
+/// and initial-setup listings only expose connectors that can run under the
+/// current deployment profile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorageConnectorCatalogContext {
     /// Descriptor lookup for existing policies, diagnostics, and editing.
@@ -20,6 +26,10 @@ pub enum StorageConnectorCatalogContext {
     InitialSetup,
 }
 
+/// Lists connector descriptors visible in the given catalog context.
+///
+/// Descriptors are decorated with backend-hosted icon URLs and filtered by
+/// deployment compatibility according to the context.
 pub(crate) fn list_storage_connector_catalog(
     registry: &crate::storage::connectors::StorageConnectorRegistry,
     config: &Config,
@@ -31,6 +41,10 @@ pub(crate) fn list_storage_connector_catalog(
         .collect()
 }
 
+/// Lists localized UI resources for the connectors visible in the given context.
+///
+/// Fails if any visible connector lacks a localization bundle; the returned
+/// catalog resolves each bundle to the requested locale.
 pub(crate) fn list_storage_connector_localizations(
     registry: &crate::storage::connectors::StorageConnectorRegistry,
     config: &Config,
@@ -77,6 +91,11 @@ pub(crate) fn storage_connector_localization_etag(
     format!("\"{}\"", hex::encode(hasher.finalize()))
 }
 
+/// Whether a connector may back newly created storage policies.
+///
+/// Instance-local connector state is only allowed on single-node deployments;
+/// cluster deployments require cluster-eligible scopes. Existing policies keep
+/// incompatible connectors manageable through [`StorageConnectorCatalogContext::Manage`].
 pub fn connector_compatible_with_deployment(
     config: &Config,
     descriptor: &StorageConnectorDescriptor,
@@ -85,6 +104,12 @@ pub fn connector_compatible_with_deployment(
         || descriptor.deployment_scope.is_cluster_eligible()
 }
 
+/// Loads the system setup state and guards connector selection during setup.
+///
+/// Returns the current [`SystemSetupState`] so callers can tell that the
+/// policy being created would become the initial default. Fails with a
+/// validation error when setup still waits for storage and the connector
+/// cannot complete initial setup on its own.
 pub async fn validate_connector_for_current_setup_state<C: ConnectionTrait>(
     db: &C,
     descriptor: &StorageConnectorDescriptor,

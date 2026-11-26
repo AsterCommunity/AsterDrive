@@ -17,20 +17,33 @@ use aster_drive_storage::{
     StoragePolicyBehaviorConfig, StoragePolicyConfigEnvelope,
 };
 
+/// Sanitized, admin-facing explanation of a storage failure.
+///
+/// Mirrors the API error diagnostic of the originating error so policy
+/// endpoints can surface it without leaking provider credentials.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StoragePolicyDiagnostic {
+    /// Stable API error code carried by the originating error.
     pub api_code: ApiErrorCode,
+    /// Failure classification, such as a storage error kind or `connector_validation`.
     pub kind: String,
+    /// Sanitized provider message, safe to display to administrators.
     pub message: String,
+    /// Whether retrying the failed operation may succeed.
     pub retryable: bool,
+    /// Connector field the failure is attributed to, when known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub field: Option<String>,
+    /// Connector field scope the field belongs to, such as `connector_config`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
 }
 
 impl StoragePolicyDiagnostic {
+    /// Projects a storage error into a diagnostic.
+    ///
+    /// Returns `None` for errors that carry no API diagnostic projection.
     pub fn from_error(error: &crate::errors::AsterError) -> Option<Self> {
         ApiErrorDiagnostic::from_error(error).map(|diagnostic| Self {
             api_code: error.api_error_code(),
@@ -54,29 +67,45 @@ impl From<StoragePolicyDiagnostic> for ApiErrorDiagnostic {
     }
 }
 
+/// Compact policy reference embedded in placement target views.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StoragePolicySummaryInfo {
+    /// Storage policy id.
     pub id: i64,
+    /// Storage policy display name.
     pub name: String,
+    /// Connector id backing the policy.
     pub connector_id: String,
 }
 
+/// Admin view of a storage policy group with its placement configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StoragePolicyGroupInfo {
+    /// Policy group id.
     pub id: i64,
+    /// Group display name.
     pub name: String,
+    /// Optional free-form group description.
     pub description: String,
+    /// Disabled groups never route new uploads.
     pub is_enabled: bool,
+    /// Whether this is the system default group.
     pub is_default: bool,
+    /// Creation timestamp (UTC).
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: chrono::DateTime<chrono::Utc>,
+    /// Last modification timestamp (UTC).
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: chrono::DateTime<chrono::Utc>,
+    /// Admission constraints evaluated before rule matching.
     pub admission: StorageAdmissionConstraints,
+    /// Upload execution preference for uploads routed through this group.
     pub execution_preference: UploadExecutionPreference,
+    /// Bumped on every profile mutation; identifies the compiled placement snapshot entry.
     pub routing_revision: i64,
+    /// Placement rules with their candidate targets.
     pub rules: Vec<StoragePlacementRuleInfo>,
 }
 
@@ -105,70 +134,108 @@ pub struct StoragePlacementTargetInfo {
     pub policy: StoragePolicySummaryInfo,
 }
 
+/// Placement target payload inside a rule of a create or update request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StoragePlacementTargetInput {
+    /// Storage policy this target routes to.
     pub policy_id: i64,
+    /// Weighted-random selection weight; must be positive.
     pub weight: i32,
+    /// When false the target is draining and skipped for new writes.
     #[serde(default = "default_true")]
     pub accepting_new_writes: bool,
+    /// Deterministic tiebreak order for first-available selection; non-negative.
     #[serde(default)]
     pub stable_order: i32,
 }
 
+/// Placement rule payload for policy group create and update requests.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StoragePlacementRuleInput {
+    /// Rule display name.
     pub name: String,
+    /// Optional rule description.
     pub description: Option<String>,
+    /// Unique positive evaluation priority within the group.
     pub priority: i32,
+    /// Disabled rules are skipped during resolution.
     #[serde(default = "default_true")]
     pub is_enabled: bool,
+    /// File predicate deciding whether the rule applies.
     pub matcher: PlacementMatcher,
+    /// How one of the eligible targets is picked.
     #[serde(default)]
     pub selection_mode: PlacementSelectionMode,
+    /// What happens when the rule has no eligible target.
     #[serde(default)]
     pub unavailable_behavior: PlacementUnavailableBehavior,
+    /// Candidate targets; must reference distinct policies.
     pub targets: Vec<StoragePlacementTargetInput>,
 }
 
+/// Decoded storage policy as returned by the admin API.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StoragePolicy {
+    /// Storage policy id.
     pub id: i64,
+    /// Policy display name.
     pub name: String,
+    /// Connector id backing this policy.
     pub connector_id: String,
+    /// Schema-versioned connector config values.
     pub connector_config: ConnectorConfigEnvelope,
+    /// Connector-defined behavior config values.
     pub behavior: StoragePolicyBehaviorConfig,
+    /// Per-upload size limit in bytes; `0` means unlimited.
     pub max_file_size: i64,
+    /// Extension allowlist decoded from the persisted JSON column; empty allows all types.
     pub allowed_types: Vec<String>,
+    /// Whether this is the system default policy.
     pub is_default: bool,
+    /// Upload chunk size in bytes.
     pub chunk_size: i64,
+    /// Creation timestamp (UTC).
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: chrono::DateTime<chrono::Utc>,
+    /// Last modification timestamp (UTC).
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
+/// Local blob accounting combined with a live backend capacity probe.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StoragePolicyCapacityInfo {
+    /// Storage policy id.
     pub policy_id: i64,
+    /// Connector id backing the policy.
     pub connector_id: String,
+    /// Number of blobs referencing this policy.
     pub blob_count: i64,
+    /// Total blob size in bytes.
     pub blob_total_bytes: i64,
+    /// Backend-reported capacity; may be unsupported or unavailable.
     pub capacity: aster_drive_storage::StorageCapacityInfo,
+    /// Sanitized probe failure, when backend capacity could not be read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diagnostic: Option<StoragePolicyDiagnostic>,
 }
 
+/// Result of a connector action executed through a storage policy.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StoragePolicyActionResult {
+    /// Whether the action completed without a connector error.
     pub ok: bool,
+    /// Id of the executed action.
     pub action_id: StorageConnectorActionId,
+    /// Connector-defined output payload; omitted when the action returns none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output: Option<crate::storage::StorageConnectorActionOutput>,
+    /// Sanitized failure info; present only when the action failed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diagnostic: Option<StoragePolicyDiagnostic>,
 }
@@ -226,63 +293,104 @@ impl TryFrom<storage_policy::Model> for StoragePolicy {
     }
 }
 
+/// Counts produced by migrating policy group assignments.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PolicyGroupAssignmentMigrationResult {
+    /// Group the assignments moved from.
     pub source_group_id: i64,
+    /// Group the assignments moved to.
     pub target_group_id: i64,
+    /// Number of user assignments moved.
     pub affected_users: u64,
+    /// Number of team assignments moved.
     pub affected_teams: u64,
+    /// Total assignments moved (`affected_users + affected_teams`).
     pub migrated_assignments: u64,
 }
 
+/// Payload for creating a storage policy.
 #[derive(Debug, Clone)]
 pub struct CreateStoragePolicyInput {
+    /// Policy display name.
     pub name: String,
+    /// Connector config, optional credential and behavior normalization input.
     pub connection: crate::storage::StoragePolicyConnectionInput,
+    /// Per-upload size limit in bytes; must be non-negative, `0` means unlimited.
     pub max_file_size: i64,
+    /// Upload chunk size in bytes; defaults to 5 MiB when omitted.
     pub chunk_size: Option<i64>,
+    /// Whether the new policy becomes the system default.
     pub is_default: bool,
+    /// Extension allowlist; `None` or empty allows all types.
     pub allowed_types: Option<Vec<String>>,
 }
 
+/// Partial storage policy patch; `None` fields keep their current value.
 #[derive(Debug, Clone, Default)]
 pub struct UpdateStoragePolicyInput {
+    /// Replacement policy name.
     pub name: Option<String>,
+    /// Replacement connector config; the connector id itself cannot change.
     pub connector_config: Option<ConnectorConfigEnvelope>,
+    /// Replacement behavior config values.
     pub behavior: Option<StoragePolicyBehaviorConfig>,
+    /// Replacement credential; when omitted the saved credential is reconciled automatically.
     pub credential: Option<crate::storage::StorageConnectorCredentialInput>,
+    /// Replacement per-upload size limit in bytes; must be non-negative, `0` means unlimited.
     pub max_file_size: Option<i64>,
+    /// Replacement upload chunk size in bytes.
     pub chunk_size: Option<i64>,
+    /// Request the policy to become the system default.
     pub is_default: Option<bool>,
+    /// Replacement extension allowlist; `None` keeps the current list, empty allows all types.
     pub allowed_types: Option<Vec<String>>,
 }
 
+/// Request to migrate an existing policy onto another connector.
 #[derive(Debug, Clone)]
 pub struct PromoteStoragePolicyConnectorInput {
+    /// Connector the policy should be migrated to.
     pub target_connector_id: ConnectorId,
+    /// Connector-declared promotion plan to execute.
     pub promotion_id: StorageConnectorPromotionId,
 }
 
+/// Payload for creating a storage policy group.
 #[derive(Debug, Clone)]
 pub struct CreateStoragePolicyGroupInput {
+    /// Group display name.
     pub name: String,
+    /// Optional group description.
     pub description: Option<String>,
+    /// Disabled groups never route uploads; a default group must be enabled.
     pub is_enabled: bool,
+    /// Whether the new group becomes the system default group.
     pub is_default: bool,
+    /// Admission constraints; defaults apply when omitted.
     pub admission: Option<StorageAdmissionConstraints>,
+    /// Upload execution preference; defaults apply when omitted.
     pub execution_preference: Option<UploadExecutionPreference>,
+    /// Placement rules; required and must not be empty.
     pub rules: Option<Vec<StoragePlacementRuleInput>>,
 }
 
+/// Partial policy group patch; `None` fields keep their current value.
 #[derive(Debug, Clone, Default)]
 pub struct UpdateStoragePolicyGroupInput {
+    /// Replacement group name.
     pub name: Option<String>,
+    /// Replacement group description.
     pub description: Option<String>,
+    /// Replacement enabled flag; the default group cannot be disabled.
     pub is_enabled: Option<bool>,
+    /// Replacement default flag; transferring the default takes the assignment lock.
     pub is_default: Option<bool>,
+    /// Replacement admission constraints.
     pub admission: Option<StorageAdmissionConstraints>,
+    /// Replacement upload execution preference.
     pub execution_preference: Option<UploadExecutionPreference>,
+    /// Replacement placement rules; when present they replace all existing rules.
     pub rules: Option<Vec<StoragePlacementRuleInput>>,
 }
 

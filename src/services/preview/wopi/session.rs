@@ -351,6 +351,8 @@ fn payload_from_session(session: &CachedWopiSession) -> Result<WopiAccessTokenPa
     })
 }
 
+/// Deletes WOPI launch sessions whose access tokens have expired; returns the
+/// number of removed rows. Intended to run as periodic background cleanup.
 pub async fn cleanup_expired(state: &impl SharedRuntimeState) -> Result<u64> {
     wopi_session_repo::delete_expired(state.writer_db()).await
 }

@@ -7,6 +7,7 @@ use crate::runtime::PrimaryAppState;
 use crate::services::ops::admin;
 use actix_web::{HttpResponse, web};
 
+/// Returns the admin overview dashboard: aggregate stats, recent events, and trend data.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/overview",

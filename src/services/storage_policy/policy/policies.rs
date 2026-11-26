@@ -26,6 +26,11 @@ use crate::storage::{
     StoragePolicyConnectionInput, TestDraftStorageConnectorConnectionInput,
 };
 
+/// Verifies that a remote policy binding points at a live, applied target.
+///
+/// Requires an explicit `remote_node_id` and `remote_storage_target_key`, that
+/// the target exists on the remote node, reports no last error, and has its
+/// desired revision fully applied.
 async fn validate_remote_policy_target(
     client: &crate::storage::remote_protocol::RemoteStorageClient,
     binding: &crate::storage::connectors::RemotePolicyBindingProjection,
@@ -81,6 +86,11 @@ async fn validate_remote_policy_target(
     Ok(())
 }
 
+/// Enforces location immutability for remote storage policies.
+///
+/// Compares the existing and candidate remote bindings: node id and base path
+/// must never change, and the target key may only be set when it was absent
+/// before. Returns whether the update only newly binds a legacy target key.
 fn ensure_remote_policy_location_unchanged(
     connectors: &crate::storage::connectors::StorageConnectorRegistry,
     existing: &storage_policy::Model,
@@ -119,6 +129,7 @@ fn ensure_remote_policy_location_unchanged(
     }
 }
 
+/// Lists storage policies with offset pagination, sorting and keyword filtering.
 pub async fn list_paginated(
     state: &impl SharedRuntimeState,
     limit: u64,
@@ -146,12 +157,14 @@ pub async fn list_paginated(
     .await
 }
 
+/// Loads one storage policy by id, decoded from its persisted config envelope.
 pub async fn get(state: &impl SharedRuntimeState, id: i64) -> Result<StoragePolicy> {
     policy_repo::find_by_id(state.reader_db(), id)
         .await
         .and_then(StoragePolicy::try_from)
 }
 
+/// Reports local blob usage for a policy together with a live capacity probe.
 pub async fn capacity_info(
     state: &impl SharedRuntimeState,
     id: i64,
@@ -171,6 +184,11 @@ pub async fn capacity_info(
     })
 }
 
+/// Probes driver capacity and maps failure kinds into the reporting status.
+///
+/// Unsupported drivers yield an explicit unsupported status; other failures
+/// are logged and returned as an unavailable status with a sanitized
+/// diagnostic. Capacity never fails the caller's request.
 pub(crate) async fn capacity_info_or_status(
     driver: &dyn aster_drive_storage::StorageDriver,
     connector_id: &str,
@@ -214,6 +232,14 @@ pub(crate) async fn capacity_info_or_status(
     }
 }
 
+/// Creates a storage policy from a validated connection payload.
+///
+/// Normalizes and validates connector config and behavior, blocks connectors
+/// that cannot run in the current deployment or setup state, and persists the
+/// policy, its credential and the default-group transfer in one transaction.
+/// Remote bindings additionally verify enrollment and target readiness inside
+/// that transaction. After commit the credential registry, policy snapshot and
+/// public support caches are refreshed and a topology reload is published.
 pub async fn create(
     state: &(impl RemoteProtocolRuntimeState + Sync),
     input: CreateStoragePolicyInput,
@@ -354,6 +380,14 @@ pub async fn create(
         .and_then(StoragePolicy::try_from)
 }
 
+/// Deletes a storage policy after proving nothing still references it.
+///
+/// Refuses while blobs or placement targets reference the policy; live upload
+/// sessions require `force`, which cleans their temp state and schedules a
+/// deferred cleanup task. The reference checks are repeated inside the write
+/// transaction under the default-group assignment lock. After commit the
+/// driver is invalidated before the snapshot reload, so requests never observe
+/// a deleted policy row with a stale driver cache.
 pub async fn delete(state: &(impl TaskRuntimeState + Sync), id: i64, force: bool) -> Result<()> {
     let policy = policy_repo::find_by_id(state.writer_db(), id).await?;
     tracing::debug!(
@@ -480,6 +514,15 @@ pub async fn delete(state: &(impl TaskRuntimeState + Sync), id: i64, force: bool
     Ok(())
 }
 
+/// Applies a partial update to a storage policy.
+///
+/// The connector id cannot change; config, behavior, limits, allowed types and
+/// credentials are patched in one transaction. Saved static secrets are
+/// re-validated against the candidate config even for config-only updates, so
+/// a delivery-mode change never persists unusable credentials. Remote policy
+/// locations stay immutable. After commit the driver is invalidated before the
+/// snapshot reload to avoid a window where writes hit stale endpoints or
+/// credentials.
 pub async fn update(
     state: &(impl RemoteProtocolRuntimeState + Sync),
     id: i64,
@@ -731,6 +774,7 @@ pub async fn update(
         .and_then(StoragePolicy::try_from)
 }
 
+/// Tests the saved connection of the system default storage policy.
 pub async fn test_default_connection<S: SharedRuntimeState + Sync>(state: &S) -> Result<()> {
     let policy = state
         .policy_snapshot()
@@ -746,6 +790,7 @@ pub async fn test_default_connection<S: SharedRuntimeState + Sync>(state: &S) ->
     .await
 }
 
+/// Tests the saved connection of an existing storage policy.
 pub async fn test_connection<S: StorageConnectorRuntimeState + Sync>(
     state: &S,
     id: i64,
@@ -759,6 +804,7 @@ pub async fn test_connection<S: StorageConnectorRuntimeState + Sync>(
     .await
 }
 
+/// Tests a draft connection with user-supplied values, before saving the policy.
 pub async fn test_connection_params<S: RemoteProtocolRuntimeState + Sync>(
     state: &S,
     input: TestDraftStorageConnectorConnectionInput,
@@ -771,6 +817,7 @@ pub async fn test_connection_params<S: RemoteProtocolRuntimeState + Sync>(
     .await
 }
 
+/// Runs a connector action against a saved policy and wraps the connector result.
 pub async fn execute_saved_action<S: StorageConnectorRuntimeState + Sync>(
     state: &S,
     id: i64,
@@ -787,6 +834,7 @@ pub async fn execute_saved_action<S: StorageConnectorRuntimeState + Sync>(
     .map(Into::into)
 }
 
+/// Runs a connector action with draft connection values and wraps the result.
 pub async fn execute_draft_action<S: RemoteProtocolRuntimeState + Sync>(
     state: &S,
     input: ExecuteDraftStorageConnectorActionInput,

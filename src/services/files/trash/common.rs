@@ -21,6 +21,8 @@ use super::models::{TrashFileItem, TrashFolderItem};
 
 const FOLDER_PURGED_EVENT_FILE_IDS_LIMIT: usize = 1000;
 
+/// Reads the trash retention period in days from runtime config, falling
+/// back to [`DEFAULT_RETENTION_DAYS`] when unset or invalid.
 pub fn load_retention_days(state: &impl SharedRuntimeState) -> i64 {
     state
         .runtime_config()

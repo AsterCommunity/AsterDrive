@@ -13,10 +13,13 @@ use tokio_util::sync::CancellationToken;
 use super::{FollowerAppState, PrimaryAppState};
 use aster_forge_mail::MailSender;
 
+/// Graceful drain budget for the HTTP server before worker threads are killed.
 const HTTP_SHUTDOWN_TIMEOUT_SECS: u64 = 8;
 
 type HttpServiceComponent = RuntimeServiceComponent<actix_web::dev::Server>;
 
+/// Resources the Forge mail outbox component needs to drain pending mail on
+/// shutdown, extracted from the primary application state.
 #[derive(Clone)]
 pub struct MailOutboxRuntimeResources {
     db: sea_orm::DatabaseConnection,
@@ -37,6 +40,7 @@ impl MailOutboxRuntimeResources {
         }
     }
 
+    /// Extracts the outbox drain resources from the primary application state.
     pub fn from_state(state: &PrimaryAppState) -> Self {
         Self::new(
             state.writer_db().clone(),
@@ -46,6 +50,11 @@ impl MailOutboxRuntimeResources {
     }
 }
 
+/// Builds the primary node HTTP server as a Forge runtime component.
+///
+/// The actix server serves the product API (or health-only routes for worker
+/// roles) with shared middleware, and registers a shutdown hook that closes
+/// the refresh coordinator before draining connections.
 pub fn primary_http_component(
     host: String,
     port: u16,
@@ -144,6 +153,10 @@ pub fn primary_http_component(
     })
 }
 
+/// Builds the follower node HTTP server as a Forge runtime component.
+///
+/// Serves the follower API surface with shared middleware and the same
+/// shutdown semantics as the primary HTTP component.
 pub fn follower_http_component(
     host: String,
     port: u16,
@@ -237,6 +250,8 @@ fn http_service_component(
     )
 }
 
+/// Drains pending outbox mail using the extracted resources; registered as
+/// the Forge mail outbox component's shutdown hook.
 pub async fn drain_mail_outbox_on_shutdown(
     resources: MailOutboxRuntimeResources,
 ) -> Result<(), String> {

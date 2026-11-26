@@ -5,6 +5,7 @@ use utoipa::openapi::security::{ApiKey, ApiKeyValue, Http, HttpAuthScheme, Secur
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::{Modify, OpenApi};
 
+/// 聚合全部 REST 端点、请求/响应模型、标签与安全方案的 OpenAPI 文档根。
 #[derive(OpenApi)]
 #[openapi(
     info(

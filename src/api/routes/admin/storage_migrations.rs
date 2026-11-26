@@ -10,6 +10,8 @@ use crate::services::{auth::local::Claims, ops::audit::AuditContext, task};
 use actix_web::HttpRequest;
 use actix_web::{HttpResponse, web};
 
+/// Creates a background storage policy migration task that moves files from the
+/// source policy to the target policy.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/storage-migrations",
@@ -44,6 +46,8 @@ pub async fn create_storage_policy_migration(
     Ok(HttpResponse::Ok().json(crate::api::response::success(task)))
 }
 
+/// Runs a storage policy migration preflight without creating a task, reporting
+/// what the migration would affect.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/storage-migrations/dry-run",
@@ -78,6 +82,7 @@ pub async fn dry_run_storage_policy_migration(
     Ok(HttpResponse::Ok().json(crate::api::response::success(dry_run)))
 }
 
+/// Resets a failed migration task to its last checkpoint so it can resume.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/storage-migrations/{task_id}/resume",

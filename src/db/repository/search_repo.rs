@@ -39,15 +39,21 @@ enum SearchScope {
     Team { team_id: i64 },
 }
 
+/// How a tag filter combines the requested tags.
 #[derive(Clone, Copy)]
 pub enum TagSearchMatch {
+    /// Entities carrying any of the requested tags match.
     Any,
+    /// Entities carrying every requested tag match.
     All,
 }
 
+/// Tag-based search filter resolved against tag properties.
 #[derive(Clone, Copy)]
 pub struct TagSearchFilter<'a> {
+    /// Tag ids to match; ids are stored as property names under the tag namespace.
     pub tag_ids: &'a [i64],
+    /// Whether any or all of the tags must be present.
     pub match_mode: TagSearchMatch,
 }
 
@@ -69,34 +75,59 @@ fn folder_scope_condition(scope: SearchScope) -> Condition {
     }
 }
 
+/// Filters, ordering, and paging for file searches.
 #[derive(Clone, Copy)]
 pub struct FileSearchFilters<'a> {
+    /// Optional name query; matched via FTS or LIKE depending on the database backend.
     pub query: Option<&'a str>,
+    /// Exact MIME type to match.
     pub mime_type: Option<&'a str>,
+    /// File category to match.
     pub category: Option<FileCategory>,
+    /// Extension filter; matches the simple or compound extension, empty means unfiltered.
     pub extensions: &'a [String],
+    /// Inclusive lower bound on blob size in bytes.
     pub min_size: Option<i64>,
+    /// Inclusive upper bound on blob size in bytes.
     pub max_size: Option<i64>,
+    /// Inclusive lower bound on the creation time.
     pub created_after: Option<DateTime<Utc>>,
+    /// Inclusive upper bound on the creation time.
     pub created_before: Option<DateTime<Utc>>,
+    /// Restricts results to this folder.
     pub folder_id: Option<i64>,
+    /// Optional tag-based filter.
     pub tag_filter: Option<TagSearchFilter<'a>>,
+    /// Result ordering key.
     pub sort_by: SortBy,
+    /// Result ordering direction.
     pub sort_order: SortOrder,
+    /// Maximum number of items returned.
     pub limit: u64,
+    /// Number of items skipped before the first returned item.
     pub offset: u64,
 }
 
+/// Filters, ordering, and paging for folder searches.
 #[derive(Clone, Copy)]
 pub struct FolderSearchFilters<'a> {
+    /// Optional name query; matched via FTS or LIKE depending on the database backend.
     pub query: Option<&'a str>,
+    /// Inclusive lower bound on the creation time.
     pub created_after: Option<DateTime<Utc>>,
+    /// Inclusive upper bound on the creation time.
     pub created_before: Option<DateTime<Utc>>,
+    /// Restricts results to this parent folder.
     pub parent_id: Option<i64>,
+    /// Optional tag-based filter.
     pub tag_filter: Option<TagSearchFilter<'a>>,
+    /// Result ordering key.
     pub sort_by: SortBy,
+    /// Result ordering direction.
     pub sort_order: SortOrder,
+    /// Maximum number of items returned.
     pub limit: u64,
+    /// Number of items skipped before the first returned item.
     pub offset: u64,
 }
 
@@ -104,24 +135,41 @@ pub struct FolderSearchFilters<'a> {
 #[derive(Debug, Serialize, FromQueryResult)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct FileSearchItem {
+    /// File id.
     pub id: i64,
+    /// File name including its extension.
     pub name: String,
+    /// Id of the containing folder; `None` when the file is at the root.
     pub folder_id: Option<i64>,
+    /// Id of the blob backing the file content.
     pub blob_id: i64,
+    /// Owning user for personal files; `None` for team-owned files.
     pub owner_user_id: Option<i64>,
+    /// Id of the user that created the file, if known.
     pub created_by_user_id: Option<i64>,
+    /// Display name of the user that created the file.
     pub created_by_username: String,
+    /// Id of the user that last modified the file, if tracked.
     pub modified_by_user_id: Option<i64>,
+    /// Display name of the user that last modified the file.
     pub modified_by_username: Option<String>,
+    /// Time of the last modification, if tracked.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub modified_at: Option<DateTimeUtc>,
+    /// MIME type of the file content.
     pub mime_type: String,
+    /// Simple extension of the file.
     pub extension: String,
+    /// Compound extension such as `tar.gz`, when present.
     pub compound_extension: Option<String>,
+    /// Classification category of the file.
     pub file_category: FileCategory,
+    /// Blob size in bytes, projected from the joined blob row.
     pub size: i64,
+    /// Creation time of the file.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: DateTimeUtc,
+    /// Time of the last update to the file.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: DateTimeUtc,
 }
@@ -367,6 +415,7 @@ async fn search_files_in_scope<C: ConnectionTrait>(
     Ok((items, total))
 }
 
+/// Searches files owned by the given user, returning `(items, total_count)`.
 pub async fn search_files<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -375,6 +424,7 @@ pub async fn search_files<C: ConnectionTrait>(
     search_files_in_scope(db, SearchScope::Personal { user_id }, filters).await
 }
 
+/// Searches files in the given team, returning `(items, total_count)`.
 pub async fn search_team_files<C: ConnectionTrait>(
     db: &C,
     team_id: i64,
@@ -459,6 +509,7 @@ async fn search_folders_in_scope<C: ConnectionTrait>(
     Ok((items, total))
 }
 
+/// Searches folders owned by the given user, returning `(items, total_count)`.
 pub async fn search_folders<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -467,6 +518,7 @@ pub async fn search_folders<C: ConnectionTrait>(
     search_folders_in_scope(db, SearchScope::Personal { user_id }, filters).await
 }
 
+/// Searches folders in the given team, returning `(items, total_count)`.
 pub async fn search_team_folders<C: ConnectionTrait>(
     db: &C,
     team_id: i64,

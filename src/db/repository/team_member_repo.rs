@@ -27,22 +27,33 @@ use aster_forge_utils::numbers::i64_to_u64;
 
 const SQLITE_USERS_FTS_TABLE: &str = "users_search_fts";
 
+/// Authorization snapshot of a user's membership in a non-archived team.
 #[derive(Debug, Clone, PartialEq, Eq, FromQueryResult)]
 pub struct ActiveTeamAccessSnapshot {
+    /// Id of the team the user has access to.
     pub team_id: i64,
+    /// Policy group applied to the team, when configured.
     pub policy_group_id: Option<i64>,
+    /// The user's role within the team.
     pub role: TeamMemberRole,
 }
 
+/// Filters and ordering for the admin team member page listing.
 #[derive(Debug, Clone, Copy)]
 pub struct TeamMemberPageFilters<'a> {
+    /// Restricts results to this team role.
     pub role: Option<TeamMemberRole>,
+    /// Restricts results to users with this account status.
     pub status: Option<UserStatus>,
+    /// Keyword matched against username, email, or numeric user id.
     pub keyword: Option<&'a str>,
+    /// Result ordering key.
     pub sort_by: AdminTeamMemberSortBy,
+    /// Result ordering direction.
     pub sort_order: SortOrder,
 }
 
+/// Ordering override for user team membership listings; defaults to `UpdatedAt DESC` when unset.
 pub type UserTeamMembershipOrder = (team_member::Column, Order);
 
 fn team_member_keyword_like_condition(keyword: &str) -> Condition {
@@ -127,6 +138,7 @@ fn team_member_role_rank_expr() -> sea_orm::sea_query::SimpleExpr {
     .into()
 }
 
+/// Inserts a new team membership row.
 pub async fn create<C: ConnectionTrait>(
     db: &C,
     model: team_member::ActiveModel,
@@ -134,6 +146,7 @@ pub async fn create<C: ConnectionTrait>(
     model.insert(db).await.map_err(AsterError::from)
 }
 
+/// Updates an existing team membership row.
 pub async fn update<C: ConnectionTrait>(
     db: &C,
     model: team_member::ActiveModel,
@@ -141,6 +154,9 @@ pub async fn update<C: ConnectionTrait>(
     model.update(db).await.map_err(AsterError::from)
 }
 
+/// Deletes a team membership row by id.
+///
+/// Errors with `RecordNotFound` when no row with the id exists.
 pub async fn delete<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     let result = TeamMember::delete_by_id(id)
         .exec(db)
@@ -152,6 +168,7 @@ pub async fn delete<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     Ok(())
 }
 
+/// Finds a user's membership row in a team.
 pub async fn find_by_team_and_user<C: ConnectionTrait>(
     db: &C,
     team_id: i64,
@@ -165,6 +182,9 @@ pub async fn find_by_team_and_user<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Returns the user's authorization snapshot in a team, ignoring archived teams.
+///
+/// Joins the team row so the policy group is resolved in the same query.
 pub async fn find_active_team_access<C: ConnectionTrait>(
     db: &C,
     team_id: i64,
@@ -209,6 +229,7 @@ pub(crate) async fn find_by_team_and_user_for_authorization<C: ConnectionTrait>(
     query.one(db).await.map_err(AsterError::from)
 }
 
+/// Lists the user's memberships in non-archived teams together with the team rows.
 pub async fn list_by_user_with_team(
     db: &DatabaseConnection,
     user_id: i64,
@@ -216,6 +237,8 @@ pub async fn list_by_user_with_team(
     list_by_user_with_team_filtered(db, user_id, None, None, None, None).await
 }
 
+/// Lists the user's memberships in non-archived teams with optional team keyword
+/// filtering, paging, and ordering.
 pub async fn list_by_user_with_team_filtered(
     db: &DatabaseConnection,
     user_id: i64,
@@ -228,6 +251,7 @@ pub async fn list_by_user_with_team_filtered(
         .await
 }
 
+/// Lists the user's memberships in archived teams together with the team rows.
 pub async fn list_by_user_with_archived_team(
     db: &DatabaseConnection,
     user_id: i64,
@@ -235,6 +259,8 @@ pub async fn list_by_user_with_archived_team(
     list_by_user_with_archived_team_filtered(db, user_id, None, None, None, None).await
 }
 
+/// Lists the user's memberships in archived teams with optional team keyword filtering,
+/// paging, and ordering.
 pub async fn list_by_user_with_archived_team_filtered(
     db: &DatabaseConnection,
     user_id: i64,
@@ -293,6 +319,7 @@ async fn list_by_user_with_team_for_archived_state(
         .collect())
 }
 
+/// Lists a team's memberships together with the member user rows, oldest membership first.
 pub async fn list_by_team_with_user<C: ConnectionTrait>(
     db: &C,
     team_id: i64,
@@ -332,6 +359,7 @@ pub async fn list_by_team_with_user<C: ConnectionTrait>(
         .collect())
 }
 
+/// Returns one admin page of a team's memberships with user rows and the filtered total.
 pub async fn list_page_by_team_with_user(
     db: &DatabaseConnection,
     team_id: i64,
@@ -420,9 +448,9 @@ fn apply_admin_team_member_sort(
     }
 }
 
+/// Counts a team's member rows that still join to an existing user record, keeping the
+/// count aligned with `list_by_team_with_user`.
 pub async fn count_by_team(db: &DatabaseConnection, team_id: i64) -> Result<u64> {
-    // Keep member counts aligned with list_by_team_with_user by only counting rows
-    // that still join to a user record.
     let count = TeamMember::find()
         .select_only()
         .column_as(
@@ -440,6 +468,7 @@ pub async fn count_by_team(db: &DatabaseConnection, team_id: i64) -> Result<u64>
     Ok(i64_to_u64(count, "team member count")?)
 }
 
+/// Counts members for each of the given teams; teams without members are absent from the map.
 pub async fn count_by_team_ids(
     db: &DatabaseConnection,
     team_ids: &[i64],
@@ -471,6 +500,7 @@ pub async fn count_by_team_ids(
         .collect()
 }
 
+/// Counts a team's members holding the given role.
 pub async fn count_by_team_and_role<C: ConnectionTrait>(
     db: &C,
     team_id: i64,
@@ -494,6 +524,7 @@ pub async fn count_by_team_and_role<C: ConnectionTrait>(
     Ok(i64_to_u64(count, "team member count")?)
 }
 
+/// Counts a team's members grouped by role; roles without members are absent from the result.
 pub async fn count_by_team_grouped_by_role(
     db: &DatabaseConnection,
     team_id: i64,

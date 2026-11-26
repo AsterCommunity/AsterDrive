@@ -31,16 +31,23 @@ const DEFAULT_OPERATION_SAS_TTL: Duration = Duration::from_secs(60 * 60);
 const AZURE_BLOCK_BLOB_MAX_BLOCKS: u64 = 50_000;
 const AZURE_BLOCK_BLOB_MAX_BLOCK_SIZE: u64 = 4_000 * 1024 * 1024;
 
+/// Endpoint and container values after trim and validation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NormalizedAzureBlobConfig {
+    /// Endpoint URL without trailing slash, kept as configured (no scheme rewrite).
     pub endpoint: String,
+    /// Container name with surrounding whitespace removed.
     pub container: String,
 }
 
+/// Reason an Azure Blob endpoint/container pair failed normalization.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AzureBlobConfigError {
+    /// Endpoint was empty or whitespace-only.
     MissingEndpoint,
+    /// Endpoint violated the accepted URL shape (scheme, authority, path, or characters).
     InvalidEndpoint,
+    /// Container was empty or whitespace-only.
     MissingContainer,
 }
 
@@ -76,6 +83,7 @@ pub(super) struct AzureBlobResponseHeaders<'a> {
 }
 
 #[derive(Clone)]
+/// Azure Blob Storage driver; browser downloads may pass through Azure Front Door.
 pub struct AzureBlobDriver {
     endpoint: String,
     account_name: String,
@@ -86,24 +94,39 @@ pub struct AzureBlobDriver {
     front_door: Option<cdn::FrontDoorConfig>,
 }
 
+/// Connection and delivery settings for the Azure Blob driver.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AzureBlobDriverConfig {
+    /// Account endpoint, for example `https://acct.blob.core.windows.net`.
     pub endpoint: String,
+    /// Blob container holding all objects of this driver.
     pub container: String,
+    /// Blob name prefix prepended to every driver-relative storage path.
     pub base_path: String,
+    /// Requested block size in bytes for multipart uploads; clamped to the
+    /// object-level minimum at runtime.
     pub chunk_size: i64,
+    /// Channel used for browser-facing download URLs.
     pub download_delivery: cdn::AzureBlobDownloadDelivery,
+    /// Azure Front Door download base URL; required for
+    /// [`cdn::AzureBlobDownloadDelivery::AzureFrontDoorSas`].
     pub download_base_url: String,
+    /// Front Door cache lifetime override in seconds, bounded by the
+    /// `cdn::MAX_CACHE_MAX_AGE_SECONDS` ceiling.
     pub azure_cdn_cache_max_age_seconds: u32,
 }
 
+/// secret material for the Azure Blob driver.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AzureBlobStaticCredentials {
+    /// Storage account name.
     pub account_name: String,
+    /// Storage account key (base64 shared key).
     pub account_key: String,
 }
 
 impl AzureBlobDriver {
+    /// Validates the endpoint/container pair, Front Door options, and credentials.
     pub fn validate_config(
         config: &AzureBlobDriverConfig,
         credentials: &AzureBlobStaticCredentials,
@@ -125,6 +148,8 @@ impl AzureBlobDriver {
         Ok(())
     }
 
+    /// Builds the driver after validation, trimming credentials and applying the
+    /// minimum multipart chunk size.
     pub fn new(
         config: AzureBlobDriverConfig,
         credentials: AzureBlobStaticCredentials,
@@ -144,6 +169,7 @@ impl AzureBlobDriver {
         })
     }
 
+    /// Normalizes endpoint and container, reporting all failures as storage errors.
     pub fn normalize_endpoint_and_container(
         endpoint: &str,
         container: &str,
@@ -152,6 +178,8 @@ impl AzureBlobDriver {
             .map_err(AzureBlobConfigError::into_storage_error)
     }
 
+    /// Typed-error variant of [`Self::normalize_endpoint_and_container`], letting
+    /// callers distinguish missing values from an invalid URL shape.
     pub fn try_normalize_endpoint_and_container(
         endpoint: &str,
         container: &str,

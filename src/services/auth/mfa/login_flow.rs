@@ -38,13 +38,20 @@ use super::{
     crypto, recovery_codes, totp,
 };
 
+/// Outcome of a verified first factor: session material, or a pending MFA challenge to answer.
 #[derive(Debug)]
 pub enum PrimaryLoginCompletion {
+    /// No second factor configured; tokens were issued and the session is live.
     Authenticated(local::LoginResult),
+    /// Second factor required; complete the login through the MFA challenge endpoints.
     MfaRequired(MfaChallengeStart),
 }
 
+/// Browser proof bound to an external-association MFA flow.
+///
+/// The raw token is deliberately kept out of `Debug` output; only its hash is persisted.
 pub struct MfaBrowserBinding {
+    /// Raw browser-proof token; must only be compared through `crypto::token_hash`.
     pub secret: String,
 }
 impl std::fmt::Debug for MfaBrowserBinding {
@@ -60,23 +67,34 @@ impl Clone for MfaBrowserBinding {
     }
 }
 
+/// Pending MFA challenge returned to the client after a validated first factor.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct MfaChallengeStart {
+    /// Account being authenticated; never serialized to the client.
     #[serde(skip_serializing)]
     pub user_id: i64,
+    /// Opaque single-use flow token; must be presented verbatim on challenge verification.
     pub flow_token: String,
+    /// Challenge lifetime in seconds.
     pub expires_in: u64,
+    /// Second-factor methods available for this login, in dispatch order.
     pub methods: Vec<MfaMethod>,
+    /// Browser proof for external-association flows; never serialized to the client.
     #[serde(skip)]
     pub browser_binding: Option<MfaBrowserBinding>,
 }
 
+/// Session material issued after a verified MFA challenge.
 #[derive(Debug)]
 pub struct MfaChallengeLoginResult {
+    /// Short-lived bearer token for API calls.
     pub access_token: String,
+    /// Long-lived refresh token bound to the new session row.
     pub refresh_token: String,
+    /// Authenticated account primary key.
     pub user_id: i64,
+    /// Whether the client must complete a forced password change before further use.
     pub password_change_required: bool,
 }
 
@@ -176,6 +194,8 @@ pub async fn complete_primary_login_or_start_mfa(
     ))
 }
 
+/// Re-checks the password-login policy for password-initiated flows at verification time, so a
+/// flow started before the policy switched off cannot complete afterwards.
 fn ensure_first_factor_allowed(
     first_factor: MfaFirstFactor,
     password_login_enabled: bool,
@@ -190,6 +210,14 @@ fn ensure_first_factor_allowed(
     ))
 }
 
+/// Persists a pending MFA login challenge bound to the account's current session version.
+///
+/// The returned flow token is stored only as a hash; when the challenge continues an external
+/// association, the initiating browser proof is hashed into the record so moving the flow URL
+/// to another browser cannot complete it.
+///
+/// # Errors
+/// Returns persistence errors from creating the flow row.
 pub async fn create_login_flow(
     state: &impl SharedRuntimeState,
     user: &user::Model,
@@ -234,6 +262,8 @@ pub async fn create_login_flow(
     })
 }
 
+/// Deletes expired MFA email codes, login flows, and TOTP setup flows; returns the total
+/// number of removed rows.
 pub async fn cleanup_expired_flows(state: &impl SharedRuntimeState) -> Result<u64> {
     let now = Utc::now();
     let email_codes = mfa_email_code_repo::cleanup_expired(state.writer_db(), now).await?;
@@ -242,6 +272,15 @@ pub async fn cleanup_expired_flows(state: &impl SharedRuntimeState) -> Result<u6
     Ok(email_codes + login_flows + setup_flows)
 }
 
+/// Generates and mails an 8-digit login code for a pending MFA flow.
+///
+/// The code is stored hashed, its resend cooldown is reserved inside the same transaction that
+/// consumes any previous active code, and its lifetime is capped at the remaining flow
+/// lifetime. A failed render or delivery consumes the just-created code so an undelivered code
+/// can never be verified later.
+///
+/// # Errors
+/// Returns flow-invalid, rate-limit, mail-configuration, or persistence errors.
 pub async fn send_email_code(
     state: &impl MailRuntimeState,
     flow_token: &str,
@@ -418,6 +457,8 @@ pub async fn send_email_code(
     })
 }
 
+/// Best-effort cleanup that consumes a just-created email code when mail preparation or
+/// delivery failed; a failure to consume is logged, not propagated.
 async fn consume_email_code_after_mail_failure(state: &impl SharedRuntimeState, record_id: i64) {
     if let Err(cleanup_error) =
         mfa_email_code_repo::consume(state.writer_db(), record_id, Utc::now()).await
@@ -984,6 +1025,10 @@ fn format_email_code_expires_in(ttl_secs: u64) -> String {
 
 /// Normal MFA retains its existing bearer-flow behavior. An association challenge additionally
 /// requires the initiating browser proof; moving its flow URL cannot change authentication methods.
+/// Enforces the browser binding on external-association MFA flows.
+///
+/// Normal MFA flows accept any browser (bearer-token semantics); an association flow requires
+/// the proof matching the hash recorded at challenge creation.
 fn ensure_mfa_browser(flow: &mfa_login_flow::Model, proof: Option<&str>) -> Result<()> {
     match (
         flow.external_recovery_flow_id,
@@ -998,6 +1043,8 @@ fn ensure_mfa_browser(flow: &mfa_login_flow::Model, proof: Option<&str>) -> Resu
     }
 }
 
+/// Derives flow state and rejects anything that is not an unconsumed, unexpired,
+/// attempt-budgeted `SecondFactorPending` flow.
 fn ensure_flow_active(flow: &mfa_login_flow::Model, now: chrono::DateTime<Utc>) -> Result<()> {
     // A snapshot alone is not concurrency control. Verification holds the database flow guard
     // before using this derived state, then conditionally consumes the same attempt count.
@@ -1013,6 +1060,10 @@ fn ensure_flow_active(flow: &mfa_login_flow::Model, now: chrono::DateTime<Utc>) 
     .map_err(map_mfa_flow_transition_error)
 }
 
+/// Projects a persisted MFA login flow into the shared flow vocabulary.
+///
+/// There is no persisted revision column, so revision is pinned to 0 and every command is
+/// planned against that constant; concurrency is enforced by the database row locks instead.
 fn mfa_flow_snapshot(flow: &mfa_login_flow::Model) -> AuthFlowSnapshot {
     AuthFlowSnapshot {
         flow_id: format!("mfa-login:{}", flow.id),
@@ -1048,6 +1099,8 @@ fn map_mfa_flow_transition_error(error: AuthFlowTransitionError) -> AsterError {
     }
 }
 
+/// Confirms the challenge's account is still usable and unchanged since the flow started:
+/// active status, verified email, and a session version matching the flow record.
 fn ensure_flow_user_valid(user: &user::Model, flow: &mfa_login_flow::Model) -> Result<()> {
     if !user.status.is_active() {
         return Err(AsterError::auth_forbidden("account is disabled"));

@@ -4,6 +4,8 @@ use aster_drive_model::entities::workspace_activity::{self, Entity};
 use chrono::{DateTime, Utc};
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 
+/// Appends a single activity event without returning the inserted row; the
+/// caller owns the transaction.
 pub async fn append<C: ConnectionTrait>(
     db: &C,
     model: workspace_activity::ActiveModel,
@@ -34,15 +36,25 @@ pub async fn append_many<C: ConnectionTrait>(
     Ok(())
 }
 
+/// Filter and paging input for activity listing; exactly one workspace scope must be set.
 pub struct ActivityQuery<'a> {
+    /// Team scope: events recorded on team workspaces.
     pub team_id: Option<i64>,
+    /// Personal scope: events with no team and this owner. Ignored when `team_id` is set.
     pub owner_user_id: Option<i64>,
+    /// Restricts the stream to one entity, given as (entity type, id).
     pub entity: Option<(&'a str, i64)>,
+    /// Exclusive upper bound on event id (strictly older events only).
     pub before_id: Option<i64>,
+    /// Inclusive upper bound on event id.
     pub at_most_id: Option<i64>,
+    /// Maximum events to return, capped at 200 by the repository.
     pub limit: u64,
 }
 
+/// Lists activity events newest-first under the query's scope and filters.
+/// Requires `team_id` or `owner_user_id`; without a workspace scope the call
+/// is rejected as forbidden.
 pub async fn list<C: ConnectionTrait>(
     db: &C,
     input: ActivityQuery<'_>,
@@ -75,6 +87,9 @@ pub async fn list<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Returns a snapshot checkpoint for a team export: the newest event id and the
+/// number of events up to it, capped at `max_rows + 1` so callers can detect
+/// truncation. Returns `None` when the team has no events.
 pub async fn export_snapshot<C: ConnectionTrait>(
     db: &C,
     team_id: i64,
@@ -103,6 +118,9 @@ pub async fn export_snapshot<C: ConnectionTrait>(
     Ok(Some((max, count)))
 }
 
+/// Removes events created before `cutoff` in bounded batches (400 ids each),
+/// yielding between batches so foreground requests keep scheduling, and returns
+/// the total number of removed rows.
 pub async fn delete_before<C: ConnectionTrait>(db: &C, cutoff: DateTime<Utc>) -> Result<u64> {
     let mut deleted = 0u64;
     loop {
@@ -124,7 +142,6 @@ pub async fn delete_before<C: ConnectionTrait>(db: &C, cutoff: DateTime<Utc>) ->
             .exec(db)
             .await?
             .rows_affected;
-        // Each statement releases its DB lock; give foreground requests a scheduling point.
         tokio::task::yield_now().await;
     }
 }

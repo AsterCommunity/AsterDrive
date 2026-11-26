@@ -11,6 +11,8 @@ use aster_drive_model::entities::tag::{self, Entity as Tag};
 use aster_drive_model::types::TagScopeType;
 use aster_forge_db::{pagination::fetch_offset_page, search_query::lower_like_condition};
 
+/// Inserts a new tag with `sort_order` 0; duplicate display names within the
+/// same scope are the caller's concern, not enforced here.
 pub async fn create(
     db: &DatabaseConnection,
     scope_type: TagScopeType,
@@ -38,6 +40,7 @@ pub async fn create(
     .map_err(AsterError::from)
 }
 
+/// Loads a tag by id, returning `record_not_found` when absent.
 pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<tag::Model> {
     Tag::find_by_id(id)
         .one(db)
@@ -46,6 +49,8 @@ pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<tag::Model> 
         .ok_or_else(|| AsterError::record_not_found("tag not found"))
 }
 
+/// Loads the requested tags ordered by `sort_order` then name. An empty id list
+/// short-circuits to an empty vector; missing ids are silently dropped.
 pub async fn find_by_ids(db: &DatabaseConnection, ids: &[i64]) -> Result<Vec<tag::Model>> {
     if ids.is_empty() {
         return Ok(vec![]);
@@ -60,6 +65,7 @@ pub async fn find_by_ids(db: &DatabaseConnection, ids: &[i64]) -> Result<Vec<tag
         .map_err(AsterError::from)
 }
 
+/// Lists all personal-scope tags of a user, ordered by `sort_order` then name.
 pub async fn list_personal(db: &DatabaseConnection, owner_user_id: i64) -> Result<Vec<tag::Model>> {
     Tag::find()
         .filter(tag::Column::ScopeType.eq(TagScopeType::Personal))
@@ -71,6 +77,9 @@ pub async fn list_personal(db: &DatabaseConnection, owner_user_id: i64) -> Resul
         .map_err(AsterError::from)
 }
 
+/// Returns one offset page of a user's personal tags, optionally filtered by a
+/// case-insensitive normalized-name substring, ordered by `sort_order` then
+/// name, together with the total matching count.
 pub async fn list_personal_page(
     db: &DatabaseConnection,
     owner_user_id: i64,
@@ -91,6 +100,7 @@ pub async fn list_personal_page(
     fetch_offset_page(db, query, limit, offset).await
 }
 
+/// Lists all team-scope tags of a team, ordered by `sort_order` then name.
 pub async fn list_team(db: &DatabaseConnection, team_id: i64) -> Result<Vec<tag::Model>> {
     Tag::find()
         .filter(tag::Column::ScopeType.eq(TagScopeType::Team))
@@ -102,6 +112,9 @@ pub async fn list_team(db: &DatabaseConnection, team_id: i64) -> Result<Vec<tag:
         .map_err(AsterError::from)
 }
 
+/// Returns one offset page of a team's tags, optionally filtered by a
+/// case-insensitive normalized-name substring, ordered by `sort_order` then
+/// name, together with the total matching count.
 pub async fn list_team_page(
     db: &DatabaseConnection,
     team_id: i64,
@@ -122,6 +135,8 @@ pub async fn list_team_page(
     fetch_offset_page(db, query, limit, offset).await
 }
 
+/// Finds a user's personal tag by exact normalized name. Returns `None` when
+/// the user has no such tag.
 pub async fn find_personal_by_normalized_name(
     db: &DatabaseConnection,
     owner_user_id: i64,
@@ -136,6 +151,8 @@ pub async fn find_personal_by_normalized_name(
         .map_err(AsterError::from)
 }
 
+/// Finds a team's tag by exact normalized name. Returns `None` when the team
+/// has no such tag.
 pub async fn find_team_by_normalized_name(
     db: &DatabaseConnection,
     team_id: i64,
@@ -150,6 +167,8 @@ pub async fn find_team_by_normalized_name(
         .map_err(AsterError::from)
 }
 
+/// Persists the given tag model, replacing only the supplied fields (`None`
+/// keeps the stored value) and refreshing `updated_at`.
 pub async fn update(
     db: &DatabaseConnection,
     tag: tag::Model,
@@ -171,6 +190,7 @@ pub async fn update(
     active.update(db).await.map_err(AsterError::from)
 }
 
+/// Deletes a tag by id; succeeds even when the id is absent.
 pub async fn delete<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     Tag::delete_by_id(id)
         .exec(db)
@@ -179,10 +199,12 @@ pub async fn delete<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     Ok(())
 }
 
+/// Counts all tag rows across every scope and owner.
 pub async fn count(db: &DatabaseConnection) -> Result<u64> {
     Tag::find().count(db).await.map_err(AsterError::from)
 }
 
+/// Refreshes a tag's `updated_at` to now; succeeds even when the id is absent.
 pub async fn touch(db: &DatabaseConnection, id: i64) -> Result<()> {
     Tag::update_many()
         .col_expr(tag::Column::UpdatedAt, Expr::value(Utc::now()))

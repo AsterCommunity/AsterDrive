@@ -31,6 +31,8 @@ use super::s3_compatible::S3CompatibleDriver;
 use super::s3_config::{S3ConfigError, normalize_s3_endpoint_and_bucket};
 use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
 
+/// 阿里云 OSS 运行时驱动：对象 I/O 复用 S3 兼容层并改写为 OSS V4 签名，
+/// 浏览器 presigned URL 一律由公网 endpoint client 生成。
 pub struct AlibabaOssDriver {
     storage: S3CompatibleDriver,
     public_driver: Arc<S3Driver>,
@@ -51,26 +53,43 @@ struct CdnConfig {
     base_path: String,
 }
 
+/// OSS 驱动的连接与下载交付配置。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AlibabaOssDriverConfig {
+    /// 浏览器对象访问与 presigned URL 使用的 OSS endpoint。
     pub endpoint: String,
+    /// 仅服务端 I/O 使用的 OSS endpoint；留空时复用 `endpoint`。
     pub server_side_endpoint: String,
+    /// OSS region 标识，如 `cn-hangzhou`。
     pub region: String,
+    /// OSS bucket 名称，须满足 OSS bucket 命名规则。
     pub bucket: String,
+    /// 拼接在每条 driver 相对路径之前的对象 key 前缀。
     pub base_path: String,
+    /// 将 `endpoint` 视为绑定 bucket 的 CNAME 域名，而非 aliyuncs.com 主机。
     pub use_cname: bool,
+    /// OSS 请求的 TCP 连接超时。
     pub connect_timeout: Duration,
+    /// 等待 OSS 响应字节的空闲读取超时。
     pub read_timeout: Duration,
+    /// 限制单次 OSS 操作整体耗时。
     pub operation_timeout: Duration,
+    /// 浏览器下载链接的交付通道。
     pub download_delivery: cdn::OssDownloadDelivery,
+    /// HTTPS CDN 下载域名；[`cdn::OssDownloadDelivery::AlibabaCdnTypeA`] 模式必需。
     pub cdn_domain: Option<String>,
+    /// CDN Type A 控制台有效期（秒），取值 1..=31_536_000。
     pub cdn_auth_validity_seconds: u32,
 }
 
+/// OSS 驱动的凭据材料。
 #[derive(Clone, PartialEq, Eq)]
 pub struct AlibabaOssStaticCredentials {
+    /// OSS AccessKey ID。
     pub access_key: String,
+    /// 用于 V4 签名的 OSS AccessKey secret。
     pub secret_key: String,
+    /// CDN Type A 认证密钥；选择 CDN 交付时必需。
     pub cdn_auth_key: Option<String>,
 }
 
@@ -88,6 +107,7 @@ impl std::fmt::Debug for AlibabaOssStaticCredentials {
 }
 
 impl AlibabaOssDriver {
+    /// 校验 endpoint/bucket/region 形态与 CDN 交付选项，不涉及凭据。
     pub fn validate_connection_config(config: &AlibabaOssDriverConfig) -> Result<()> {
         let public = normalize_oss_endpoint(
             &config.endpoint,
@@ -143,6 +163,7 @@ impl AlibabaOssDriver {
         Ok(())
     }
 
+    /// 校验连接配置与凭据；CDN 交付模式额外要求格式正确的认证密钥。
     pub fn validate_config(
         config: &AlibabaOssDriverConfig,
         credentials: &AlibabaOssStaticCredentials,
@@ -183,6 +204,7 @@ impl AlibabaOssDriver {
         Ok(())
     }
 
+    /// 构建驱动：presigned URL 走公网 client，配置了服务端 endpoint 时额外建独立后端 client。
     pub fn new(
         config: AlibabaOssDriverConfig,
         credentials: AlibabaOssStaticCredentials,
@@ -244,10 +266,12 @@ impl AlibabaOssDriver {
             .await
     }
 
+    /// 服务端对象 I/O 使用的 S3 client（配置内网 endpoint 时即内网 client）。
     pub fn backend_s3_driver(&self) -> Arc<S3Driver> {
         self.storage.s3_driver()
     }
 
+    /// 绑定公网 endpoint 的 S3 client；所有 presigned URL 由此生成。
     pub fn public_s3_driver(&self) -> Arc<S3Driver> {
         self.public_driver.clone()
     }

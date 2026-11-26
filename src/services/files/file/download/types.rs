@@ -6,15 +6,21 @@ use super::range::ResolvedDownloadRange;
 pub struct StreamedFile {
     pub(crate) metrics: aster_drive_metrics::SharedMetricsRecorder,
     pub(crate) transfer_source: aster_drive_metrics::TransferSource,
+    /// MIME type sent as the `Content-Type` header.
     pub content_type: String,
+    /// Body length in bytes sent as the `Content-Length` header.
     pub content_length: i64,
+    /// Pre-rendered `Content-Disposition` header value (inline or attachment).
     pub content_disposition: String,
+    /// Entity tag of the served snapshot, echoed as the `ETag` header.
     pub etag: String,
+    /// Static `Cache-Control` header value for the response.
     pub cache_control: &'static str,
     /// 仅 inline 且需要沙盒隔离时不为 None。
     pub csp: Option<&'static str>,
     /// HTTP Range 响应元数据。None 表示完整文件 200 响应。
     pub(crate) range: Option<ResolvedDownloadRange>,
+    /// Streaming response body reader.
     pub body: ReaderStream<Box<dyn tokio::io::AsyncRead + Unpin + Send>>,
 }
 
@@ -24,15 +30,23 @@ pub enum DownloadOutcome {
     Stream(StreamedFile),
     /// 304 Not Modified：客户端缓存命中。
     NotModified {
+        /// Entity tag the client should keep using.
         etag: String,
+        /// `Cache-Control` header value for the 304 response.
         cache_control: &'static str,
+        /// Content-security sandbox header, same policy as the streamed file.
         csp: Option<&'static str>,
     },
     /// 302 redirect to a provider-issued temporary download URL.
-    DirectRedirect { url: String },
+    DirectRedirect {
+        /// Pre-signed temporary URL the client should be redirected to.
+        url: String,
+    },
 }
 
 impl DownloadOutcome {
+    /// Metric label describing the outcome kind, including `partial` for
+    /// ranged streams.
     pub fn metrics_outcome(&self) -> &'static str {
         match self {
             Self::Stream(stream) => {
@@ -47,6 +61,7 @@ impl DownloadOutcome {
         }
     }
 
+    /// True when the outcome is a ranged (partial content) stream.
     pub fn has_range(&self) -> bool {
         matches!(self, Self::Stream(stream) if stream.range.is_some())
     }

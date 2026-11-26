@@ -12,6 +12,7 @@ use sea_orm::{
     QueryOrder, Select,
 };
 
+/// Loads a managed follower node by id, returning `record_not_found` when absent.
 pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<managed_follower::Model> {
     ManagedFollower::find_by_id(id)
         .one(db)
@@ -20,6 +21,8 @@ pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<managed_f
         .ok_or_else(|| AsterError::record_not_found(format!("managed_follower #{id}")))
 }
 
+/// Resolves a follower node by the access key it authenticates with. Returns
+/// `None` when no node carries the key.
 pub async fn find_by_access_key(
     db: &DatabaseConnection,
     access_key: &str,
@@ -31,6 +34,7 @@ pub async fn find_by_access_key(
         .map_err(AsterError::from)
 }
 
+/// Lists every managed follower node, newest registrations first.
 pub async fn find_all(db: &DatabaseConnection) -> Result<Vec<managed_follower::Model>> {
     ManagedFollower::find()
         .order_by_desc(managed_follower::Column::CreatedAt)
@@ -40,6 +44,8 @@ pub async fn find_all(db: &DatabaseConnection) -> Result<Vec<managed_follower::M
         .map_err(AsterError::from)
 }
 
+/// Returns one offset page of follower nodes ordered by the requested admin
+/// sort key (tie-broken by id), together with the total matching count.
 pub async fn find_paginated(
     db: &DatabaseConnection,
     limit: u64,
@@ -102,6 +108,7 @@ fn apply_admin_remote_node_sort(
     }
 }
 
+/// Registers a new managed follower node from the given active model.
 pub async fn create(
     db: &DatabaseConnection,
     model: managed_follower::ActiveModel,
@@ -109,6 +116,7 @@ pub async fn create(
     model.insert(db).await.map_err(AsterError::from)
 }
 
+/// Persists the given follower model's changed fields.
 pub async fn update(
     db: &DatabaseConnection,
     model: managed_follower::ActiveModel,
@@ -116,6 +124,7 @@ pub async fn update(
     model.update(db).await.map_err(AsterError::from)
 }
 
+/// Deletes a follower node by id, returning `record_not_found` when absent.
 pub async fn delete(db: &DatabaseConnection, id: i64) -> Result<()> {
     let result = ManagedFollower::delete_by_id(id)
         .exec(db)
@@ -129,6 +138,8 @@ pub async fn delete(db: &DatabaseConnection, id: i64) -> Result<()> {
     Ok(())
 }
 
+/// Records the latest probe outcome (capabilities, error detail and probe time,
+/// `None` meaning no successful probe) and returns the reloaded row.
 pub async fn touch_probe_result(
     db: &DatabaseConnection,
     id: i64,
@@ -156,6 +167,8 @@ pub async fn touch_probe_result(
     find_by_id(db, id).await
 }
 
+/// Clears the tunnel runtime error and advances `tunnel_last_handshake_at` to
+/// the given time, never moving it backwards, then returns the reloaded row.
 pub async fn touch_tunnel_success(
     db: &DatabaseConnection,
     id: i64,
@@ -187,6 +200,7 @@ pub async fn touch_tunnel_success(
     find_by_id(db, id).await
 }
 
+/// Records the current tunnel runtime error detail and returns the reloaded row.
 pub async fn touch_tunnel_runtime_error(
     db: &DatabaseConnection,
     id: i64,
@@ -204,6 +218,10 @@ pub async fn touch_tunnel_runtime_error(
     find_by_id(db, id).await
 }
 
+/// Acknowledges that the follower applied the desired binding revision. The
+/// update only lands when `applied_revision` is between the current applied
+/// value (strictly less) and the desired revision (at least), so out-of-order
+/// acknowledgements cannot move the counter backwards.
 pub async fn acknowledge_binding_revision<C: ConnectionTrait>(
     db: &C,
     id: i64,

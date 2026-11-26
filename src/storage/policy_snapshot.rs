@@ -315,10 +315,12 @@ impl PolicySnapshotData {
 }
 
 impl PolicySnapshot {
+    /// Return the policy model from the published snapshot, if present.
     pub fn get_policy(&self, policy_id: i64) -> Option<storage_policy::Model> {
         self.snapshot.read().policies_by_id.get(&policy_id).cloned()
     }
 
+    /// Return every policy model currently published in the snapshot.
     pub fn all_policies(&self) -> Vec<storage_policy::Model> {
         self.snapshot
             .read()
@@ -328,15 +330,20 @@ impl PolicySnapshot {
             .collect()
     }
 
+    /// Return the policy model, or a storage-policy-not-found error.
     pub fn get_policy_or_err(&self, policy_id: i64) -> Result<storage_policy::Model> {
         self.get_policy(policy_id)
             .ok_or_else(|| AsterError::storage_policy_not_found(format!("policy #{policy_id}")))
     }
 
+    /// Whether the policy may accept new outbound traffic: a remote policy is
+    /// available only while its bound node is enabled.
     pub fn is_policy_available_for_outbound(&self, policy: &storage_policy::Model) -> bool {
         self.policy_available_for_outbound(policy)
     }
 
+    /// Explain why the policy cannot accept outbound traffic; `None` means it
+    /// is currently available.
     pub fn describe_policy_outbound_availability(
         &self,
         policy: &storage_policy::Model,
@@ -359,6 +366,7 @@ impl PolicySnapshot {
         }
     }
 
+    /// Return the policy group model from the published snapshot, if present.
     pub fn get_policy_group(&self, group_id: i64) -> Option<storage_policy_group::Model> {
         self.snapshot
             .read()
@@ -367,12 +375,14 @@ impl PolicySnapshot {
             .cloned()
     }
 
+    /// Return the policy group model, or a record-not-found error.
     pub fn get_policy_group_or_err(&self, group_id: i64) -> Result<storage_policy_group::Model> {
         self.get_policy_group(group_id).ok_or_else(|| {
             AsterError::record_not_found(format!("storage_policy_group #{group_id}"))
         })
     }
 
+    /// Return the compiled placement profile for a policy group, if present.
     pub fn get_placement_profile(&self, profile_id: i64) -> Option<CompiledPlacementProfile> {
         self.snapshot
             .read()
@@ -381,6 +391,8 @@ impl PolicySnapshot {
             .cloned()
     }
 
+    /// Resolve a routing decision through the group's compiled placement
+    /// profile; fails when the profile is missing or no rule matches.
     pub fn resolve_placement(
         &self,
         profile_id: i64,
@@ -402,6 +414,9 @@ impl PolicySnapshot {
         })
     }
 
+    /// Resolve a routing decision while excluding targets listed in
+    /// `dynamic_exclusions` with the paired reason, on top of the static
+    /// exclusions compiled into the profile.
     pub fn resolve_placement_with_exclusions(
         &self,
         profile_id: i64,
@@ -429,6 +444,7 @@ impl PolicySnapshot {
         })
     }
 
+    /// Return the policy group assigned to a team, if any.
     pub fn resolve_team_policy_group_id(&self, team_id: i64) -> Option<i64> {
         self.snapshot
             .read()
@@ -437,6 +453,7 @@ impl PolicySnapshot {
             .copied()
     }
 
+    /// Return the policy group assigned to a user, if any.
     pub fn resolve_default_policy_group_id(&self, user_id: i64) -> Option<i64> {
         self.snapshot
             .read()
@@ -445,6 +462,8 @@ impl PolicySnapshot {
             .copied()
     }
 
+    /// Return the policy group model assigned to a user; `None` when the user
+    /// has no assignment or the group left the snapshot.
     pub fn resolve_default_policy_group(
         &self,
         user_id: i64,
@@ -453,6 +472,8 @@ impl PolicySnapshot {
         self.get_policy_group(group_id)
     }
 
+    /// Return the user's assigned policy group id, or a
+    /// storage-policy-not-found error when the user has none.
     pub fn require_user_policy_group_id(&self, user_id: i64) -> Result<i64> {
         self.resolve_default_policy_group_id(user_id)
             .ok_or_else(|| {
@@ -462,11 +483,14 @@ impl PolicySnapshot {
             })
     }
 
+    /// Return the system default policy (the one marked `is_default`), if present.
     pub fn system_default_policy(&self) -> Option<storage_policy::Model> {
         let policy_id = self.snapshot.read().system_default_policy_id?;
         self.get_policy(policy_id)
     }
 
+    /// Return the system default policy group (the one marked `is_default`),
+    /// if present.
     pub fn system_default_policy_group(&self) -> Option<storage_policy_group::Model> {
         let group_id = self.snapshot.read().system_default_policy_group_id?;
         self.get_policy_group(group_id)

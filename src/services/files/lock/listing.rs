@@ -9,6 +9,8 @@ use aster_forge_api::{OffsetPage, SortOrder};
 use super::models::ResourceLock;
 use super::owner_info::deserialize_resource_lock_owner_info;
 
+/// Lists all resource locks for the admin console, paginated, with owner
+/// summaries and owner info resolved per entry.
 pub async fn list_paginated(
     state: &impl SharedRuntimeState,
     limit: u64,

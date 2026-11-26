@@ -11,6 +11,8 @@ use sea_orm::{
     ExprTrait, QueryFilter, QueryOrder, QuerySelect, Select, Set, sea_query::Expr,
 };
 
+/// Loads a storage policy by id, returning the product's policy-not-found error
+/// when absent.
 pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<storage_policy::Model> {
     StoragePolicy::find_by_id(id)
         .one(db)
@@ -19,6 +21,9 @@ pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<storage_p
         .ok_or_else(|| AsterError::storage_policy_not_found(format!("policy #{id}")))
 }
 
+/// Loads a policy under an exclusive row lock inside the caller's transaction
+/// (row locking only on PostgreSQL/MySQL; SQLite relies on its single-writer
+/// semantics). Returns the policy-not-found error when absent.
 pub async fn lock_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<storage_policy::Model> {
     match db.get_database_backend() {
         DbBackend::Postgres | DbBackend::MySql => StoragePolicy::find_by_id(id)
@@ -32,6 +37,8 @@ pub async fn lock_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<storage_p
     }
 }
 
+/// Returns the policy flagged as default (lowest id wins if several exist), or
+/// `None` when no default is set.
 pub async fn find_default<C: ConnectionTrait>(db: &C) -> Result<Option<storage_policy::Model>> {
     StoragePolicy::find()
         .filter(storage_policy::Column::IsDefault.eq(true))
@@ -41,6 +48,7 @@ pub async fn find_default<C: ConnectionTrait>(db: &C) -> Result<Option<storage_p
         .map_err(AsterError::from)
 }
 
+/// Lists every storage policy ordered by id.
 pub async fn find_all<C: ConnectionTrait>(db: &C) -> Result<Vec<storage_policy::Model>> {
     StoragePolicy::find()
         .order_by_asc(storage_policy::Column::Id)
@@ -49,6 +57,9 @@ pub async fn find_all<C: ConnectionTrait>(db: &C) -> Result<Vec<storage_policy::
         .map_err(AsterError::from)
 }
 
+/// Returns one offset page of policies, optionally filtered by a
+/// case-insensitive name substring, ordered by the requested admin sort key
+/// (tie-broken by id), together with the total matching count.
 pub async fn find_paginated(
     db: &DatabaseConnection,
     limit: u64,
@@ -113,6 +124,7 @@ fn apply_admin_policy_sort(
     }
 }
 
+/// Inserts a new storage policy from the given active model.
 pub async fn create<C: ConnectionTrait>(
     db: &C,
     model: storage_policy::ActiveModel,
@@ -135,6 +147,8 @@ pub async fn clear_system_default<C: ConnectionTrait>(db: &C) -> Result<()> {
     Ok(())
 }
 
+/// Verifies the policy exists, then makes it the only default in a single
+/// statement (its `is_default` true, every other policy's false).
 pub async fn set_only_default<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     find_by_id(db, id).await?;
 
@@ -151,6 +165,9 @@ pub async fn set_only_default<C: ConnectionTrait>(db: &C, id: i64) -> Result<()>
     Ok(())
 }
 
+/// Moves a policy onto a different storage connector: replaces the connector id
+/// and stored connector configuration and refreshes `updated_at`. Reads and
+/// writes of existing content are the caller's migration concern.
 pub async fn promote_connector<C: ConnectionTrait>(
     db: &C,
     policy: storage_policy::Model,
@@ -164,6 +181,7 @@ pub async fn promote_connector<C: ConnectionTrait>(
     active.update(db).await.map_err(AsterError::from)
 }
 
+/// Deletes a policy by id, returning the policy-not-found error when absent.
 pub async fn delete<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     let result = StoragePolicy::delete_by_id(id)
         .exec(db)

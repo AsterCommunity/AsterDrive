@@ -12,6 +12,11 @@ use super::{
     PublicPreviewAppConfig, PublicPreviewAppDefinition, PublicPreviewAppsConfig,
 };
 
+/// Builds the built-in preview app set used when no runtime config exists or
+/// when the stored config fails validation.
+///
+/// The returned `version` is always the currently supported schema version,
+/// and the list contains every required built-in app key.
 pub fn default_public_preview_apps() -> PublicPreviewAppsConfig {
     PublicPreviewAppsConfig {
         version: PREVIEW_APPS_VERSION,
@@ -116,6 +121,9 @@ pub fn default_public_preview_apps() -> PublicPreviewAppsConfig {
     }
 }
 
+/// Serializes [`default_public_preview_apps`] to pretty JSON for seeding the
+/// runtime config; on serialization failure falls back to a compact empty
+/// apps document.
 pub fn default_public_preview_apps_json() -> String {
     serde_json::to_string_pretty(&default_public_preview_apps()).unwrap_or_else(|error| {
         tracing::warn!(%error, "failed to serialize default preview apps config");

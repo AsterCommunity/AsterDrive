@@ -9,6 +9,7 @@ use sea_orm::{
 use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::mfa_login_flow::{self, Entity as MfaLoginFlow};
 
+/// Inserts a new MFA login flow from the given active model.
 pub async fn create(
     db: &DatabaseConnection,
     model: mfa_login_flow::ActiveModel,
@@ -16,6 +17,8 @@ pub async fn create(
     model.insert(db).await.map_err(AsterError::from)
 }
 
+/// Resolves a login flow by its flow-token hash, without lifecycle filtering;
+/// callers must still check consumption and expiry.
 pub async fn find_by_flow_token_hash<C: ConnectionTrait>(
     db: &C,
     flow_token_hash: &str,
@@ -58,6 +61,11 @@ pub async fn lock_for_verification<C: ConnectionTrait>(
     }
 }
 
+/// Increments a flow's attempt count only from the expected value, below the
+/// max, within expiry and while unconsumed — a CAS against concurrent
+/// verifications. When `consume_at` is set the flow is marked consumed in the
+/// same statement. Returns `false` when any guard fails, leaving the row
+/// untouched.
 pub async fn increment_attempts<C: ConnectionTrait>(
     db: &C,
     id: i64,
@@ -86,6 +94,9 @@ pub async fn increment_attempts<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// Marks a flow consumed on successful verification, guarded by the expected
+/// attempt count, the attempt budget, expiry and non-consumption. Returns
+/// `false` when any guard fails, so a flow cannot be consumed twice.
 pub async fn consume<C: ConnectionTrait>(
     db: &C,
     id: i64,
@@ -106,6 +117,7 @@ pub async fn consume<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// Removes every login flow of a user, returning the number of deleted rows.
 pub async fn delete_all_for_user<C: ConnectionTrait>(db: &C, user_id: i64) -> Result<u64> {
     let result = MfaLoginFlow::delete_many()
         .filter(mfa_login_flow::Column::UserId.eq(user_id))
@@ -115,6 +127,7 @@ pub async fn delete_all_for_user<C: ConnectionTrait>(db: &C, user_id: i64) -> Re
     Ok(result.rows_affected)
 }
 
+/// Removes flows that expired before `now`, returning the number of deleted rows.
 pub async fn cleanup_expired(db: &DatabaseConnection, now: chrono::DateTime<Utc>) -> Result<u64> {
     let result = MfaLoginFlow::delete_many()
         .filter(mfa_login_flow::Column::ExpiresAt.lt(now))

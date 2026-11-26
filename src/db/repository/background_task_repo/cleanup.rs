@@ -9,6 +9,9 @@ use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::background_task::{self, Entity as BackgroundTask};
 use aster_drive_model::types::BackgroundTaskStatus;
 
+/// Lists finished tasks (Succeeded/Failed/Canceled) whose retention window has
+/// passed (`expires_at` at or before `now`), oldest expiry first, at most
+/// `limit` rows.
 pub async fn list_expired_terminal(
     db: &DatabaseConnection,
     now: DateTime<Utc>,
@@ -28,6 +31,8 @@ pub async fn list_expired_terminal(
         .map_err(AsterError::from)
 }
 
+/// Removes tasks by id, returning the number of deleted rows. An empty id list
+/// short-circuits to zero; callers are responsible for having locked the rows.
 pub async fn delete_many<C: ConnectionTrait>(db: &C, ids: &[i64]) -> Result<u64> {
     if ids.is_empty() {
         return Ok(0);
@@ -40,6 +45,8 @@ pub async fn delete_many<C: ConnectionTrait>(db: &C, ids: &[i64]) -> Result<u64>
         .rows_affected)
 }
 
+/// Deletes finished tasks matching the cleanup filters in one statement,
+/// returning the number of deleted rows.
 pub async fn delete_terminal_by_filters<C: ConnectionTrait>(
     db: &C,
     filters: &TerminalTaskCleanupFilters,
@@ -52,6 +59,9 @@ pub async fn delete_terminal_by_filters<C: ConnectionTrait>(
         .rows_affected)
 }
 
+/// Lists tasks matching the cleanup filters under an exclusive row lock inside
+/// the caller's transaction (no lock on SQLite; it relies on single-writer
+/// semantics), ordered by id.
 pub async fn list_terminal_by_filters_for_update<C: ConnectionTrait>(
     db: &C,
     filters: &TerminalTaskCleanupFilters,

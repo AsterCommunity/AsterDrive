@@ -18,6 +18,8 @@ use crate::services::media::processing::shared::{
 
 const MAX_CACHED_THUMBNAIL_BYTES: u64 = 16 * 1024 * 1024;
 
+/// Deletes all cached thumbnails and image previews for the blob and clears
+/// its persisted thumbnail metadata.
 pub async fn delete_thumbnail(state: &PrimaryAppState, blob: &file_blob::Model) -> Result<()> {
     let policy = state.policy_snapshot().get_policy_or_err(blob.policy_id)?;
     let driver = state.driver_registry().get_driver(&policy)?;

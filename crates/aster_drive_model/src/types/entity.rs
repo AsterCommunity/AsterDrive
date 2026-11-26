@@ -1,3 +1,5 @@
+//! 实体与资源锁目标类型。
+
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
@@ -11,8 +13,10 @@ use utoipa::ToSchema;
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(16))")]
 #[serde(rename_all = "lowercase")]
 pub enum EntityType {
+    /// A stored file row.
     #[sea_orm(string_value = "file")]
     File,
+    /// A stored folder row.
     #[sea_orm(string_value = "folder")]
     Folder,
 }
@@ -28,17 +32,22 @@ pub enum EntityType {
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(16))")]
 #[serde(rename_all = "snake_case")]
 pub enum ResourceLockTargetType {
+    /// A file row.
     #[sea_orm(string_value = "file")]
     File,
+    /// A folder row.
     #[sea_orm(string_value = "folder")]
     Folder,
+    /// The virtual personal workspace root.
     #[sea_orm(string_value = "personal_root")]
     PersonalRoot,
+    /// The virtual team workspace root.
     #[sea_orm(string_value = "team_root")]
     TeamRoot,
 }
 
 impl ResourceLockTargetType {
+    /// Returns the entity type for stored rows; virtual workspace roots have none.
     #[must_use]
     pub const fn entity_type(self) -> Option<EntityType> {
         match self {
@@ -59,6 +68,7 @@ impl From<EntityType> for ResourceLockTargetType {
 }
 
 impl EntityType {
+    /// Returns the lowercase entity name used by audit records and diagnostics.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::File => "file",

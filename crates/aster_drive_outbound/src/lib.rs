@@ -19,20 +19,31 @@ pub const OUTBOUND_HTTP_USER_AGENT: &str = concat!("AsterDrive/", env!("CARGO_PK
 /// Purpose is mandatory and participates in telemetry; profiles never permit redirects.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Profile {
+    /// Short provider API control calls such as auth, metadata and ACL updates.
     ProviderControl,
+    /// Provider object download with bounded idle reads and no total deadline.
     ProviderDownload,
+    /// Streamed provider upload; the caller owns progress watchdogs, so no idle
+    /// or total deadline applies.
     ProviderUpload,
+    /// Short node-to-node control calls on the remote protocol.
     InternalControl,
+    /// Long-lived node-to-node file transfer with an overall deadline.
     InternalTransfer,
     /// Full-duplex tunnel proxy; cancellation/deadlines belong to the owning tunnel.
     InternalStreaming,
+    /// WOPI discovery fetch with very tight deadlines.
     Discovery,
+    /// Token exchange and similar calls to external identity or storage providers.
     ExternalAuth,
+    /// Server-side fetch of a user-supplied URL; proxies are disabled.
     OfflineDownload,
+    /// Host-granted plugin HTTP; proxies are disabled and deadlines are tight.
     Plugin,
 }
 
 impl Profile {
+    /// Returns the stable profile label used in telemetry and logs.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::ProviderControl => "provider_control",
@@ -109,16 +120,19 @@ impl ClientConfig {
         self
     }
 
+    /// Overrides the profile's default TCP connect timeout.
     pub fn connect_timeout(mut self, value: Duration) -> Self {
         self.connect_timeout = value;
         self
     }
 
+    /// Overrides the profile's default idle read timeout between received bytes.
     pub fn read_timeout(mut self, value: Duration) -> Self {
         self.read_timeout = Some(value);
         self
     }
 
+    /// Overrides the profile's default total request deadline.
     pub fn timeout(mut self, value: Duration) -> Self {
         self.timeout = Some(value);
         self
@@ -130,11 +144,13 @@ impl ClientConfig {
         self
     }
 
+    /// Removes the total request deadline while keeping the read timeout.
     pub fn without_total_timeout(mut self) -> Self {
         self.timeout = None;
         self
     }
 
+    /// Disables all proxy handling for this client, including system proxies.
     pub fn no_proxy(mut self) -> Self {
         self.proxy = ProxyPolicy::Disabled;
         self

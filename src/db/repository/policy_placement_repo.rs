@@ -8,6 +8,7 @@ use sea_orm::{
     RelationTrait,
 };
 
+/// Lists every placement rule across all policy groups, in arbitrary order.
 pub async fn find_all_rules<C: ConnectionTrait>(
     db: &C,
 ) -> Result<Vec<storage_policy_group_rule::Model>> {
@@ -17,6 +18,7 @@ pub async fn find_all_rules<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Lists every rule target across all rules, in arbitrary order.
 pub async fn find_all_targets<C: ConnectionTrait>(
     db: &C,
 ) -> Result<Vec<storage_policy_group_rule_target::Model>> {
@@ -26,6 +28,8 @@ pub async fn find_all_targets<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Returns `true` when the policy group owns at least one placement rule
+/// (enabled or not).
 pub async fn group_has_rules<C: ConnectionTrait>(db: &C, group_id: i64) -> Result<bool> {
     storage_policy_group_rule::Entity::find()
         .filter(storage_policy_group_rule::Column::GroupId.eq(group_id))
@@ -35,6 +39,7 @@ pub async fn group_has_rules<C: ConnectionTrait>(db: &C, group_id: i64) -> Resul
         .map_err(AsterError::from)
 }
 
+/// Lists the placement rules of one policy group, in arbitrary order.
 pub async fn find_rules_by_group_id<C: ConnectionTrait>(
     db: &C,
     group_id: i64,
@@ -46,6 +51,7 @@ pub async fn find_rules_by_group_id<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Lists the storage-policy targets attached to one rule, in arbitrary order.
 pub async fn find_targets_by_rule_id<C: ConnectionTrait>(
     db: &C,
     rule_id: i64,
@@ -57,6 +63,9 @@ pub async fn find_targets_by_rule_id<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Returns `true` when the group has an enabled rule with at least one target
+/// policy that is still accepting new writes; used to decide whether a group
+/// can keep receiving new files.
 pub async fn group_has_assignable_target<C: ConnectionTrait>(
     db: &C,
     group_id: i64,
@@ -81,6 +90,7 @@ pub async fn group_has_assignable_target<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Inserts a new placement rule from the given active model.
 pub async fn create_rule<C: ConnectionTrait>(
     db: &C,
     model: storage_policy_group_rule::ActiveModel,
@@ -88,6 +98,7 @@ pub async fn create_rule<C: ConnectionTrait>(
     model.insert(db).await.map_err(AsterError::from)
 }
 
+/// Attaches a new storage-policy target to a placement rule.
 pub async fn create_target<C: ConnectionTrait>(
     db: &C,
     model: storage_policy_group_rule_target::ActiveModel,
@@ -95,6 +106,9 @@ pub async fn create_target<C: ConnectionTrait>(
     model.insert(db).await.map_err(AsterError::from)
 }
 
+/// Removes every placement rule owned by the group, returning the number of
+/// deleted rules. Targets of those rules are handled by foreign-key cascade or
+/// the caller's transaction, not here.
 pub async fn delete_rules_by_group<C: ConnectionTrait>(db: &C, group_id: i64) -> Result<u64> {
     let result = storage_policy_group_rule::Entity::delete_many()
         .filter(storage_policy_group_rule::Column::GroupId.eq(group_id))
@@ -104,6 +118,8 @@ pub async fn delete_rules_by_group<C: ConnectionTrait>(db: &C, group_id: i64) ->
     Ok(result.rows_affected)
 }
 
+/// Counts the rules (across all groups) that target the given storage policy;
+/// used before policy deletion to check for placement references.
 pub async fn count_targets_by_policy<C: ConnectionTrait>(db: &C, policy_id: i64) -> Result<u64> {
     storage_policy_group_rule_target::Entity::find()
         .filter(storage_policy_group_rule_target::Column::PolicyId.eq(policy_id))

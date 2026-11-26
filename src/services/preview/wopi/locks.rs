@@ -37,6 +37,11 @@ pub(crate) enum WopiMutationAuthorization {
     Conflict(WopiConflict),
 }
 
+/// WOPI GetLock: reports the active lock for the file.
+///
+/// Returns an empty `current_lock` when no lock exists, the opaque lock ID
+/// when a WOPI lock is held, and a conflict when the file is locked outside
+/// WOPI or by more than one session.
 pub async fn get_lock(
     state: &impl SharedRuntimeState,
     file_id: i64,
@@ -58,6 +63,11 @@ pub async fn get_lock(
     }
 }
 
+/// WOPI Lock: creates or idempotently refreshes a lock.
+///
+/// Locking an unlocked file creates a WOPI lock bound to the opaque lock ID
+/// from `X-WOPI-Lock` (never to a user or app). Re-locking with the same ID
+/// refreshes the expiry; a different ID or an outside lock yields a conflict.
 pub async fn lock_file(
     state: &impl SharedRuntimeState,
     file_id: i64,
@@ -123,6 +133,8 @@ pub async fn lock_file(
     Ok(WopiLockOperationResult::Success)
 }
 
+/// WOPI UnlockAndRelock (LOCK with `X-WOPI-OldLock`): swaps the lock ID only
+/// when `old_lock` matches the currently held one.
 pub async fn unlock_and_relock_file(
     state: &impl SharedRuntimeState,
     file_id: i64,
@@ -171,6 +183,8 @@ pub async fn unlock_and_relock_file(
     }
 }
 
+/// WOPI RefreshLock: extends the lock expiry when `requested_lock` matches the
+/// currently held lock ID.
 pub async fn refresh_lock(
     state: &impl SharedRuntimeState,
     file_id: i64,
@@ -217,6 +231,8 @@ pub async fn refresh_lock(
     }
 }
 
+/// WOPI Unlock: releases the file lock when `requested_lock` matches the
+/// currently held lock ID.
 pub async fn unlock_file(
     state: &impl SharedRuntimeState,
     file_id: i64,

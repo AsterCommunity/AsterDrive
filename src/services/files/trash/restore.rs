@@ -276,6 +276,7 @@ pub async fn restore_file(
     restore_file_in_scope(state, WorkspaceStorageScope::Personal { user_id }, id).await
 }
 
+/// 恢复团队回收站中的文件到原位置；原父目录已删除或移出团队时落到根目录。
 pub async fn restore_team_file(
     state: &impl StorageChangeRuntimeState,
     team_id: i64,

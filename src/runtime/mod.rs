@@ -20,20 +20,34 @@ use aster_forge_mail::MailSender;
 use sea_orm::DatabaseConnection;
 use std::sync::Arc;
 
+/// Shared application state for a primary node process; cheap to clone and
+/// shared by all HTTP workers and background services.
 #[derive(Clone)]
 pub struct PrimaryAppState {
+    /// Writer/reader database handles; writes go through the writer handle.
     pub db_handles: DbHandles,
+    /// Buffered audit writer that persists audit events outside request paths.
     pub audit_writer: Arc<aster_forge_audit::AuditWriter>,
+    /// Registered storage connectors used to resolve and build storage drivers.
     pub driver_registry: Arc<DriverRegistry>,
+    /// Hot-reloadable runtime configuration, distinct from the static file config.
     pub runtime_config: Arc<RuntimeConfig>,
+    /// Snapshot of current storage policies used for quota and policy checks.
     pub policy_snapshot: Arc<PolicySnapshot>,
+    /// Static configuration loaded at startup.
     pub config: Arc<Config>,
+    /// Rebuildable cache projection; never authoritative for permissions or quotas.
     pub cache: Arc<dyn aster_forge_cache::CacheBackend>,
+    /// Cross-instance config synchronization runtime.
     pub config_sync: aster_forge_config::ConfigSyncRuntime,
+    /// Shared metrics recorder for request and service instrumentation.
     pub metrics: SharedMetricsRecorder,
+    /// Outbound mail sender; implementations decide actual delivery transport.
     pub mail_sender: Arc<dyn MailSender>,
     /// Local storage-change broadcast with an optional cross-instance transport.
     pub storage_change_bus: StorageChangeBus,
+    /// Admission registry enforcing per-account and per-instance limits for
+    /// storage event streams.
     pub storage_event_streams: crate::services::events::storage_streams::StorageEventStreams,
     /// 后台任务 dispatcher 唤醒信号。任务创建/重试后用它打断空闲退避 sleep。
     pub background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup,
@@ -41,17 +55,29 @@ pub struct PrimaryAppState {
     pub remote_protocol: Arc<RemoteProtocolRuntime>,
 }
 
+/// Shared application state for a follower node process; cheap to clone and
+/// shared by all HTTP workers.
 #[derive(Clone)]
 pub struct FollowerAppState {
+    /// Process-local evidence of recent control-plane communication with the primary.
     pub binding_health: Arc<follower_health::FollowerBindingHealth>,
+    /// Writer/reader database handles; writes go through the writer handle.
     pub db_handles: DbHandles,
+    /// Buffered audit writer that persists audit events outside request paths.
     pub audit_writer: Arc<aster_forge_audit::AuditWriter>,
+    /// Registered storage connectors used to resolve and build storage drivers.
     pub driver_registry: Arc<DriverRegistry>,
+    /// Hot-reloadable runtime configuration, distinct from the static file config.
     pub runtime_config: Arc<RuntimeConfig>,
+    /// Snapshot of current storage policies used for quota and policy checks.
     pub policy_snapshot: Arc<PolicySnapshot>,
+    /// Static configuration loaded at startup.
     pub config: Arc<Config>,
+    /// Rebuildable cache projection; never authoritative for permissions or quotas.
     pub cache: Arc<dyn aster_forge_cache::CacheBackend>,
+    /// Cross-instance config synchronization runtime.
     pub config_sync: aster_forge_config::ConfigSyncRuntime,
+    /// Shared metrics recorder for request and service instrumentation.
     pub metrics: SharedMetricsRecorder,
 }
 
@@ -62,12 +88,16 @@ pub struct FollowerAppState {
 /// workflows must not inherit reader projections, cache, metrics, or unrelated
 /// product services from the concrete application state.
 pub trait StorageConnectorRuntimeState {
+    /// Database connection used for transactional writes and read-after-write reads.
     fn writer_db(&self) -> &DatabaseConnection;
 
+    /// Registry for looking up and building storage connectors.
     fn driver_registry(&self) -> &Arc<DriverRegistry>;
 
+    /// Hot-reloadable runtime configuration.
     fn runtime_config(&self) -> &Arc<RuntimeConfig>;
 
+    /// Static startup configuration.
     fn config(&self) -> &Arc<Config>;
 }
 
@@ -77,68 +107,94 @@ pub trait StorageConnectorRuntimeState {
 /// this broader contract is for use cases that also need read projections or
 /// other product-wide runtime services.
 pub trait SharedRuntimeState: StorageConnectorRuntimeState {
+    /// Buffered audit writer for emitting audit events.
     fn audit_writer(&self) -> &Arc<aster_forge_audit::AuditWriter>;
 
+    /// Database connection for reads that tolerate normal replication lag.
     fn reader_db(&self) -> &DatabaseConnection;
 
+    /// Snapshot of current storage policies.
     fn policy_snapshot(&self) -> &Arc<PolicySnapshot>;
 
+    /// Rebuildable cache projection.
     fn cache(&self) -> &Arc<dyn aster_forge_cache::CacheBackend>;
 
+    /// Cross-instance config synchronization runtime.
     fn config_sync(&self) -> &aster_forge_config::ConfigSyncRuntime;
 
+    /// Shared metrics recorder.
     fn metrics(&self) -> &SharedMetricsRecorder;
 }
 
+/// Runtime contract for mail-sending workflows.
 pub trait MailRuntimeState: SharedRuntimeState {
+    /// Outbound mail sender for product mail workflows.
     fn mail_sender(&self) -> &Arc<dyn MailSender>;
 }
 
+/// Runtime contract for workflows that publish storage change events.
 pub trait StorageChangeRuntimeState: SharedRuntimeState {
+    /// Broadcast bus that fans storage changes out to subscribers.
     fn storage_change_bus(&self) -> &StorageChangeBus;
 }
 
+/// Runtime contract for remote node protocol workflows.
 pub trait RemoteProtocolRuntimeState: SharedRuntimeState {
+    /// Runtime backing remote storage protocol traffic, including reverse tunnels.
     fn remote_protocol(&self) -> &Arc<RemoteProtocolRuntime>;
 }
 
+/// Runtime contract for background task execution workflows.
 pub trait TaskRuntimeState: SharedRuntimeState {
+    /// Wakeup signal that interrupts background task idle backoff.
     fn task_wakeup(&self) -> &aster_forge_tasks::TaskWakeup;
 }
 
+/// Runtime contract for follower node workflows.
 pub trait FollowerRuntimeState: SharedRuntimeState {
+    /// Process-local evidence of recent primary control-plane communication.
     fn binding_health(&self) -> &follower_health::FollowerBindingHealth;
 }
 
 impl PrimaryAppState {
+    /// Creates the remote protocol runtime handed to the driver registry;
+    /// one instance per process.
     pub fn new_remote_protocol() -> Arc<RemoteProtocolRuntime> {
         Arc::new(RemoteProtocolRuntime::new())
     }
 
+    /// Whether SQLite storage is configured with separate reader/writer handles.
     pub fn sqlite_read_write_split(&self) -> bool {
         self.db_handles.sqlite_read_write_split()
     }
 
+    /// Database connection for transactional writes and read-after-write reads.
     pub fn writer_db(&self) -> &DatabaseConnection {
         self.db_handles.writer()
     }
 
+    /// Registry for looking up and building storage connectors.
     pub fn driver_registry(&self) -> &Arc<DriverRegistry> {
         &self.driver_registry
     }
 
+    /// Hot-reloadable runtime configuration.
     pub fn runtime_config(&self) -> &Arc<RuntimeConfig> {
         &self.runtime_config
     }
 
+    /// Static startup configuration.
     pub fn config(&self) -> &Arc<Config> {
         &self.config
     }
 
+    /// Cross-instance config synchronization runtime.
     pub fn config_sync(&self) -> &aster_forge_config::ConfigSyncRuntime {
         &self.config_sync
     }
 
+    /// Projects this primary state into follower-shaped state sharing the same
+    /// dependencies; follower-only fields (e.g. binding health) start empty.
     pub fn follower_view(&self) -> FollowerAppState {
         FollowerAppState::from(self)
     }
@@ -162,26 +218,32 @@ impl From<&PrimaryAppState> for FollowerAppState {
 }
 
 impl FollowerAppState {
+    /// Whether SQLite storage is configured with separate reader/writer handles.
     pub fn sqlite_read_write_split(&self) -> bool {
         self.db_handles.sqlite_read_write_split()
     }
 
+    /// Database connection for transactional writes and read-after-write reads.
     pub fn writer_db(&self) -> &DatabaseConnection {
         self.db_handles.writer()
     }
 
+    /// Registry for looking up and building storage connectors.
     pub fn driver_registry(&self) -> &Arc<DriverRegistry> {
         &self.driver_registry
     }
 
+    /// Hot-reloadable runtime configuration.
     pub fn runtime_config(&self) -> &Arc<RuntimeConfig> {
         &self.runtime_config
     }
 
+    /// Static startup configuration.
     pub fn config(&self) -> &Arc<Config> {
         &self.config
     }
 
+    /// Cross-instance config synchronization runtime.
     pub fn config_sync(&self) -> &aster_forge_config::ConfigSyncRuntime {
         &self.config_sync
     }

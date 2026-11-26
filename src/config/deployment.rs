@@ -5,15 +5,22 @@ use serde::{Deserialize, Serialize};
 use super::schema::Config;
 use crate::errors::{AsterError, Result};
 
+/// Static deployment topology chosen at startup and mirrored to runtime
+/// capability checks.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DeploymentProfile {
+    /// Single-node deployment: local instance state is durable and no
+    /// primary-to-primary coordination is required.
     #[default]
     Single,
+    /// Multi-primary deployment against shared PostgreSQL/MySQL, Redis cache,
+    /// and Redis config sync.
     Cluster,
 }
 
 impl DeploymentProfile {
+    /// Config-file spelling of this profile (`"single"` / `"cluster"`).
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Single => "single",
@@ -36,8 +43,10 @@ impl DeploymentProfile {
     }
 }
 
+/// Static deployment topology settings (config.toml `[deployment]`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub struct DeploymentConfig {
+    /// Deployment topology; see [`DeploymentProfile`] for the implications.
     #[serde(default)]
     pub profile: DeploymentProfile,
     /// Per-instance HTTP endpoint used by other primaries for internal data-plane proxying.
@@ -51,14 +60,22 @@ pub struct DeploymentConfig {
 const INTERNAL_PROXY_SECRET_MIN_LENGTH: usize = 32;
 
 impl DeploymentConfig {
+    /// Whether this config may run more than one Primary against shared state.
     pub const fn requires_shared_runtime(&self) -> bool {
         self.profile.requires_shared_runtime()
     }
 
+    /// Whether instance-local state owned by one process or Pod may be used
+    /// as durable data.
     pub const fn allows_instance_local_state(&self) -> bool {
         self.profile.allows_instance_local_state()
     }
 
+    /// Whether primary-to-primary internal proxying is active.
+    ///
+    /// Requires the cluster profile, a non-blank endpoint that parses as an
+    /// absolute http/https URL without query or fragment, and an internal
+    /// proxy secret of at least 32 characters.
     pub fn internal_proxy_enabled(&self) -> bool {
         let endpoint = self.internal_endpoint.trim();
         self.requires_shared_runtime()
@@ -79,6 +96,13 @@ impl aster_forge_config::ValidatableConfig for DeploymentConfig {
     }
 }
 
+/// Lists the static configuration problems for the configured deployment
+/// profile, or an empty vector when the topology is valid.
+///
+/// Cluster mode is checked against shared PostgreSQL/MySQL, Redis cache and
+/// config sync, and a complete internal proxy endpoint/secret pair. An
+/// explicit `database_url_override` (used by doctor) takes precedence over
+/// the configured database URL.
 pub fn static_issues(config: &Config, database_url_override: Option<&str>) -> Vec<String> {
     if !config.deployment.requires_shared_runtime() {
         return Vec::new();
@@ -174,6 +198,8 @@ fn config_sync_endpoint_is_blank(endpoint: &aster_forge_config::ConfigSyncEndpoi
     }
 }
 
+/// Validates the static deployment topology against the configured profile,
+/// failing with a single aggregated error when any issue exists.
 pub fn validate_static(config: &Config) -> Result<()> {
     let issues = static_issues(config, None);
     if issues.is_empty() {

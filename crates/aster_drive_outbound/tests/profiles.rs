@@ -1,3 +1,5 @@
+//! Integration tests exercising `Profile` transport behaviors against a local TCP stub.
+
 use aster_drive_outbound::{ClientConfig, Profile};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};

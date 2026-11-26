@@ -20,6 +20,7 @@ use super::shared::{
 };
 use super::{CreateTeamInput, TeamInfo, UpdateTeamInput};
 
+/// Lists all teams the user is a member of, unpaginated, in either the active or archived state.
 pub async fn list_teams(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -28,6 +29,7 @@ pub async fn list_teams(
     list_teams_filtered(state, user_id, archived, None, None, None).await
 }
 
+/// Member-scoped team list with optional keyword filtering and pagination window.
 pub async fn list_teams_filtered(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -59,6 +61,8 @@ pub async fn list_teams_filtered(
     Ok(teams)
 }
 
+/// Collects the IDs of all teams the user belongs to in the given archived state,
+/// for membership checks that do not need the full team views.
 pub async fn list_user_team_ids(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -106,6 +110,7 @@ async fn list_user_team_memberships(
     }
 }
 
+/// Creates a team owned by the caller, who becomes its first owner member.
 pub async fn create_team(
     state: &impl SharedRuntimeState,
     creator_user_id: i64,
@@ -127,6 +132,7 @@ pub async fn create_team(
     build_team_info(state, &created_team, TeamMemberRole::Owner).await
 }
 
+/// Loads one team's member view, requiring the caller to hold a membership.
 pub async fn get_team(
     state: &impl SharedRuntimeState,
     team_id: i64,
@@ -136,6 +142,7 @@ pub async fn get_team(
     build_team_info(state, &team, membership.role).await
 }
 
+/// Updates a team's profile; team manager role or above is required.
 pub async fn update_team(
     state: &impl SharedRuntimeState,
     team_id: i64,
@@ -148,6 +155,7 @@ pub async fn update_team(
     build_team_info(state, &updated, membership.role).await
 }
 
+/// Archives the team; reserved to the owner, and memberships survive for a later restore.
 pub async fn archive_team(
     state: &impl SharedRuntimeState,
     team_id: i64,
@@ -165,6 +173,7 @@ pub async fn archive_team(
     archive_team_record(state, team).await
 }
 
+/// Restores an archived team; the caller must still hold a manager-or-above membership.
 pub async fn restore_team(
     state: &impl SharedRuntimeState,
     team_id: i64,

@@ -21,6 +21,7 @@ pub async fn find_by_name_in_folder<C: ConnectionTrait>(
     find_by_name_in_folder_in_scope(db, FileScope::Personal { user_id }, folder_id, name).await
 }
 
+/// 团队空间版本的 [`find_by_name_in_folder`]。
 pub async fn find_by_name_in_team_folder<C: ConnectionTrait>(
     db: &C,
     team_id: i64,
@@ -30,6 +31,8 @@ pub async fn find_by_name_in_team_folder<C: ConnectionTrait>(
     find_by_name_in_folder_in_scope(db, FileScope::Team { team_id }, folder_id, name).await
 }
 
+/// 批量按名称查文件夹下的文件（排除已删除）；非 ASCII 名称会追加 NFC/NFD 归一化
+/// 变体一起匹配，避免 Unicode 形态差异漏检。
 pub async fn find_by_names_in_folder<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -39,6 +42,7 @@ pub async fn find_by_names_in_folder<C: ConnectionTrait>(
     find_by_names_in_folder_in_scope(db, FileScope::Personal { user_id }, folder_id, names).await
 }
 
+/// 团队空间版本的 [`find_by_names_in_folder`]。
 pub async fn find_by_names_in_team_folder<C: ConnectionTrait>(
     db: &C,
     team_id: i64,
@@ -48,6 +52,9 @@ pub async fn find_by_names_in_team_folder<C: ConnectionTrait>(
     find_by_names_in_folder_in_scope(db, FileScope::Team { team_id }, folder_id, names).await
 }
 
+/// 为 `folder_id` 下的新文件建议一个当前不冲突的名称：`name` 可用则原样返回，否则按
+/// " (1)", " (2)" … 推进副本序号（含 Unicode 归一化比较）。只基于当前快照，不保证并发
+/// 下 INSERT 时仍可用；唯一索引兜底由调用方处理。
 pub async fn resolve_unique_filename<C: ConnectionTrait>(
     db: &C,
     user_id: i64,

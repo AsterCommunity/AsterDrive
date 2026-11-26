@@ -27,12 +27,16 @@ use crate::storage::remote_protocol::{
 use aster_drive_model::entities::managed_follower;
 use aster_drive_storage::StorageErrorKind;
 
+/// Internal endpoint path prefix a standby primary calls to proxy tunnel
+/// traffic through the follower tunnel's owning runtime.
 pub const REMOTE_TUNNEL_PROXY_PATH_PREFIX: &str = "/api/v1/internal/remote-tunnel/proxy";
 const REMOTE_TUNNEL_PROXY_BODY_BRIDGE_CAPACITY: usize = 128 * 1024;
 const REMOTE_TUNNEL_PROXY_HEADERS_LIMIT: usize = 16 * 1024;
 const REMOTE_TUNNEL_PROXY_HEADER_COUNT_LIMIT: usize = 32;
 const REMOTE_TUNNEL_PROXY_RESPONSE_HEADER: &str = "x-aster-remote-tunnel-proxied";
 
+/// Query parameters of a tunnel owner proxy request: the relayed request
+/// metadata, base64url-encoded extra headers, and the owner's fencing token.
 #[derive(Debug, Deserialize)]
 pub struct RemoteTunnelProxyQuery {
     method: String,
@@ -44,6 +48,9 @@ pub struct RemoteTunnelProxyQuery {
     headers: String,
 }
 
+/// Tunnel broker for clustered primaries: serves requests locally when this
+/// runtime owns the follower's tunnel, otherwise relays them through the
+/// owner's internal endpoint.
 pub struct ClusterRemoteTunnelBroker {
     local: Arc<RemoteTunnelRegistry>,
     directory: Arc<RemoteTunnelOwnerDirectory>,
@@ -51,6 +58,7 @@ pub struct ClusterRemoteTunnelBroker {
 }
 
 impl ClusterRemoteTunnelBroker {
+    /// Builds the broker over the local registry and cluster owner directory.
     pub fn new(
         local: Arc<RemoteTunnelRegistry>,
         directory: Arc<RemoteTunnelOwnerDirectory>,
@@ -309,6 +317,10 @@ impl RemoteTunnelBroker for ClusterRemoteTunnelBroker {
     }
 }
 
+/// Owner-side handler for proxy requests from standby primaries: verifies the
+/// proxy signature, fencing token, and runtime identity, then relays the
+/// request to the follower through the local tunnel registry while the lease
+/// is held.
 pub async fn proxy_tunnel_request<S: RemoteProtocolRuntimeState>(
     state: &S,
     req: &actix_web::HttpRequest,

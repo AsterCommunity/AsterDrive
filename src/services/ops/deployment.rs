@@ -7,17 +7,24 @@ use crate::db::repository::{managed_follower_repo, policy_repo};
 use crate::errors::{AsterError, Result};
 use aster_drive_model::types::RemoteNodeTransportMode;
 
+/// Topology findings that conflict with the configured deployment profile.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DeploymentTopologyReport {
+    /// Enabled remote nodes using reverse tunnel transport while internal
+    /// primary proxying is not configured, as `(node ID, node name)` pairs.
     pub reverse_tunnel_nodes: Vec<(i64, String)>,
+    /// Storage policies whose connector is instance-local and therefore
+    /// incompatible with a shared-runtime profile, as `(policy ID, name)` pairs.
     pub instance_local_storage_policies: Vec<(i64, String)>,
 }
 
 impl DeploymentTopologyReport {
+    /// `true` when any finding conflicts with the configured deployment profile.
     pub fn has_issues(&self) -> bool {
         !self.reverse_tunnel_nodes.is_empty() || !self.instance_local_storage_policies.is_empty()
     }
 
+    /// Human-readable remediation messages, one per finding category.
     pub fn issue_messages(&self) -> Vec<String> {
         let mut messages = Vec::new();
         if !self.reverse_tunnel_nodes.is_empty() {
@@ -65,6 +72,8 @@ pub(crate) fn validate_storage_policy_driver(
     Ok(())
 }
 
+/// Rejects reverse tunnel remote nodes on shared-runtime profiles unless every
+/// primary has internal proxying configured; disabled nodes are always allowed.
 pub fn validate_remote_node_transport(
     config: &Config,
     transport_mode: RemoteNodeTransportMode,

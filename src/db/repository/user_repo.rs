@@ -19,12 +19,18 @@ use sea_orm::{
 
 const SQLITE_USERS_FTS_TABLE: &str = "users_search_fts";
 
+/// Filters and ordering for the admin user list page.
 #[derive(Debug, Clone, Copy)]
 pub struct AdminUserListFilters<'a> {
+    /// Keyword matched against username or email.
     pub keyword: Option<&'a str>,
+    /// Restricts results to this account role.
     pub role: Option<UserRole>,
+    /// Restricts results to this account status.
     pub status: Option<UserStatus>,
+    /// Result ordering key.
     pub sort_by: AdminUserSortBy,
+    /// Result ordering direction.
     pub sort_order: SortOrder,
 }
 
@@ -67,6 +73,9 @@ fn user_keyword_condition(backend: DbBackend, query: &str) -> Condition {
     }
 }
 
+/// Finds a user by id.
+///
+/// Errors with `RecordNotFound` when the account does not exist.
 pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<user::Model> {
     User::find_by_id(id)
         .one(db)
@@ -103,6 +112,10 @@ pub(crate) async fn find_authorization_fields<C: ConnectionTrait>(
         .ok_or_else(|| AsterError::record_not_found(format!("user #{id}")))
 }
 
+/// Finds a user by id with an exclusive row lock on PostgreSQL and MySQL.
+///
+/// Other backends fall back to an unlocked read. Errors with `RecordNotFound` when the
+/// account does not exist.
 pub async fn lock_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<user::Model> {
     match db.get_database_backend() {
         DbBackend::Postgres | DbBackend::MySql => User::find_by_id(id)
@@ -116,6 +129,7 @@ pub async fn lock_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<user::Mod
     }
 }
 
+/// Lists the users with the given ids; unknown ids are simply absent from the result.
 pub async fn find_by_ids<C: ConnectionTrait>(db: &C, ids: &[i64]) -> Result<Vec<user::Model>> {
     if ids.is_empty() {
         return Ok(vec![]);
@@ -165,6 +179,7 @@ pub async fn find_public_display_names<C: ConnectionTrait>(
     Ok(names)
 }
 
+/// Finds a user by exact username.
 pub async fn find_by_username<C: ConnectionTrait>(
     db: &C,
     username: &str,
@@ -176,6 +191,7 @@ pub async fn find_by_username<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Finds a user by exact email address.
 pub async fn find_by_email<C: ConnectionTrait>(db: &C, email: &str) -> Result<Option<user::Model>> {
     User::find()
         .filter(user::Column::Email.eq(email))
@@ -184,6 +200,7 @@ pub async fn find_by_email<C: ConnectionTrait>(db: &C, email: &str) -> Result<Op
         .map_err(AsterError::from)
 }
 
+/// Finds a user whose pending, not yet confirmed email matches exactly.
 pub async fn find_by_pending_email<C: ConnectionTrait>(
     db: &C,
     email: &str,
@@ -195,6 +212,7 @@ pub async fn find_by_pending_email<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Lists every user, ordered by id ascending.
 pub async fn find_all<C: ConnectionTrait>(db: &C) -> Result<Vec<user::Model>> {
     User::find()
         .order_by_asc(user::Column::Id)
@@ -203,6 +221,7 @@ pub async fn find_all<C: ConnectionTrait>(db: &C) -> Result<Vec<user::Model>> {
         .map_err(AsterError::from)
 }
 
+/// Lists the users assigned to a policy group, ordered by id ascending.
 pub async fn find_by_policy_group<C: ConnectionTrait>(
     db: &C,
     policy_group_id: i64,
@@ -215,6 +234,7 @@ pub async fn find_by_policy_group<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Counts the users assigned to a policy group.
 pub async fn count_by_policy_group<C: ConnectionTrait>(
     db: &C,
     policy_group_id: i64,
@@ -226,6 +246,7 @@ pub async fn count_by_policy_group<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Counts users holding the given role.
 pub async fn count_by_role<C: ConnectionTrait>(db: &C, role: UserRole) -> Result<u64> {
     User::find()
         .filter(user::Column::Role.eq(role))
@@ -234,6 +255,7 @@ pub async fn count_by_role<C: ConnectionTrait>(db: &C, role: UserRole) -> Result
         .map_err(AsterError::from)
 }
 
+/// Counts users holding the given role that are not assigned to any policy group.
 pub async fn count_unassigned_by_role<C: ConnectionTrait>(db: &C, role: UserRole) -> Result<u64> {
     User::find()
         .filter(user::Column::Role.eq(role))
@@ -243,6 +265,8 @@ pub async fn count_unassigned_by_role<C: ConnectionTrait>(db: &C, role: UserRole
         .map_err(AsterError::from)
 }
 
+/// Assigns every user without a policy group to the given group, returning the updated
+/// row count.
 pub async fn assign_policy_group_to_unassigned<C: ConnectionTrait>(
     db: &C,
     policy_group_id: i64,
@@ -261,6 +285,7 @@ pub async fn assign_policy_group_to_unassigned<C: ConnectionTrait>(
     Ok(result.rows_affected)
 }
 
+/// Moves every user from one policy group to another, returning the updated row count.
 pub async fn migrate_policy_group_assignments<C: ConnectionTrait>(
     db: &C,
     source_group_id: i64,
@@ -280,6 +305,7 @@ pub async fn migrate_policy_group_assignments<C: ConnectionTrait>(
     Ok(result.rows_affected)
 }
 
+/// Returns one admin page of users with the applied filters and the filtered total count.
 pub async fn find_paginated(
     db: &DatabaseConnection,
     limit: u64,
@@ -347,6 +373,7 @@ fn apply_admin_user_sort(
     }
 }
 
+/// Counts every user account.
 pub async fn count_all<C: ConnectionTrait>(db: &C) -> Result<u64> {
     User::find().count(db).await.map_err(AsterError::from)
 }
@@ -360,10 +387,14 @@ pub async fn count_by_status(db: &DatabaseConnection, status: UserStatus) -> Res
         .map_err(AsterError::from)
 }
 
+/// Inserts a new user row.
 pub async fn create<C: ConnectionTrait>(db: &C, model: user::ActiveModel) -> Result<user::Model> {
     model.insert(db).await.map_err(AsterError::from)
 }
 
+/// Deletes a user row by id.
+///
+/// Errors with `RecordNotFound` when no row with the id exists.
 pub async fn delete<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     let result = User::delete_by_id(id)
         .exec(db)
@@ -471,6 +502,9 @@ pub async fn update_storage_used<C: ConnectionTrait>(db: &C, id: i64, delta: i64
     Ok(())
 }
 
+/// Overwrites a user's recorded storage usage in bytes.
+///
+/// Errors with `RecordNotFound` when the account does not exist.
 pub async fn set_storage_used<C: ConnectionTrait>(db: &C, id: i64, value: i64) -> Result<()> {
     let result = User::update_many()
         .col_expr(user::Column::StorageUsed, Expr::value(value))

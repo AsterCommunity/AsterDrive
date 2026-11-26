@@ -13,6 +13,7 @@ use aster_drive_model::entities::{master_binding, remote_storage_target};
 use super::normalization::{new_target_key, normalize_create_input, normalize_update_input};
 use super::reconciliation::reconcile_target;
 
+/// Lists follower-owned storage targets for a master binding.
 pub async fn list<S: FollowerRuntimeState>(
     state: &S,
     binding: &master_binding::Model,
@@ -63,6 +64,10 @@ pub async fn create<S: FollowerRuntimeState>(
     reconcile_target(state, target).await?.try_into()
 }
 
+/// Updates a follower-owned storage target: bumps the desired revision,
+/// replaces the connector configuration when a connection is supplied, and
+/// re-encrypts credentials — dropping stale ones when the connector changes.
+/// Fails if the resulting state cannot be reconciled.
 pub async fn update<S: FollowerRuntimeState>(
     state: &S,
     binding: &master_binding::Model,
@@ -104,6 +109,8 @@ pub async fn update<S: FollowerRuntimeState>(
     reconcile_target(state, target).await?.try_into()
 }
 
+/// Deletes a follower-owned storage target by target key and returns the
+/// removed target's info; the master binding is unaffected.
 pub async fn delete<S: FollowerRuntimeState>(
     state: &S,
     binding: &master_binding::Model,

@@ -20,9 +20,16 @@ use std::io;
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 #[cfg(all(feature = "jemalloc", not(target_env = "msvc"), target_os = "linux"))]
+/// jemalloc tuning knobs read by name from the allocator's C shim at startup.
+///
+/// `narenas:1` lowers idle memory for the self-hosted default profile, but can
+/// become allocator contention under high concurrency.
 #[expect(
     non_upper_case_globals,
-    reason = "jemalloc discovers this externally named allocator configuration symbol by ABI name"
+    unsafe_code,
+    reason = "jemalloc reads this exact symbol name, so `unsafe(export_name)` is required by the \
+              allocator's ABI contract; the union only reads a static byte-string literal that is \
+              initialized for the whole program lifetime."
 )]
 #[unsafe(export_name = "_rjem_malloc_conf")]
 pub static malloc_conf: Option<&'static std::ffi::c_char> = Some(
@@ -34,8 +41,6 @@ pub static malloc_conf: Option<&'static std::ffi::c_char> = Some(
             ptr: &'static std::ffi::c_char,
         }
 
-        // `narenas:1` lowers idle memory for the self-hosted default profile, but
-        // can become allocator contention under high concurrency.
         Conf {
             bytes: &b"narenas:1,dirty_decay_ms:1000,muzzy_decay_ms:1000,background_thread:true\0"
                 [0],
@@ -54,9 +59,16 @@ pub static malloc_conf: Option<&'static std::ffi::c_char> = Some(
         target_os = "openbsd"
     )
 ))]
+/// jemalloc tuning knobs read by name from the allocator's C shim at startup.
+///
+/// `narenas:1` lowers idle memory for the self-hosted default profile, but can
+/// become allocator contention under high concurrency.
 #[expect(
     non_upper_case_globals,
-    reason = "jemalloc discovers this externally named allocator configuration symbol by ABI name"
+    unsafe_code,
+    reason = "jemalloc reads this exact symbol name, so `unsafe(export_name)` is required by the \
+              allocator's ABI contract; the union only reads a static byte-string literal that is \
+              initialized for the whole program lifetime."
 )]
 #[unsafe(export_name = "_rjem_malloc_conf")]
 pub static malloc_conf: Option<&'static std::ffi::c_char> = Some(

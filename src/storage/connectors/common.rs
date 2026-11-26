@@ -702,6 +702,8 @@ pub(super) async fn probe_storage_driver(
     Ok(())
 }
 
+/// Build the standard error for a multipart request against a policy whose
+/// driver does not implement multipart upload.
 pub fn unsupported_multipart_error(policy: &storage_policy::Model) -> AsterError {
     crate::errors::storage_driver_error(
         StorageErrorKind::Unsupported,

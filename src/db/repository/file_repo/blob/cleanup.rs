@@ -6,6 +6,8 @@ use aster_drive_model::entities::file_blob::{self, Entity as FileBlob};
 
 use super::ref_count::cleanup_pending_since_expr;
 
+/// Sentinel `ref_count` marking a blob whose physical deletion has been claimed by a
+/// cleanup worker; normal live blobs always hold a non-negative count.
 pub const BLOB_CLEANUP_CLAIMED_REF_COUNT: i32 = -1;
 
 /// 统计某存储策略下的 blob 数量（策略删除保护用）
@@ -30,6 +32,7 @@ pub async fn delete_blobs<C: ConnectionTrait>(db: &C, ids: &[i64]) -> Result<()>
     Ok(())
 }
 
+/// Hard-deletes a single blob record; succeeds even when the row is absent.
 pub async fn delete_blob<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     FileBlob::delete_by_id(id)
         .exec(db)
@@ -38,6 +41,11 @@ pub async fn delete_blob<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     Ok(())
 }
 
+/// Claims the physical deletion of a zero-reference blob in a single conditional
+/// UPDATE. The row wins the claim only if its `ref_count` is still exactly 0, guarding
+/// against a concurrent upload adopting it. On success the ref count moves to
+/// [`BLOB_CLEANUP_CLAIMED_REF_COUNT`] and `cleanup_pending_since` is stamped with the
+/// current time when still unset. Returns true when this call performed the claim.
 pub async fn claim_blob_cleanup<C: ConnectionTrait>(db: &C, id: i64) -> Result<bool> {
     let result = FileBlob::update_many()
         .col_expr(

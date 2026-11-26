@@ -14,24 +14,39 @@ use aster_forge_api::SortOrder;
 use aster_forge_db::search_query::lower_like_condition;
 use aster_forge_db::sort::{order_by_column_with_id, order_by_id};
 
+/// Filters for the admin file listing; `None` fields are not applied.
 #[derive(Debug, Clone, Copy)]
 pub struct AdminFileFilters<'a> {
+    /// Case-insensitive substring match on the file name.
     pub name: Option<&'a str>,
+    /// Restrict to files backed by this blob.
     pub blob_id: Option<i64>,
+    /// Restrict to files whose blob is stored under this policy.
     pub policy_id: Option<i64>,
+    /// Restrict to files owned by this user.
     pub owner_user_id: Option<i64>,
+    /// Restrict to files in this team workspace.
     pub team_id: Option<i64>,
+    /// `Some(true)` lists only trashed files, `Some(false)` only live files, `None` both.
     pub deleted: Option<bool>,
+    /// Column the listing is sorted by.
     pub sort_by: AdminFileSortBy,
+    /// Sort direction; file id is the stable tiebreaker.
     pub sort_order: SortOrder,
 }
 
+/// One (blob, uploading user) attribution pair used by admin blob inspection to show who
+/// created files referencing a blob.
 #[derive(Debug, Clone)]
 pub struct AdminBlobUploaderRef {
+    /// The referenced blob.
     pub blob_id: i64,
+    /// The file creator recorded on a referencing file row.
     pub user_id: i64,
 }
 
+/// Lists files joined with their blob rows under [`AdminFileFilters`], returning the page
+/// and total. A file whose blob row is missing is an internal error, not a skipped row.
 pub async fn find_admin_files_paginated(
     db: &DatabaseConnection,
     limit: u64,
@@ -87,6 +102,8 @@ pub async fn find_admin_files_paginated(
     Ok((items, total))
 }
 
+/// Loads one admin file view as a (file, blob) pair; missing file is a not-found error,
+/// a file with a missing blob row is an internal error.
 pub async fn find_admin_file_by_id(
     db: &DatabaseConnection,
     id: i64,
@@ -107,6 +124,8 @@ pub async fn find_admin_file_by_id(
     Ok((file, blob))
 }
 
+/// Lists every file referencing `blob_id`, ordered by file id; admin blob inspection and
+/// cleanup checks use it to show what holds a blob.
 pub async fn find_by_blob_id(db: &DatabaseConnection, blob_id: i64) -> Result<Vec<file::Model>> {
     File::find()
         .filter(file::Column::BlobId.eq(blob_id))
@@ -116,6 +135,8 @@ pub async fn find_by_blob_id(db: &DatabaseConnection, blob_id: i64) -> Result<Ve
         .map_err(AsterError::from)
 }
 
+/// Groups distinct (blob, creator) pairs of the given blobs into a per-blob uploader
+/// list, sorted by blob id then user id. Files without a recorded creator are excluded.
 pub async fn find_admin_blob_uploader_refs_for_blobs(
     db: &DatabaseConnection,
     blob_ids: &[i64],

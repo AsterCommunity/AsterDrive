@@ -211,6 +211,11 @@ fn detect_hdr_format(stream: &Value) -> Option<String> {
     }
 }
 
+/// Validates an ffprobe CLI command for the config test action.
+///
+/// Normalizes the command, checks availability, runs `ffprobe -version` under
+/// the CLI timeout, and returns a status message including the first output
+/// line (tool version) when present.
 pub async fn probe_ffprobe_cli_command(command: &str) -> Result<String> {
     let command = media_processing::normalize_ffprobe_command(command)?;
     if !media_processing::command_is_available(&command) {

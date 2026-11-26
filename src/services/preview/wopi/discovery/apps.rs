@@ -10,6 +10,9 @@ use super::cache::load_discovery;
 use super::types::WopiAppConfig;
 use super::url::{append_wopi_src, expand_action_url, trusted_origins_for_app};
 
+/// Collects the deduplicated trusted origins of every enabled WOPI preview
+/// app (from configured origins plus action/discovery URL hosts), for use as
+/// an iframe/CORS allow-list.
 pub fn allowed_origins(state: &impl SharedRuntimeState) -> Vec<String> {
     let mut origins = Vec::new();
 
@@ -25,6 +28,8 @@ pub fn allowed_origins(state: &impl SharedRuntimeState) -> Vec<String> {
     origins
 }
 
+/// Loads the WOPI discovery document from `discovery_url` and returns the
+/// app groups that expose importable actions; errors when discovery offers none.
 pub async fn discover_apps(
     state: &impl SharedRuntimeState,
     discovery_url: &str,

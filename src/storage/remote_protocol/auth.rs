@@ -3,6 +3,8 @@ use sha2::Sha256;
 
 use crate::errors::{AsterError, Result};
 
+/// 规范化远端节点 `base_url`：校验 `http`/`https` scheme，去掉 query、
+/// fragment 与结尾斜杠。空输入返回空串（语义为"无直连端点"，走反向隧道）。
 pub fn normalize_remote_base_url(value: &str) -> Result<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -28,6 +30,9 @@ pub fn normalize_remote_base_url(value: &str) -> Result<String> {
     Ok(url.to_string().trim_end_matches('/').to_string())
 }
 
+/// 计算内部协议请求签名：对六行 canonical（method、path_and_query、
+/// timestamp、nonce、content_length（缺省记空行）、body_sha256）做
+/// HMAC-SHA256，返回 hex 编码。
 pub fn sign_internal_request(
     secret_key: &str,
     method: &str,
@@ -168,6 +173,8 @@ pub fn sign_internal_response_signature(
     hex::encode(mac.finalize().into_bytes())
 }
 
+/// 校验 [`sign_internal_response_signature`] 产生的响应签名。签名不是合法
+/// hex 或与 canonical 不匹配时返回 `false`；`nonce` 必须取自对应请求。
 pub fn verify_internal_response_signature(
     secret_key: &str,
     nonce: &str,
@@ -194,6 +201,9 @@ fn internal_response_mac(secret_key: &str, nonce: &str, body_sha256: &str) -> Hm
     mac
 }
 
+/// 计算浏览器 presigned URL 签名：对四行 canonical（method、request_target、
+/// access_key、expires_at，Unix 秒）做 HMAC-SHA256，返回 hex 编码，与
+/// [`verify_presigned_request_signature`] 共享同一 canonical。
 pub fn sign_presigned_request(
     secret_key: &str,
     method: &str,

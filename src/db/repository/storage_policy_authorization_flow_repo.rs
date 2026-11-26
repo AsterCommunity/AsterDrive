@@ -11,6 +11,7 @@ use aster_drive_model::entities::storage_policy_authorization_flow::{
 };
 use aster_drive_model::types::StorageAuthorizationFlowStatus;
 
+/// Inserts a new storage authorization flow from the given active model.
 pub async fn create<C: ConnectionTrait>(
     db: &C,
     model: storage_policy_authorization_flow::ActiveModel,
@@ -18,6 +19,9 @@ pub async fn create<C: ConnectionTrait>(
     model.insert(db).await.map_err(AsterError::from)
 }
 
+/// One-shot redemption by state hash: a pending, unconsumed, unexpired flow is
+/// transitioned to `Consumed` in a conditional update and the flow row is
+/// returned; concurrent consumers see the update miss and get `None`.
 pub async fn consume_by_state_hash<C: ConnectionTrait>(
     db: &C,
     state_hash: &str,
@@ -66,6 +70,8 @@ pub async fn consume_by_state_hash<C: ConnectionTrait>(
     }
 }
 
+/// Cancels every pending, unconsumed flow of one storage policy (e.g. after an
+/// admin changes the policy), returning the number of flows cancelled.
 pub async fn cancel_pending_for_policy<C: ConnectionTrait>(
     db: &C,
     policy_id: i64,
@@ -92,6 +98,8 @@ pub async fn cancel_pending_for_policy<C: ConnectionTrait>(
     Ok(result.rows_affected)
 }
 
+/// Transitions every pending flow whose expiry has passed to `Expired`,
+/// returning the number of flows marked.
 pub async fn mark_expired<C: ConnectionTrait>(db: &C, now: chrono::DateTime<Utc>) -> Result<u64> {
     let result = StoragePolicyAuthorizationFlow::update_many()
         .col_expr(
@@ -109,6 +117,9 @@ pub async fn mark_expired<C: ConnectionTrait>(db: &C, now: chrono::DateTime<Utc>
     Ok(result.rows_affected)
 }
 
+/// Replaces a flow's stored context (e.g. after the user edits choices while
+/// the flow is open) and returns the updated row, or `None` when the id is
+/// unknown. No lifecycle guard is applied here.
 pub async fn update_context<C: ConnectionTrait>(
     db: &C,
     id: i64,

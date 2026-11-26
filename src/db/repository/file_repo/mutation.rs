@@ -10,24 +10,40 @@ use aster_drive_model::entities::file::{self, Entity as File};
 
 use super::common::{map_bulk_name_db_err, map_name_db_err};
 
+/// Inserts a file row as-is; unique-name violations map to the duplicate-name error.
 pub async fn create<C: ConnectionTrait>(db: &C, model: file::ActiveModel) -> Result<file::Model> {
     model.insert(db).await.map_err(AsterError::from)
 }
 
+/// Fully resolved fields for [`create_with_blob`]; the caller owns validation and blob
+/// publication, this only carries what the file row needs.
 #[derive(Debug, Clone)]
 pub struct CreateFileWithBlobInput<'a> {
+    /// File name as provided; classification derives the extension fields from it.
     pub name: &'a str,
+    /// Containing folder; `None` places the file at the space root.
     pub folder_id: Option<i64>,
+    /// Owning team workspace; `None` marks a personal-space file.
     pub team_id: Option<i64>,
+    /// Blob row backing the file's current content.
     pub blob_id: i64,
+    /// Logical file size in bytes, expected to match the blob size.
     pub size: i64,
+    /// Owning user id for personal files; nullable per the caller's workspace semantics.
     pub owner_user_id: Option<i64>,
+    /// User credited with the creation; resolved by the service layer.
     pub created_by_user_id: Option<i64>,
+    /// Username snapshot stored alongside the creator id.
     pub created_by_username: &'a str,
+    /// MIME type recorded for content handling and the `Type` sort key.
     pub mime_type: &'a str,
+    /// Timestamp applied to `created_at`/`updated_at` and attribution fields.
     pub now: chrono::DateTime<Utc>,
 }
 
+/// Inserts a file row from a resolved [`CreateFileWithBlobInput`], deriving extension,
+/// compound extension, and category from `name`/`mime_type`, and initializing the
+/// attribution fields. Unique-name violations map to the duplicate-name error.
 pub async fn create_with_blob<C: ConnectionTrait>(
     db: &C,
     input: CreateFileWithBlobInput<'_>,
@@ -110,6 +126,9 @@ pub async fn move_many_to_folder<C: ConnectionTrait>(
     Ok(())
 }
 
+/// Repoints every file row backed by `old_blob_id` to `new_blob_id` (blob merge during
+/// migration/dedup) and refreshes their `updated_at`. Returns the number of rows moved;
+/// no-op returning 0 when the two ids are equal.
 pub async fn replace_file_blob_refs<C: ConnectionTrait>(
     db: &C,
     old_blob_id: i64,

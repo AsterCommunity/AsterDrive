@@ -22,33 +22,51 @@ use aster_drive_model::types::{EntityType, TagScopeType};
 use aster_forge_api::{MAX_PAGE_SIZE, OffsetPage};
 use aster_forge_validation::filename::char_count;
 
+/// System property namespace under which tag associations are stored.
 pub const TAG_PROPERTY_NAMESPACE: &str = "system.tags";
+/// Maximum number of characters allowed in a tag name.
 pub const TAG_NAME_MAX_CHARS: usize = 64;
 const MAX_TAGS_PER_ENTITY: usize = 64;
 const BATCH_ENTITY_VERIFY_CHUNK_SIZE: usize = 500;
 
+/// Lightweight tag projection used in entity listings and share payloads.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct TagSummary {
+    /// Tag ID, unique within its scope.
     pub id: i64,
+    /// Display name as entered; may contain mixed case.
     pub name: String,
+    /// Display color as a hex string, e.g. `#3b82f6`.
     pub color: String,
 }
 
+/// Full tag definition including scope ownership and computed usage count.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct TagInfo {
+    /// Tag ID, unique across scopes.
     pub id: i64,
+    /// Scope the tag belongs to (personal or team).
     pub scope_type: TagScopeType,
+    /// Owning user for personal-scope tags; `None` for team-scope tags.
     pub owner_user_id: Option<i64>,
+    /// Owning team for team-scope tags; `None` for personal-scope tags.
     pub team_id: Option<i64>,
+    /// Display name as entered; may contain mixed case.
     pub name: String,
+    /// Lowercased trimmed name used for uniqueness within a scope.
     pub normalized_name: String,
+    /// Display color as a hex string, e.g. `#3b82f6`.
     pub color: String,
+    /// Manual ordering value; lower sorts earlier.
     pub sort_order: i32,
+    /// Number of entities currently carrying this tag.
     pub usage_count: u64,
+    /// Creation timestamp (UTC).
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: chrono::DateTime<chrono::Utc>,
+    /// Last update timestamp (UTC).
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
@@ -60,9 +78,11 @@ pub(crate) struct MinimalTagInfo {
     pub color: String,
 }
 
+/// Tags attached to a single entity (file or folder).
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct EntityTags {
+    /// All tags on the entity, ordered by tag sort order.
     pub tags: Vec<TagSummary>,
 }
 

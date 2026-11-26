@@ -32,6 +32,8 @@ where
     }
 }
 
+/// The [`RequireAdmin`] transform's actual service; rejects requests whose
+/// `AuthSnapshot` is missing or does not carry an admin role.
 pub struct RequireAdminMiddleware<S> {
     service: Rc<S>,
 }

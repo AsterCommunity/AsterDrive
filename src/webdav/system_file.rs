@@ -24,6 +24,9 @@ static DEFAULT_NORMALIZED_PATTERNS: LazyLock<Arc<[String]>> = LazyLock::new(|| {
 
 static RUNTIME_PATTERN_CACHE: LazyLock<RuntimePatternCache> = LazyLock::new(|| RwLock::new(None));
 
+/// Snapshot of the WebDAV system-file blocking policy resolved from runtime
+/// config: whether blocking is enabled and the normalized name patterns
+/// (e.g. `.DS_Store`, `Thumbs.db`) that clients may not create or modify.
 #[derive(Debug, Clone)]
 pub struct SystemFileBlockPolicy {
     enabled: bool,
@@ -31,6 +34,8 @@ pub struct SystemFileBlockPolicy {
 }
 
 impl SystemFileBlockPolicy {
+    /// Resolves the policy from runtime config; an empty pattern set when
+    /// blocking is disabled.
     pub fn from_runtime_config(runtime_config: &RuntimeConfig) -> Self {
         let enabled = runtime_config.get_bool_or(WEBDAV_BLOCK_SYSTEM_FILES_ENABLED_KEY, true);
         let patterns = if enabled {
@@ -42,15 +47,21 @@ impl SystemFileBlockPolicy {
         Self { enabled, patterns }
     }
 
+    /// Whether the display name matches a blocked system-file pattern.
+    /// Always `false` when the policy is disabled.
     pub fn is_blocked_name(&self, name: &str) -> bool {
         self.enabled && is_blocked_name_with_normalized_patterns(name, &self.patterns)
     }
 }
 
+/// Convenience wrapper that resolves the policy from runtime config for a
+/// single name check.
 pub fn is_blocked_by_runtime_config(runtime_config: &RuntimeConfig, name: &str) -> bool {
     SystemFileBlockPolicy::from_runtime_config(runtime_config).is_blocked_name(name)
 }
 
+/// Matches `name` against `patterns` with case-insensitive simple glob rules.
+/// Patterns are normalized before matching, so raw config values are accepted.
 pub fn is_blocked_name(name: &str, patterns: &[String]) -> bool {
     let patterns = normalize_patterns(patterns.to_vec());
     is_blocked_name_with_normalized_patterns(name, &patterns)

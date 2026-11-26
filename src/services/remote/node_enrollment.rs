@@ -12,29 +12,54 @@ use aster_drive_model::entities::master_binding as master_binding_entity;
 use sea_orm::{DatabaseConnection, Set};
 use serde::Deserialize;
 
+/// Environment variable carrying the master base URL for unattended
+/// follower enrollment bootstrap.
 pub const BOOTSTRAP_REMOTE_MASTER_URL_ENV: &str = "ASTER_BOOTSTRAP_REMOTE_MASTER_URL";
+/// Environment variable carrying the one-time enrollment token; must be set
+/// together with [`BOOTSTRAP_REMOTE_MASTER_URL_ENV`].
 pub const BOOTSTRAP_REMOTE_ENROLLMENT_TOKEN_ENV: &str = "ASTER_BOOTSTRAP_REMOTE_ENROLLMENT_TOKEN";
+/// Bind host seeded into generated follower configuration so the follower
+/// accepts connections from outside its own host.
 pub const FOLLOWER_DEFAULT_SERVER_HOST: &str = "0.0.0.0";
 
+/// Follower-side enrollment input, taken from the CLI or the bootstrap env.
 #[derive(Debug, Clone)]
 pub struct NodeEnrollmentInput {
+    /// Public base URL of the master to enroll with.
     pub master_url: String,
+    /// One-time enrollment token issued by the master.
     pub token: String,
 }
 
+/// Result of a completed follower enrollment: how the binding landed and
+/// the persisted binding itself.
 #[derive(Debug, Clone)]
 pub struct NodeEnrollmentResult {
+    /// `"created"` when a new binding was inserted, `"updated"` when an
+    /// existing binding with the same access key was refreshed.
     pub action: &'static str,
+    /// The follower-side master binding written by this enrollment.
     pub binding: master_binding_entity::Model,
 }
 
+/// Outcome of the unattended env-driven enrollment bootstrap at startup.
 #[derive(Debug, Clone)]
 pub enum NodeEnrollmentBootstrapOutcome {
+    /// Neither bootstrap environment variable was set.
     NotConfigured,
-    Enrolled { action: &'static str },
+    /// Enrollment ran to completion; `action` mirrors the binding upsert
+    /// result (`"created"` or `"updated"`).
+    Enrolled {
+        /// How the binding landed: `"created"` or `"updated"`.
+        action: &'static str,
+    },
+    /// Bootstrap envs match a binding that already exists, so startup
+    /// proceeds without enrolling again.
     AlreadyConfigured,
 }
 
+/// Seeds the follower configuration baseline: default config forced into
+/// follower mode, bound to [`FOLLOWER_DEFAULT_SERVER_HOST`].
 pub fn follower_seed_config() -> crate::config::Config {
     let mut default = crate::config::Config::default();
     default.server.start_mode = crate::config::node_mode::NodeRuntimeMode::Follower;
@@ -42,6 +67,10 @@ pub fn follower_seed_config() -> crate::config::Config {
     default
 }
 
+/// Before the database exists, materializes a follower seed config file when
+/// the bootstrap envs are present so startup can enroll from configuration
+/// alone. Returns `Ok(None)` when no bootstrap env is set; an existing
+/// config file is kept as-is.
 pub fn prepare_follower_bootstrap_config<F>(
     location: &crate::config::ConfigLocation,
     get_env: &F,
@@ -55,6 +84,10 @@ where
     location.ensure_default(&follower_seed_config()).map(Some)
 }
 
+/// Runs the full follower enrollment flow: redeems the token with the
+/// master, upserts the master binding in one transaction (reconciling
+/// transport and desired revision from the bootstrap payload), then acks the
+/// session so the master marks enrollment completed.
 pub async fn enroll(
     db: &DatabaseConnection,
     input: NodeEnrollmentInput,
@@ -94,6 +127,11 @@ pub async fn enroll(
     Ok(NodeEnrollmentResult { action, binding })
 }
 
+/// Unattended startup bootstrap: when both enrollment envs are set, enrolls
+/// against the master. Terminal enrollment errors (completed, expired,
+/// redeemed, or replaced token) are downgraded to [`NodeEnrollmentBootstrapOutcome::AlreadyConfigured`]
+/// when a binding for the same master URL already exists, so restarts do not
+/// fail on an already-consumed token; all other errors propagate.
 pub async fn bootstrap_from_env_if_configured<F>(
     db: &DatabaseConnection,
     get_env: &F,

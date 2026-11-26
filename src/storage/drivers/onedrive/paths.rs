@@ -33,6 +33,8 @@ pub fn join_base_path(base_path: &str, path: &str) -> Result<String> {
     }
 }
 
+/// Sanitizes a driver-relative path for Graph item addressing, rejecting
+/// backslashes and `..` traversal while dropping empty and `.` segments.
 pub fn normalize_graph_relative_path(path: &str) -> Result<String> {
     sanitize_graph_relative_path(path)
 }
@@ -67,6 +69,8 @@ pub fn named_object_parent_path(path: &str) -> Option<String> {
     Some(format!("{files}/{upload_id}"))
 }
 
+/// Builds the Graph item path for a driver-relative path, percent-encoding each
+/// segment; an empty relative path resolves to the root item itself.
 pub fn graph_drive_item_path(
     drive_id: &str,
     root_item_id: &str,
@@ -84,6 +88,8 @@ pub fn graph_drive_item_path(
     ))
 }
 
+/// Appends the `/content` suffix to [`graph_drive_item_path`], addressing the
+/// byte stream used by simple uploads and downloads.
 pub fn graph_drive_item_content_path(
     drive_id: &str,
     root_item_id: &str,

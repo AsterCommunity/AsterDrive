@@ -10,6 +10,7 @@ use aster_drive_model::entities::storage_policy_connector_credential::{
     self, Entity as StoragePolicyConnectorCredential,
 };
 
+/// Loads every connector credential row across all policies, in arbitrary order.
 pub async fn find_all<C: ConnectionTrait>(
     db: &C,
 ) -> Result<Vec<storage_policy_connector_credential::Model>> {
@@ -19,6 +20,8 @@ pub async fn find_all<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Loads the connector credential bound to a storage policy. Returns `None`
+/// when the policy has no connector credential yet.
 pub async fn find_by_policy<C: ConnectionTrait>(
     db: &C,
     policy_id: i64,
@@ -30,6 +33,9 @@ pub async fn find_by_policy<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Inserts the policy's connector credential, or replaces its connector id,
+/// schema version and ciphertext while bumping the revision. Revision overflow
+/// fails before any write.
 pub async fn upsert<C: ConnectionTrait>(
     db: &C,
     policy_id: i64,
@@ -103,16 +109,28 @@ pub async fn update_if_revision<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// Inputs for a compare-and-swap credential handoff between connectors on one policy.
 pub struct ConnectorCredentialPromotion<'a> {
+    /// Storage policy whose credential is being promoted.
     pub policy_id: i64,
+    /// Connector identity the row must currently carry.
     pub source_connector_id: &'a str,
+    /// Schema version the row must currently carry.
     pub source_schema_version: i32,
+    /// Revision the caller decoded; the write is lost if the row moved on.
     pub expected_revision: i64,
+    /// Connector identity written on success.
     pub target_connector_id: String,
+    /// Schema version written on success.
     pub target_schema_version: i32,
+    /// Replacement ciphertext written on success.
     pub ciphertext: String,
 }
 
+/// Compare-and-swap promotion of a policy's credential to a different connector:
+/// all source filters (policy, connector, schema version, revision) must match
+/// or nothing is written. Returns `true` when the promotion landed. Revision
+/// overflow fails before any write.
 pub async fn promote_if_revision<C: ConnectionTrait>(
     db: &C,
     promotion: ConnectorCredentialPromotion<'_>,
@@ -159,6 +177,7 @@ pub async fn promote_if_revision<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// Removes the policy's connector credential, if any; succeeds even when absent.
 pub async fn delete_by_policy<C: ConnectionTrait>(db: &C, policy_id: i64) -> Result<()> {
     StoragePolicyConnectorCredential::delete_many()
         .filter(storage_policy_connector_credential::Column::PolicyId.eq(policy_id))

@@ -15,27 +15,43 @@ use aster_forge_db::sort::{order_by_column_with_id, order_by_id};
 
 use super::ref_count::increment_blob_ref_count;
 
+/// Outcome of a deduplicating blob adoption: the blob row now backing the file, and
+/// whether this call inserted the row (`true`) or adopted an existing one (`false`).
 pub struct FindOrCreateBlobResult {
+    /// The blob record after the ref-count increment or insert.
     pub model: file_blob::Model,
+    /// True when the blob row was newly inserted, false when an existing row was adopted.
     pub inserted: bool,
 }
 
+/// Aggregate count and byte total of blobs matching a storage-policy query.
 #[derive(Debug, Clone, FromQueryResult)]
 pub struct StoragePolicyBlobSummary {
+    /// Number of blob rows in the summarized set.
     pub count: i64,
+    /// Sum of the blobs' logical byte sizes.
     pub total_size: i64,
 }
 
+/// Blob coverage gap of a source policy relative to a target policy, used to size a
+/// storage migration before it runs.
 #[derive(Debug, Clone, FromQueryResult)]
 pub struct StoragePolicyMissingBlobSummary {
+    /// Number of source blobs with no matching blob on the target policy.
     pub count: i64,
+    /// Sum of the missing blobs' byte sizes.
     pub total_size: i64,
+    /// Largest single missing blob's byte size, for multipart planning.
     pub max_size: i64,
 }
 
+/// Split of a policy's blobs by hash-key kind: verifiable content SHA-256 keys versus
+/// opaque keys whose contents cannot be deduplicated by digest.
 #[derive(Debug, Clone, FromQueryResult)]
 pub struct StoragePolicyBlobHashKindSummary {
+    /// Blobs whose hash is a 64-hex-character content SHA-256.
     pub content_sha256_count: i64,
+    /// Blobs carrying an opaque (non-content-verified) hash.
     pub opaque_count: i64,
 }
 
@@ -44,19 +60,32 @@ struct CountRow {
     count: i64,
 }
 
+/// Filters for the admin blob listing; `None` fields are not applied.
 #[derive(Debug, Clone, Copy)]
 pub struct AdminFileBlobFilters<'a> {
+    /// Restrict to blobs referenced by at least one file created by this user.
     pub uploader_user_id: Option<i64>,
+    /// Restrict to blobs matching the admin health class (orphan, mismatch, claimed).
     pub health: Option<crate::api::dto::admin::AdminFileBlobHealth>,
+    /// Restrict to content SHA-256 or opaque hash blobs.
     pub hash_kind: Option<crate::api::dto::admin::AdminFileBlobHashKind>,
+    /// Case-insensitive substring match on the blob hash.
     pub hash: Option<&'a str>,
+    /// Restrict to blobs stored under this policy.
     pub policy_id: Option<i64>,
+    /// Case-insensitive substring match on the connector object path.
     pub storage_path: Option<&'a str>,
+    /// Inclusive lower bound on the recorded ref count.
     pub ref_count_min: Option<i32>,
+    /// Inclusive upper bound on the recorded ref count.
     pub ref_count_max: Option<i32>,
+    /// Inclusive lower bound on the blob size in bytes.
     pub size_min: Option<i64>,
+    /// Inclusive upper bound on the blob size in bytes.
     pub size_max: Option<i64>,
+    /// Column the listing is sorted by.
     pub sort_by: AdminFileBlobSortBy,
+    /// Sort direction; blob id is the stable tiebreaker.
     pub sort_order: SortOrder,
 }
 
@@ -90,6 +119,8 @@ const FIND_OR_CREATE_BLOB_MAX_ATTEMPTS: usize = 7;
 const FIND_OR_CREATE_BLOB_INITIAL_DELAY_MS: u64 = 5;
 const FIND_OR_CREATE_BLOB_MAX_DELAY_MS: u64 = 80;
 
+/// Finds the stored (content-backed) blob for `hash` under `policy_id`; virtual-empty
+/// rows are excluded by the backing filter. Returns `None` when no row matches.
 pub async fn find_blob_by_hash<C: ConnectionTrait>(
     db: &C,
     hash: &str,
@@ -104,6 +135,8 @@ pub async fn find_blob_by_hash<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Finds the single metadata-only empty blob (`VirtualEmpty` backing) of a policy,
+/// or `None` when the policy has none yet.
 pub async fn find_virtual_empty_blob_by_policy<C: ConnectionTrait>(
     db: &C,
     policy_id: i64,
@@ -120,6 +153,8 @@ pub async fn find_virtual_empty_blob_by_policy<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Keyset scan of a policy's blobs across all backing kinds, ordered by ascending id and
+/// returning the rows after `after_id` up to `limit`; feeds purge and reconcile workers.
 pub async fn find_blobs_by_policy_paginated<C: ConnectionTrait>(
     db: &C,
     policy_id: i64,
@@ -136,6 +171,8 @@ pub async fn find_blobs_by_policy_paginated<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Like [`find_blobs_by_policy_paginated`], but restricted to `Stored` (object-backed)
+/// blobs; used by storage migration to copy physical objects only.
 pub async fn find_stored_blobs_by_policy_paginated<C: ConnectionTrait>(
     db: &C,
     policy_id: i64,
@@ -220,6 +257,7 @@ pub async fn summarize_blobs_by_policy_and_backing<C: ConnectionTrait>(
     })
 }
 
+/// Counts all blobs of a policy across every backing kind and sums their byte sizes.
 pub async fn summarize_blobs_by_policy<C: ConnectionTrait>(
     db: &C,
     policy_id: i64,
@@ -244,6 +282,9 @@ pub async fn summarize_blobs_by_policy<C: ConnectionTrait>(
     })
 }
 
+/// Splits a policy's blobs into content SHA-256 and opaque hash keys. The hash shape
+/// test is raw SQL with per-backend dialects, so it runs correctly on every supported
+/// database; the missing row is an internal error because the aggregate always yields one.
 pub async fn summarize_blob_hash_kinds_by_policy<C: ConnectionTrait>(
     db: &C,
     policy_id: i64,
@@ -285,6 +326,9 @@ pub async fn summarize_blob_hash_kinds_by_policy<C: ConnectionTrait>(
         })
 }
 
+/// Counts source-policy blobs with a verifiable content SHA-256 that already exist on
+/// the target policy under the same hash, size, and backing; those can be adopted into
+/// target rows instead of being physically copied during migration.
 pub async fn count_matching_hashes_between_policies<C: ConnectionTrait>(
     db: &C,
     source_policy_id: i64,
@@ -338,6 +382,9 @@ pub async fn count_matching_hashes_between_policies<C: ConnectionTrait>(
         .ok_or_else(|| AsterError::internal_error("matching hash count query returned no row"))
 }
 
+/// Counts source-policy blobs whose hash is opaque (not content-verified) yet collide
+/// with an existing hash on the target policy; such targets cannot be reused safely and
+/// the migration must rename these blobs on the target.
 pub async fn count_opaque_hash_conflicts_between_policies<C: ConnectionTrait>(
     db: &C,
     source_policy_id: i64,
@@ -383,6 +430,8 @@ pub async fn count_opaque_hash_conflicts_between_policies<C: ConnectionTrait>(
     .ok_or_else(|| AsterError::internal_error("opaque hash conflict count query returned no row"))
 }
 
+/// Summarizes source-policy blobs (content-verified only) that have no equivalent row on
+/// the target policy; the totals drive the migration's capacity and multipart planning.
 pub async fn summarize_missing_blobs_between_policies<C: ConnectionTrait>(
     db: &C,
     source_policy_id: i64,
@@ -435,6 +484,10 @@ pub async fn summarize_missing_blobs_between_policies<C: ConnectionTrait>(
     .ok_or_else(|| AsterError::internal_error("missing blob summary query returned no row"))
 }
 
+/// Inserts a blob row after validating its backing invariants (path/size/hash shape per
+/// backing kind). A row inserted with a non-positive ref count and no cleanup stamp is
+/// marked pending cleanup immediately, so an immediately unreferenced insert cannot
+/// linger outside the cleanup pipeline.
 pub async fn create_blob<C: ConnectionTrait>(
     db: &C,
     mut model: file_blob::ActiveModel,
@@ -463,6 +516,9 @@ where
     }
 }
 
+/// Re-runs the entity's backing-field invariants for a given (backing, path, size, hash)
+/// tuple and reports failures as internal errors; callers use it to validate rows before
+/// they reach the database.
 pub(super) fn validate_blob_backing(
     backing: FileBlobBacking,
     storage_path: Option<&str>,
@@ -710,6 +766,7 @@ pub(super) fn find_or_create_blob_retry_delay(attempt: usize) -> std::time::Dura
     std::time::Duration::from_millis(std::cmp::min(backoff_ms, FIND_OR_CREATE_BLOB_MAX_DELAY_MS))
 }
 
+/// Loads one blob by id; the error is record-not-found when the row is missing.
 pub async fn find_blob_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<file_blob::Model> {
     FileBlob::find_by_id(id)
         .one(db)
@@ -718,6 +775,9 @@ pub async fn find_blob_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<file
         .ok_or_else(|| AsterError::record_not_found(format!("file_blob #{id}")))
 }
 
+/// Admin blob listing: applies [`AdminFileBlobFilters`] (including the health classes,
+/// which compare the recorded ref count against live files plus non-retired revisions via
+/// SQL subqueries), returns the matching page and its total count.
 pub async fn find_admin_blobs_paginated(
     db: &DatabaseConnection,
     limit: u64,
@@ -860,6 +920,10 @@ pub async fn find_admin_blobs_paginated(
     Ok((items, total))
 }
 
+/// Loads one blob by id under an exclusive row lock so ref-count decisions serialize
+/// across workers: `SELECT ... FOR UPDATE` on PostgreSQL/MySQL, a no-op UPDATE on SQLite
+/// to take the writer lock before the authoritative read. Fails with record-not-found
+/// when the row is missing.
 pub async fn lock_blob_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<file_blob::Model> {
     match db.get_database_backend() {
         DbBackend::Postgres | DbBackend::MySql => FileBlob::find_by_id(id)

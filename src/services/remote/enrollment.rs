@@ -16,39 +16,68 @@ use utoipa::ToSchema;
 
 const DEFAULT_ENROLLMENT_TTL_MINUTES: i64 = 30;
 const ENROLL_COMMAND_BINARY: &str = "aster_drive";
+/// Redeem error returned when a newer session invalidated this token.
 pub const ENROLLMENT_TOKEN_REPLACED_MESSAGE: &str =
     "enrollment token has been replaced by a newer session";
+/// Redeem error returned when the session has already been acked.
 pub const ENROLLMENT_TOKEN_COMPLETED_MESSAGE: &str = "enrollment token has already been completed";
+/// Redeem error returned when the session TTL has elapsed.
 pub const ENROLLMENT_TOKEN_EXPIRED_MESSAGE: &str = "enrollment token has expired";
+/// Redeem error returned when the token has already been redeemed once.
 pub const ENROLLMENT_TOKEN_REDEEMED_MESSAGE: &str = "enrollment token has already been redeemed";
+/// Command-generation error for a remote node whose enrollment is finished.
 pub const REMOTE_NODE_ENROLLMENT_ALREADY_COMPLETED_MESSAGE: &str =
     "remote node enrollment has already been completed";
 
+/// Master-side enrollment offer for administrators: a one-time token, its
+/// expiry, and a ready-to-run follower enrollment command.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct RemoteEnrollmentCommandInfo {
+    /// Database id of the remote node being enrolled.
     pub remote_node_id: i64,
+    /// Administrative display name of the remote node.
     pub remote_node_name: String,
+    /// Public master base URL the follower will connect to.
     pub master_url: String,
+    /// One-time enrollment token; the master only stores its hash, valid
+    /// until `expires_at`.
     pub token: String,
+    /// Absolute time after which the token is no longer redeemable.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub expires_at: chrono::DateTime<Utc>,
+    /// Shell command that passes the token to the follower CLI via stdin.
     pub command: String,
 }
 
+/// Redeemed enrollment payload handed to a follower: the credentials and
+/// binding state it needs to bootstrap its master binding. Serde defaults
+/// keep payloads issued before these fields existed deserializable.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct RemoteEnrollmentBootstrap {
+    /// Database id of the remote node record on the master.
     pub remote_node_id: i64,
+    /// Administrative display name; becomes the follower-side binding name.
     pub remote_node_name: String,
+    /// Public master base URL the follower will connect to.
     pub master_url: String,
+    /// Internal access key identifying this follower on the master.
     pub access_key: String,
+    /// Internal secret paired with `access_key`, used to sign requests.
     pub secret_key: String,
+    /// Whether the binding is enabled immediately after enrollment.
     pub is_enabled: bool,
+    /// Transport resolved by the master; legacy payloads default to reverse
+    /// tunnel.
     #[serde(default)]
     pub resolved_transport: ResolvedRemoteTransport,
+    /// Binding desired revision at enrollment time; legacy payloads default
+    /// to `1`.
     #[serde(default = "default_binding_revision")]
     pub desired_revision: i64,
+    /// One-time ack token the follower returns after persisting the binding
+    /// to complete the enrollment session.
     pub ack_token: String,
 }
 
@@ -56,13 +85,21 @@ const fn default_binding_revision() -> i64 {
     1
 }
 
+/// Master-side result of the follower's enrollment acknowledgement.
 #[derive(Debug, Clone)]
 pub struct RemoteEnrollmentAckInfo {
+    /// Database id of the acknowledged remote node.
     pub remote_node_id: i64,
+    /// Administrative display name of the remote node.
     pub remote_node_name: String,
+    /// Whether the binding is enabled on the master.
     pub is_enabled: bool,
 }
 
+/// Generates a fresh enrollment session for a remote node: invalidates any
+/// pending session, stores hashed `token`/`ack_token` pairs with a bounded
+/// TTL, and returns the plain-text token plus a ready-to-run command. Fails
+/// once the node's enrollment has completed; it never runs again.
 pub async fn create_enrollment_command<S: SharedRuntimeState>(
     state: &S,
     remote_node_id: i64,
@@ -127,6 +164,11 @@ pub async fn create_enrollment_command<S: SharedRuntimeState>(
     })
 }
 
+/// Redeems a one-time enrollment token and returns the bootstrap payload the
+/// follower persists as its master binding. The redeem claim happens inside
+/// a transaction, so a token is redeemable exactly once; repeated, expired,
+/// replaced, or already-completed sessions fail with the terminal messages
+/// exported above.
 pub async fn redeem_enrollment_token<S: SharedRuntimeState>(
     state: &S,
     token: &str,
@@ -174,6 +216,9 @@ pub async fn redeem_enrollment_token<S: SharedRuntimeState>(
     .await
 }
 
+/// Completes enrollment: the follower returns the ack token after persisting
+/// its master binding. Acking requires the session to have been redeemed
+/// first and rejects invalidated sessions; repeat acks are idempotent.
 pub async fn ack_enrollment_token<S: SharedRuntimeState>(
     state: &S,
     ack_token: &str,
@@ -224,14 +269,16 @@ pub async fn ack_enrollment_token<S: SharedRuntimeState>(
     .await
 }
 
+/// Builds the shell command a follower runs to enroll against this master.
+/// The master URL is shell-quoted, and the token is delivered through a
+/// quoted heredoc on stdin so shell syntax in the token is never expanded
+/// and the credential never appears in the enrollment process's argv.
 pub fn build_enrollment_command(master_url: &str, token: &str) -> String {
     let quoted_url = format!("'{}'", master_url.replace('\'', "'\"'\"'"));
     let mut delimiter = "ASTER_ENROLLMENT_TOKEN".to_string();
     while token.lines().any(|line| line == delimiter) {
         delimiter.push('_');
     }
-    // A quoted heredoc passes the token through stdin without expanding shell
-    // syntax or placing the credential in the enrollment process's argv.
     format!(
         "{ENROLL_COMMAND_BINARY} node enroll --master-url {quoted_url} --token-stdin --yes <<'{delimiter}'\n{token}\n{delimiter}"
     )

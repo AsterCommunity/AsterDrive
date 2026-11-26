@@ -8,6 +8,7 @@ use utoipa::{IntoParams, ToSchema};
 #[derive(Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct VerifyPasswordReq {
+    /// Share access password to verify.
     pub password: String,
 }
 
@@ -19,5 +20,7 @@ pub struct VerifyPasswordReq {
     derive(IntoParams, ToSchema)
 )]
 pub struct DirectLinkQuery {
+    /// Forces attachment disposition; truthy values are `1`, `true`, `yes`,
+    /// and `on`, anything else keeps inline behavior.
     pub download: Option<String>,
 }

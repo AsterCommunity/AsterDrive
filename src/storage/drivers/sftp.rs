@@ -40,6 +40,7 @@ struct SftpEndpoint {
     port: u16,
 }
 
+/// SFTP storage driver with pooled SSH connections and host-key pinning.
 #[derive(Clone)]
 pub struct SftpDriver {
     endpoint: SftpEndpoint,
@@ -50,22 +51,36 @@ pub struct SftpDriver {
     pool: Arc<SftpConnectionPool>,
 }
 
+/// Connection settings for [`SftpDriver`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SftpDriverConfig {
+    /// SFTP endpoint as hostname or `sftp://host[:port]` URL; no credentials,
+    /// path, query, or fragment allowed.
     pub endpoint: String,
+    /// Remote root directory; absolute paths are kept, relative paths are
+    /// resolved against the remote home directory.
     pub base_path: String,
+    /// Expected `SHA256:<base64>` host key fingerprint; connections fail closed
+    /// until the pin matches the presented key.
     pub host_key_fingerprint: Option<String>,
 }
 
+/// secret material for [`SftpDriver`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SftpStaticCredentials {
+    /// SSH username.
     pub username: String,
+    /// SSH password used for password authentication.
     pub password: String,
 }
 
+/// Host key mismatch details extracted from a storage error context, letting
+/// API layers surface the expected and actual fingerprints to administrators.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SftpHostKeyRejection {
+    /// Fingerprint the driver was pinned to; `None` when no pin was configured.
     pub expected: Option<String>,
+    /// Fingerprint the server actually presented.
     pub actual: String,
 }
 
@@ -297,6 +312,7 @@ impl Drop for SftpConnectionLease {
 }
 
 impl SftpDriver {
+    /// Validates the endpoint URL, credentials, base path, and fingerprint format.
     pub fn validate_config(
         config: &SftpDriverConfig,
         credentials: &SftpStaticCredentials,
@@ -317,6 +333,7 @@ impl SftpDriver {
         Ok(endpoint.to_string())
     }
 
+    /// Builds the driver with a lazily populated connection pool.
     pub fn new(config: SftpDriverConfig, credentials: SftpStaticCredentials) -> Result<Self> {
         Self::validate_config(&config, &credentials)?;
         Ok(Self {
@@ -331,6 +348,7 @@ impl SftpDriver {
         })
     }
 
+    /// Accepts only the canonical `SHA256:<base64>` fingerprint format.
     pub fn validate_host_key_fingerprint(fingerprint: &str) -> Result<()> {
         let normalized = normalize_host_key_fingerprint(fingerprint);
         if !is_valid_host_key_fingerprint(&normalized) {
@@ -342,6 +360,8 @@ impl SftpDriver {
         Ok(())
     }
 
+    /// Extracts host key rejection details from an error carrying the
+    /// [`StorageErrorContext::SftpHostKeyRejected`] context.
     pub fn host_key_rejection(error: &StorageError) -> Option<SftpHostKeyRejection> {
         let StorageErrorContext::SftpHostKeyRejected { expected, actual } = error.context()? else {
             return None;

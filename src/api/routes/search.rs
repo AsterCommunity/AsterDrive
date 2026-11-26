@@ -19,6 +19,8 @@ use actix_web::middleware::Condition;
 use actix_web::{HttpResponse, web};
 use aster_forge_middleware::actix::rate_limit::RateLimit;
 
+/// Builds the personal `/api/v1/search` route scope behind JWT auth and the API
+/// rate limiter.
 pub fn routes(
     rl: &RateLimitConfig,
     network_trust: &NetworkTrustConfig,
@@ -31,10 +33,13 @@ pub fn routes(
         .route("", web::get().to(search))
 }
 
+/// Builds the team search route scope mounted under `/api/v1/teams/{team_id}/search`.
 pub fn team_routes() -> actix_web::Scope {
     web::scope("/{team_id}/search").route("", web::get().to(team_search))
 }
 
+/// Searches the current user's personal workspace for files and folders matching
+/// the query parameters.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/search",
@@ -63,6 +68,7 @@ pub async fn search(
     .await
 }
 
+/// Searches a team workspace for files and folders matching the query parameters.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/search",

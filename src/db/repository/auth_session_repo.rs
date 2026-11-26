@@ -9,6 +9,7 @@ use sea_orm::{
 use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::auth_session::{self, Entity as AuthSession};
 
+/// Inserts a new auth session from the given active model.
 pub async fn create<C: ConnectionTrait>(
     db: &C,
     model: auth_session::ActiveModel,
@@ -16,6 +17,7 @@ pub async fn create<C: ConnectionTrait>(
     model.insert(db).await.map_err(AsterError::from)
 }
 
+/// Loads a session by its id (the primary key), regardless of owner or revocation.
 pub async fn find_by_id(db: &DatabaseConnection, id: &str) -> Result<Option<auth_session::Model>> {
     AuthSession::find_by_id(id.to_string())
         .one(db)
@@ -23,6 +25,8 @@ pub async fn find_by_id(db: &DatabaseConnection, id: &str) -> Result<Option<auth
         .map_err(AsterError::from)
 }
 
+/// Loads a session only when it belongs to the given user. Returns `None` for
+/// sessions of other users or unknown ids.
 pub async fn find_by_id_for_user<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -67,6 +71,8 @@ pub async fn lock_by_id_for_user<C: ConnectionTrait>(
     }
 }
 
+/// Finds the session whose current refresh JTI matches, regardless of
+/// revocation or expiry; used to resolve presented refresh credentials.
 pub async fn find_by_refresh_jti<C: ConnectionTrait>(
     db: &C,
     refresh_jti: &str,
@@ -78,6 +84,8 @@ pub async fn find_by_refresh_jti<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Lists the user's unrevoked sessions whose refresh credential has not
+/// expired, newest activity first.
 pub async fn list_active_for_user(
     db: &DatabaseConnection,
     user_id: i64,
@@ -170,6 +178,7 @@ pub async fn rotate_refresh_fenced<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// Deletes a session by id. Returns `true` when a row was removed.
 pub async fn delete<C: ConnectionTrait>(db: &C, id: &str) -> Result<bool> {
     let result = AuthSession::delete_by_id(id.to_string())
         .exec(db)
@@ -178,6 +187,7 @@ pub async fn delete<C: ConnectionTrait>(db: &C, id: &str) -> Result<bool> {
     Ok(result.rows_affected == 1)
 }
 
+/// Deletes every session of a user, returning the number of removed rows.
 pub async fn delete_all_for_user<C: ConnectionTrait>(db: &C, user_id: i64) -> Result<u64> {
     let result = AuthSession::delete_many()
         .filter(auth_session::Column::UserId.eq(user_id))
@@ -187,6 +197,8 @@ pub async fn delete_all_for_user<C: ConnectionTrait>(db: &C, user_id: i64) -> Re
     Ok(result.rows_affected)
 }
 
+/// Deletes every session of a user except the given one, returning the number
+/// of removed rows; used to drop stale sessions while keeping the current one.
 pub async fn delete_all_for_user_except_id<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -201,6 +213,8 @@ pub async fn delete_all_for_user_except_id<C: ConnectionTrait>(
     Ok(result.rows_affected)
 }
 
+/// Marks the user's session as revoked at the given time. Returns `false` when
+/// the session is absent, owned by someone else, or already revoked.
 pub async fn revoke_by_id_for_user<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -221,6 +235,8 @@ pub async fn revoke_by_id_for_user<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// Revokes every unrevoked session of a user except the given one, returning
+/// the number of sessions revoked.
 pub async fn revoke_all_for_user_except_id<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -241,6 +257,8 @@ pub async fn revoke_all_for_user_except_id<C: ConnectionTrait>(
     Ok(result.rows_affected)
 }
 
+/// Removes sessions whose refresh credential has already expired, returning the
+/// number of removed rows.
 pub async fn delete_expired(db: &DatabaseConnection) -> Result<u64> {
     let result = AuthSession::delete_many()
         .filter(auth_session::Column::RefreshExpiresAt.lt(Utc::now()))

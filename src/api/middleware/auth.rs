@@ -38,6 +38,8 @@ where
     }
 }
 
+/// The [`JwtAuth`] transform's actual service; validates the extracted token
+/// per request and injects the resulting claims and auth snapshot.
 pub struct JwtAuthMiddleware<S> {
     service: Rc<S>,
 }

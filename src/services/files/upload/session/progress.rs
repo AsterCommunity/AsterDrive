@@ -294,6 +294,7 @@ async fn list_recoverable_sessions_impl(
         .collect()
 }
 
+/// 查询个人空间上传会话的进度快照：按数据平面推导已确认分片，只读不推进会话状态。
 pub async fn get_progress(
     state: &PrimaryAppState,
     upload_id: &str,
@@ -304,6 +305,7 @@ pub async fn get_progress(
     get_progress_impl(state, session).await
 }
 
+/// 列出个人空间可恢复的上传会话（按所有者与前端 client id 过滤，数量有上限）。
 pub async fn list_recoverable_sessions(
     state: &PrimaryAppState,
     user_id: i64,
@@ -312,6 +314,7 @@ pub async fn list_recoverable_sessions(
     list_recoverable_sessions_impl(state, user_id, None, frontend_client_id).await
 }
 
+/// 团队空间进度查询，加载走团队 scope，其余语义与 [`get_progress`] 一致。
 pub async fn get_progress_for_team(
     state: &PrimaryAppState,
     team_id: i64,
@@ -328,6 +331,7 @@ pub async fn get_progress_for_team(
     get_progress_impl(state, session).await
 }
 
+/// 团队空间可恢复会话列表：先做团队读元数据授权，再按团队 scope 过滤。
 pub async fn list_recoverable_sessions_for_team(
     state: &PrimaryAppState,
     team_id: i64,
@@ -436,6 +440,7 @@ fn validate_presign_part_numbers(
     Ok(())
 }
 
+/// 为个人空间的 multipart presigned 上传批量生成 per-part presigned PUT URL。
 pub async fn presign_parts(
     state: &PrimaryAppState,
     upload_id: &str,
@@ -452,6 +457,7 @@ pub async fn presign_parts(
     .await
 }
 
+/// 团队空间的批量 per-part 签名，加载走团队 scope，其余语义与 [`presign_parts`] 一致。
 pub async fn presign_parts_for_team(
     state: &PrimaryAppState,
     team_id: i64,

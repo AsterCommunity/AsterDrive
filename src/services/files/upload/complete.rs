@@ -217,6 +217,9 @@ async fn load_upload_actor_username_best_effort(
     }
 }
 
+/// 完成个人空间的上传：按会话的完成计划收口临时状态并创建正式文件。
+///
+/// `parts` 仅 multipart 模式需要，携带各部件的 `(part_number, etag)`。
 pub async fn complete_upload(
     state: &PrimaryAppState,
     upload_id: &str,
@@ -237,6 +240,7 @@ pub async fn complete_upload(
         .map(FileInfo::from)
 }
 
+/// 带审计上下文的个人空间上传完成：在审计需要时解析操作者用户名用于归因。
 pub async fn complete_upload_with_audit(
     state: &PrimaryAppState,
     upload_id: &str,
@@ -270,6 +274,7 @@ pub async fn complete_upload_with_audit(
     .await
 }
 
+/// 完成团队空间的上传：加载走团队 scope，其余语义与 [`complete_upload`] 一致。
 pub async fn complete_upload_for_team(
     state: &PrimaryAppState,
     team_id: i64,
@@ -297,6 +302,7 @@ pub async fn complete_upload_for_team(
         .map(FileInfo::from)
 }
 
+/// 带审计上下文的团队空间上传完成：加载走团队 scope，其余语义与 [`complete_upload_with_audit`] 一致。
 pub async fn complete_upload_for_team_with_audit(
     state: &PrimaryAppState,
     team_id: i64,

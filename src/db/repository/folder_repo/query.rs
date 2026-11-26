@@ -15,6 +15,8 @@ use aster_forge_api::SortOrder;
 
 use super::common::{FolderScope, active_scope_condition, apply_parent_condition, scope_condition};
 
+/// 以排他行锁按 id 读取文件夹：PostgreSQL/MySQL 走 `SELECT ... FOR UPDATE`；SQLite 无
+/// 行级锁，依赖单写连接的连接池配置，直接普通读。不存在时报 folder-not-found。
 pub async fn lock_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<folder::Model> {
     match db.get_database_backend() {
         DbBackend::Postgres | DbBackend::MySql => Folder::find_by_id(id)
@@ -33,6 +35,7 @@ pub async fn lock_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<folder::M
     }
 }
 
+/// 按 id 查文件夹（含已删除），不存在时报 folder-not-found。
 pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<folder::Model> {
     Folder::find_by_id(id)
         .one(db)
@@ -41,6 +44,7 @@ pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<folder::M
         .ok_or_else(|| AsterError::record_not_found(format!("folder #{id}")))
 }
 
+/// 按 id 批量查文件夹（含已删除），只返回实际存在的行，顺序不保证。
 pub async fn find_by_ids<C: ConnectionTrait>(db: &C, ids: &[i64]) -> Result<Vec<folder::Model>> {
     if ids.is_empty() {
         return Ok(vec![]);
@@ -68,6 +72,8 @@ async fn find_by_ids_in_scope<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// 个人空间版本：在属主范围内（`owner_user_id` 且 `team_id IS NULL`）批量按 id 查文件夹
+/// （含已删除），越权的 id 静默跳过。
 pub async fn find_by_ids_in_personal_scope<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -76,6 +82,7 @@ pub async fn find_by_ids_in_personal_scope<C: ConnectionTrait>(
     find_by_ids_in_scope(db, FolderScope::Personal { user_id }, ids).await
 }
 
+/// 团队空间版本：在 `team_id` 范围内批量按 id 查文件夹（含已删除），越权的 id 静默跳过。
 pub async fn find_by_ids_in_team_scope<C: ConnectionTrait>(
     db: &C,
     team_id: i64,
@@ -109,6 +116,7 @@ pub async fn find_children<C: ConnectionTrait>(
     find_children_in_scope(db, FolderScope::Personal { user_id }, parent_id).await
 }
 
+/// 团队空间版本的 [`find_children`]。
 pub async fn find_team_children<C: ConnectionTrait>(
     db: &C,
     team_id: i64,
@@ -175,6 +183,8 @@ pub(crate) async fn find_child_ids_after_id_in_scope<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// 个人空间目录枚举的 keyset 分页：按不可变的文件夹 id 升序返回 `after_id` 之后的最多
+/// `limit` 条（排除已删除）。
 pub async fn find_children_after_id<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -192,6 +202,7 @@ pub async fn find_children_after_id<C: ConnectionTrait>(
     .await
 }
 
+/// 团队空间版本的 [`find_children_after_id`]。
 pub async fn find_team_children_after_id<C: ConnectionTrait>(
     db: &C,
     team_id: i64,
@@ -226,6 +237,7 @@ async fn find_children_in_parents_in_scope<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// 个人空间：批量查询多个父文件夹下的未删除子文件夹。
 pub async fn find_children_in_parents<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -234,6 +246,7 @@ pub async fn find_children_in_parents<C: ConnectionTrait>(
     find_children_in_parents_in_scope(db, FolderScope::Personal { user_id }, parent_ids).await
 }
 
+/// 团队空间版本的 [`find_children_in_parents`]。
 pub async fn find_team_children_in_parents<C: ConnectionTrait>(
     db: &C,
     team_id: i64,
@@ -351,6 +364,8 @@ pub(crate) async fn find_children_paginated_in_scope<C: ConnectionTrait>(
     Ok((items, total))
 }
 
+/// 个人空间子文件夹分页（offset/limit，默认只查未删除）：按 `sort_by`/`sort_order`
+/// 排序、文件夹 id 作稳定次级排序；返回当前页和匹配总数。
 pub async fn find_children_paginated<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -375,6 +390,7 @@ pub async fn find_children_paginated<C: ConnectionTrait>(
     .await
 }
 
+/// 团队空间版本的 [`find_children_paginated`]。
 pub async fn find_team_children_paginated<C: ConnectionTrait>(
     db: &C,
     team_id: i64,
@@ -530,6 +546,8 @@ fn normalized_non_ascii_names(names: &[String]) -> HashSet<String> {
         .collect()
 }
 
+/// 个人空间：按名称查父文件夹下的子文件夹（排除已删除）。先做精确匹配，未命中再按
+/// 文件名归一化规则在整个子目录列表内比较（大小写/Unicode 形态差异）。
 pub async fn find_by_name_in_parent<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -539,6 +557,8 @@ pub async fn find_by_name_in_parent<C: ConnectionTrait>(
     find_by_name_in_parent_in_scope(db, FolderScope::Personal { user_id }, parent_id, name).await
 }
 
+/// 个人空间：按名称加排他锁读取父文件夹下的未删除子文件夹，未命中返回 `None`；
+/// get-or-create 冲突恢复用它锁定唯一索引的胜者。
 pub async fn lock_by_name_in_parent<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -548,6 +568,8 @@ pub async fn lock_by_name_in_parent<C: ConnectionTrait>(
     lock_by_name_in_parent_in_scope(db, FolderScope::Personal { user_id }, parent_id, name).await
 }
 
+/// 个人空间：按名称批量查父文件夹下的子文件夹（排除已删除）；非 ASCII 名称会追加
+/// NFC/NFD 归一化变体一起匹配。
 pub async fn find_by_names_in_parent<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -557,6 +579,7 @@ pub async fn find_by_names_in_parent<C: ConnectionTrait>(
     find_by_names_in_parent_in_scope(db, FolderScope::Personal { user_id }, parent_id, names).await
 }
 
+/// 团队空间版本的 [`find_by_name_in_parent`]。
 pub async fn find_by_name_in_team_parent<C: ConnectionTrait>(
     db: &C,
     team_id: i64,
@@ -566,6 +589,7 @@ pub async fn find_by_name_in_team_parent<C: ConnectionTrait>(
     find_by_name_in_parent_in_scope(db, FolderScope::Team { team_id }, parent_id, name).await
 }
 
+/// 团队空间版本的 [`lock_by_name_in_parent`]。
 pub async fn lock_by_name_in_team_parent<C: ConnectionTrait>(
     db: &C,
     team_id: i64,
@@ -575,6 +599,7 @@ pub async fn lock_by_name_in_team_parent<C: ConnectionTrait>(
     lock_by_name_in_parent_in_scope(db, FolderScope::Team { team_id }, parent_id, name).await
 }
 
+/// 团队空间版本的 [`find_by_names_in_parent`]。
 pub async fn find_by_names_in_team_parent<C: ConnectionTrait>(
     db: &C,
     team_id: i64,

@@ -13,26 +13,41 @@ use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
+/// Display identity of an activity actor, snapshotted at mutation time.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ActivityIdentity {
+    /// Actor user ID; `None` for anonymous or system-originated facts.
     pub user_id: Option<i64>,
+    /// Display name shown to readers; resolved from the snapshot or the public name directory.
     pub name: String,
 }
 
+/// One workspace activity fact as returned by list and export views.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct WorkspaceActivity {
+    /// Persistent activity record ID, ordered descending in list views.
     pub id: i64,
+    /// Unique event ID; one value per activity record.
     pub event_id: String,
+    /// Operation ID shared by all records produced by one mutation, such as both sides of a copy.
     pub operation_id: String,
+    /// Entity kind the fact is attached to (`file` or `folder`).
     pub entity_type: String,
+    /// ID of the file or folder the fact is attached to.
     pub entity_id: i64,
+    /// Entity name at mutation time, not kept in sync with later renames.
     pub entity_name: String,
+    /// Actor identity snapshot taken when the mutation happened.
     pub actor: ActivityIdentity,
+    /// Typed audit action describing what the mutation did.
     pub action: AuditAction,
+    /// Channel the mutation came from, such as REST, WebDAV, or a background task.
     pub source: ActivitySource,
+    /// Action-specific JSON payload, including location paths for moves and rename details.
     pub details: serde_json::Value,
+    /// Record creation time in RFC 3339 format.
     pub created_at: String,
 }
 
@@ -41,15 +56,21 @@ pub struct WorkspaceActivity {
     all(debug_assertions, feature = "openapi"),
     derive(utoipa::IntoParams, ToSchema)
 )]
+/// Keyset pagination parameters for activity list views.
 pub struct ActivityListQuery {
+    /// Return records with ID strictly below this value; `None` starts from the newest record.
     pub before_id: Option<i64>,
+    /// Page size in records; defaults to 50 and is clamped to 1..=200.
     pub limit: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+/// One activity page ordered newest first.
 pub struct WorkspaceActivityPage {
+    /// Activity records in this page, newest first.
     pub items: Vec<WorkspaceActivity>,
+    /// Cursor to pass as `before_id` for the next page; `None` when no older records remain.
     pub next_before_id: Option<i64>,
 }
 
@@ -173,11 +194,16 @@ impl TryFrom<workspace_activity::Model> for WorkspaceActivity {
     }
 }
 
+/// Attribution carried through one mutation so all of its activity records share actor and operation.
 #[derive(Clone, Debug)]
 pub struct ActivityContext {
+    /// Actor user ID; `None` for service-created facts without an authenticated user.
     pub actor_user_id: Option<i64>,
+    /// Actor display name snapshotted into every record of this operation.
     pub actor_name: String,
+    /// Channel the mutation came from.
     pub source: ActivitySource,
+    /// UUID shared by all records of this mutation; copied entities therefore correlate both sides.
     pub operation_id: String,
 }
 
@@ -206,6 +232,7 @@ pub(crate) struct FolderChangeDetails<'a> {
 }
 
 impl ActivityContext {
+    /// Builds the context for an authenticated actor, loading the current username from the database.
     pub async fn actor<C: ConnectionTrait>(
         db: &C,
         user_id: i64,
@@ -220,6 +247,7 @@ impl ActivityContext {
         })
     }
 
+    /// Builds the context from the denormalized creator snapshot stored on the created row.
     pub fn creator(user_id: Option<i64>, name: &str) -> Self {
         Self {
             actor_user_id: user_id,
@@ -230,6 +258,7 @@ impl ActivityContext {
     }
 }
 
+/// Builds an identity from a row's denormalized actor columns; `None` when both are absent.
 pub fn snapshot_identity(user_id: Option<i64>, name: Option<&str>) -> Option<ActivityIdentity> {
     let name = name.filter(|name| !name.trim().is_empty());
     (user_id.is_some() || name.is_some()).then(|| ActivityIdentity {
@@ -246,6 +275,7 @@ pub async fn display_names(
     user_repo::find_public_display_names(state.reader_db(), ids).await
 }
 
+/// Replaces a snapshot name with the current public display name, dropping identities left blank.
 pub fn resolve_identity(
     identity: &mut Option<ActivityIdentity>,
     names: &std::collections::HashMap<i64, String>,
@@ -513,6 +543,7 @@ impl From<AuditAction> for ActivityChange {
 }
 
 impl ActivityChange {
+    /// Builds the change from a typed action plus action-specific JSON details merged into the record.
     pub fn with_details(action: AuditAction, details: serde_json::Value) -> Self {
         Self { action, details }
     }
@@ -545,19 +576,26 @@ pub async fn cleanup_expired(state: &impl crate::runtime::SharedRuntimeState) ->
     workspace_activity_repo::delete_before(state.writer_db(), cutoff).await
 }
 
+/// Channel through which a mutation reached the workspace.
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ActivitySource {
+    /// Ordinary authenticated REST API call.
     #[default]
     Rest,
+    /// WebDAV protocol request.
     Webdav,
+    /// WOPI protocol request.
     Wopi,
+    /// Background task execution.
     Task,
+    /// Internal service path without a protocol caller.
     Service,
 }
 
 impl ActivitySource {
+    /// Stable wire name persisted in the `source` column and matched by parsing.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Rest => "rest",

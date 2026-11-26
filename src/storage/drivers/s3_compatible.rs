@@ -37,12 +37,15 @@ impl PresignedUploadStorageDriver for S3CompatibleDriver {
     }
 }
 
+/// S3 形态厂商驱动的共享内核：对象 I/O、presigned 与 multipart 行为委托给
+/// 包装的 [`S3Driver`]，各厂商 driver 只在其上扩展自己的能力。
 pub struct S3CompatibleDriver {
     inner: Arc<S3Driver>,
     multipart_capabilities: aster_drive_storage::MultipartStorageCapabilities,
 }
 
 impl S3CompatibleDriver {
+    /// 使用默认 S3 multipart 契约（part 5 MiB..5 GiB，最多 10_000 个）包装驱动。
     pub fn from_s3_driver(inner: Arc<S3Driver>) -> Self {
         Self {
             inner,
@@ -56,6 +59,7 @@ impl S3CompatibleDriver {
         }
     }
 
+    /// 使用厂商各自的 multipart 能力包装驱动，用于 UploadPart 限制偏离标准 S3 的场景。
     pub fn from_s3_driver_with_multipart_capabilities(
         inner: Arc<S3Driver>,
         multipart_capabilities: aster_drive_storage::MultipartStorageCapabilities,
@@ -66,6 +70,7 @@ impl S3CompatibleDriver {
         }
     }
 
+    /// 承载全部委托对象操作的 S3 driver。
     pub fn s3_driver(&self) -> Arc<S3Driver> {
         self.inner.clone()
     }

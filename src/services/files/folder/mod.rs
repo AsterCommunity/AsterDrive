@@ -270,6 +270,8 @@ pub(crate) async fn update_in_scope_with_audit(
     )
 }
 
+/// Assigns a storage policy to a folder from the admin console and writes
+/// a policy-change audit entry recording the previous policy id.
 pub async fn admin_set_policy_with_audit(
     state: &impl StorageChangeRuntimeState,
     folder_id: i64,

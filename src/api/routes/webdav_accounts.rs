@@ -20,6 +20,8 @@ use aster_forge_api::OffsetPage;
 use aster_forge_middleware::actix::rate_limit::RateLimit;
 use serde_json::json;
 
+/// Builds the `/api/v1/webdav-accounts` route scope behind JWT auth; credential
+/// testing uses the stricter auth-tier rate limit.
 pub fn routes(
     rl: &RateLimitConfig,
     network_trust: &NetworkTrustConfig,
@@ -57,6 +59,8 @@ pub fn routes(
         )
 }
 
+/// Returns the current user's WebDAV settings: the URL prefix and the absolute
+/// endpoint derived from the request origin.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/webdav-accounts/settings",
@@ -92,6 +96,7 @@ pub async fn get_settings(
     )
 }
 
+/// Lists the current user's WebDAV accounts with pagination.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/webdav-accounts",
@@ -119,6 +124,8 @@ pub async fn list_accounts(
     Ok(HttpResponse::Ok().json(crate::api::response::success(accounts)))
 }
 
+/// Creates a WebDAV account for the current user; the generated password is shown
+/// once in the response and never stored in plaintext.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/webdav-accounts",
@@ -161,17 +168,23 @@ pub async fn create_account(
     Ok(HttpResponse::Created().json(crate::api::response::success(result)))
 }
 
+/// Path parameters for team WebDAV account collection routes.
 #[derive(Debug, serde::Deserialize)]
 pub struct TeamWebdavAccountPath {
+    /// Team workspace the accounts belong to.
     pub team_id: i64,
 }
 
+/// Path parameters for team WebDAV account item routes.
 #[derive(Debug, serde::Deserialize)]
 pub struct TeamWebdavAccountIdPath {
+    /// Team workspace the account belongs to.
     pub team_id: i64,
+    /// WebDAV account ID within the team.
     pub account_id: i64,
 }
 
+/// Lists a team's WebDAV accounts with pagination.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/webdav-accounts",
@@ -201,6 +214,7 @@ pub async fn list_team_accounts(
     Ok(HttpResponse::Ok().json(crate::api::response::success(accounts)))
 }
 
+/// Creates a WebDAV account scoped to a team workspace.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/webdav-accounts",
@@ -246,6 +260,7 @@ pub async fn create_team_account(
     Ok(HttpResponse::Created().json(crate::api::response::success(result)))
 }
 
+/// Deletes a team WebDAV account and records the action in the audit log.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/teams/{team_id}/webdav-accounts/{account_id}",
@@ -291,6 +306,8 @@ pub async fn delete_team_account(
     Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
+/// Toggles a team WebDAV account's active state and records the change in the
+/// audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/webdav-accounts/{account_id}/toggle",
@@ -339,6 +356,8 @@ pub async fn toggle_team_account(
     Ok(HttpResponse::Ok().json(crate::api::response::success(account)))
 }
 
+/// Deletes one of the current user's WebDAV accounts and records the action in the
+/// audit log.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/webdav-accounts/{id}",
@@ -375,6 +394,8 @@ pub async fn delete_account(
     Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
+/// Toggles one of the current user's WebDAV accounts between active and inactive,
+/// and records the change in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/webdav-accounts/{id}/toggle",
@@ -413,6 +434,7 @@ pub async fn toggle_account(
     Ok(HttpResponse::Ok().json(crate::api::response::success(account)))
 }
 
+/// Tests WebDAV credentials without creating an account.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/webdav-accounts/test",

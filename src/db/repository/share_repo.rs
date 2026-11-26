@@ -29,6 +29,9 @@ fn scope_condition(scope: ShareScope) -> Condition {
     }
 }
 
+/// Finds a share by id.
+///
+/// Errors with `ShareNotFound` when the share does not exist.
 pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<share::Model> {
     Share::find_by_id(id)
         .one(db)
@@ -42,6 +45,7 @@ pub async fn count_all(db: &DatabaseConnection) -> Result<u64> {
     Share::find().count(db).await.map_err(AsterError::from)
 }
 
+/// Lists the shares with the given ids; unknown ids are simply absent from the result.
 pub async fn find_by_ids<C: ConnectionTrait>(db: &C, ids: &[i64]) -> Result<Vec<share::Model>> {
     if ids.is_empty() {
         return Ok(vec![]);
@@ -69,6 +73,8 @@ async fn find_by_ids_in_scope<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Lists the given ids' shares owned by the user; shares outside the personal scope are
+/// dropped.
 pub async fn find_by_ids_in_personal_scope<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -77,6 +83,8 @@ pub async fn find_by_ids_in_personal_scope<C: ConnectionTrait>(
     find_by_ids_in_scope(db, ShareScope::Personal { user_id }, ids).await
 }
 
+/// Lists the given ids' shares belonging to the team; shares outside the team scope are
+/// dropped.
 pub async fn find_by_ids_in_team_scope<C: ConnectionTrait>(
     db: &C,
     team_id: i64,
@@ -85,6 +93,7 @@ pub async fn find_by_ids_in_team_scope<C: ConnectionTrait>(
     find_by_ids_in_scope(db, ShareScope::Team { team_id }, ids).await
 }
 
+/// Finds a share by its public access token.
 pub async fn find_by_token<C: ConnectionTrait>(
     db: &C,
     token: &str,
@@ -96,6 +105,7 @@ pub async fn find_by_token<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Lists the user's personal shares, newest first.
 pub async fn find_by_user<C: ConnectionTrait>(db: &C, user_id: i64) -> Result<Vec<share::Model>> {
     Share::find()
         .filter(scope_condition(ShareScope::Personal { user_id }))
@@ -105,6 +115,7 @@ pub async fn find_by_user<C: ConnectionTrait>(db: &C, user_id: i64) -> Result<Ve
         .map_err(AsterError::from)
 }
 
+/// Lists the team's shares, newest first.
 pub async fn find_by_team<C: ConnectionTrait>(db: &C, team_id: i64) -> Result<Vec<share::Model>> {
     Share::find()
         .filter(scope_condition(ShareScope::Team { team_id }))
@@ -114,6 +125,7 @@ pub async fn find_by_team<C: ConnectionTrait>(db: &C, team_id: i64) -> Result<Ve
         .map_err(AsterError::from)
 }
 
+/// Returns one page of the user's personal shares and the total count, newest first.
 pub async fn find_by_user_paginated(
     db: &DatabaseConnection,
     user_id: i64,
@@ -131,6 +143,7 @@ pub async fn find_by_user_paginated(
     .await
 }
 
+/// Returns one page of the team's shares and the total count, newest first.
 pub async fn find_by_team_paginated(
     db: &DatabaseConnection,
     team_id: i64,
@@ -148,6 +161,9 @@ pub async fn find_by_team_paginated(
     .await
 }
 
+/// Returns one admin page of shares and the total count.
+///
+/// `target_type` restricts to file or folder shares; `user_id` restricts to one owner.
 pub async fn find_paginated(
     db: &DatabaseConnection,
     limit: u64,
@@ -245,6 +261,7 @@ async fn find_active_by_resource_in_scope<C: ConnectionTrait>(
     q.one(db).await.map_err(AsterError::from)
 }
 
+/// Returns the user's active share of a file or folder, ignoring expired or exhausted ones.
 pub async fn find_active_by_resource<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -254,6 +271,7 @@ pub async fn find_active_by_resource<C: ConnectionTrait>(
     find_active_by_resource_in_scope(db, ShareScope::Personal { user_id }, file_id, folder_id).await
 }
 
+/// Returns the team's active share of a file or folder, ignoring expired or exhausted ones.
 pub async fn find_active_by_team_resource<C: ConnectionTrait>(
     db: &C,
     team_id: i64,
@@ -304,6 +322,7 @@ async fn find_active_ids_in_scope<C: ConnectionTrait>(
     Ok(rows.into_iter().flatten().collect())
 }
 
+/// Returns the subset of the given file ids that have an active share owned by the user.
 pub async fn find_active_file_ids<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -318,6 +337,7 @@ pub async fn find_active_file_ids<C: ConnectionTrait>(
     .await
 }
 
+/// Returns the subset of the given file ids that have an active share in the team.
 pub async fn find_active_team_file_ids<C: ConnectionTrait>(
     db: &C,
     team_id: i64,
@@ -332,6 +352,7 @@ pub async fn find_active_team_file_ids<C: ConnectionTrait>(
     .await
 }
 
+/// Returns the subset of the given folder ids that have an active share owned by the user.
 pub async fn find_active_folder_ids<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -346,6 +367,7 @@ pub async fn find_active_folder_ids<C: ConnectionTrait>(
     .await
 }
 
+/// Returns the subset of the given folder ids that have an active share in the team.
 pub async fn find_active_team_folder_ids<C: ConnectionTrait>(
     db: &C,
     team_id: i64,
@@ -360,10 +382,12 @@ pub async fn find_active_team_folder_ids<C: ConnectionTrait>(
     .await
 }
 
+/// Inserts a new share row.
 pub async fn create<C: ConnectionTrait>(db: &C, model: share::ActiveModel) -> Result<share::Model> {
     model.insert(db).await.map_err(AsterError::from)
 }
 
+/// Updates an existing share row.
 pub async fn update<C: ConnectionTrait>(db: &C, model: share::ActiveModel) -> Result<share::Model> {
     model.update(db).await.map_err(AsterError::from)
 }
@@ -385,6 +409,7 @@ pub async fn update_password_hash_if_current<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// Deletes a share row by id.
 pub async fn delete<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     Share::delete_by_id(id)
         .exec(db)
@@ -393,6 +418,7 @@ pub async fn delete<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     Ok(())
 }
 
+/// Deletes the shares with the given ids.
 pub async fn delete_many<C: ConnectionTrait>(db: &C, ids: &[i64]) -> Result<()> {
     if ids.is_empty() {
         return Ok(());
@@ -405,6 +431,7 @@ pub async fn delete_many<C: ConnectionTrait>(db: &C, ids: &[i64]) -> Result<()> 
     Ok(())
 }
 
+/// Deletes all shares of the given files, returning the deleted row count.
 pub async fn delete_by_file_ids<C: ConnectionTrait>(db: &C, file_ids: &[i64]) -> Result<u64> {
     if file_ids.is_empty() {
         return Ok(0);
@@ -417,6 +444,7 @@ pub async fn delete_by_file_ids<C: ConnectionTrait>(db: &C, file_ids: &[i64]) ->
     Ok(res.rows_affected)
 }
 
+/// Deletes all shares of the given folders, returning the deleted row count.
 pub async fn delete_by_folder_ids<C: ConnectionTrait>(db: &C, folder_ids: &[i64]) -> Result<u64> {
     if folder_ids.is_empty() {
         return Ok(0);
@@ -470,6 +498,7 @@ pub async fn delete_all_by_user<C: ConnectionTrait>(db: &C, user_id: i64) -> Res
     Ok(res.rows_affected)
 }
 
+/// Deletes all shares owned by the team, returning the deleted row count.
 pub async fn delete_all_by_team<C: ConnectionTrait>(db: &C, team_id: i64) -> Result<u64> {
     let res = Share::delete_many()
         .filter(share::Column::TeamId.eq(team_id))

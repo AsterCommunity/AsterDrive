@@ -11,6 +11,7 @@ use aster_forge_api::LimitOffsetQuery;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use aster_forge_api::OffsetPage;
 
+/// Lists system config entries with pagination.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/config",
@@ -33,6 +34,7 @@ pub async fn list_config(
     Ok(HttpResponse::Ok().json(crate::api::response::success(configs)))
 }
 
+/// Returns the schema describing all known config keys and their value constraints.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/config/schema",
@@ -50,6 +52,7 @@ pub async fn config_schema() -> Result<HttpResponse> {
     Ok(HttpResponse::Ok().json(crate::api::response::success(schema)))
 }
 
+/// Returns the mail template variables available for use in notification templates.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/config/template-variables",
@@ -67,6 +70,7 @@ pub async fn config_template_variables() -> Result<HttpResponse> {
     Ok(HttpResponse::Ok().json(crate::api::response::success(groups)))
 }
 
+/// Returns the configured and effective media processing runtime status.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/config/media-processing-status",
@@ -86,6 +90,7 @@ pub async fn get_media_processing_runtime_status(
     Ok(HttpResponse::Ok().json(crate::api::response::success(status)))
 }
 
+/// Returns a single config entry by key.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/config/{key}",
@@ -108,6 +113,7 @@ pub async fn get_config(
     Ok(HttpResponse::Ok().json(crate::api::response::success(config)))
 }
 
+/// Sets a config value with visibility and writes an audit trail entry.
 #[aster_forge_api_docs_macros::path(
     put,
     path = "/api/v1/admin/config/{key}",
@@ -143,6 +149,7 @@ pub async fn set_config(
     Ok(HttpResponse::Ok().json(crate::api::response::success(config)))
 }
 
+/// Deletes a config entry by key and writes an audit trail entry.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/admin/config/{key}",
@@ -168,6 +175,7 @@ pub async fn delete_config(
     Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
+/// Executes a config action (e.g. sending a test mail) for the given config key.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/config/{key}/action",

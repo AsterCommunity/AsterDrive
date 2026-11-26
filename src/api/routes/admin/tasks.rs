@@ -13,6 +13,7 @@ use aster_forge_api::LimitOffsetQuery;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use aster_forge_api::OffsetPage;
 
+/// Lists all background tasks with pagination, filtering, and sorting.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/tasks",
@@ -46,6 +47,8 @@ pub async fn list_tasks(
     Ok(HttpResponse::Ok().json(crate::api::response::success(page)))
 }
 
+/// Removes finished background tasks matching the given filters and records the
+/// cleanup in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/tasks/cleanup",

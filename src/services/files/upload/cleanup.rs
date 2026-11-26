@@ -42,10 +42,16 @@ enum UploadRemoteCleanupOutcome {
     DeferredIntervention,
 }
 
+/// Outcome of force-cleaning the upload sessions bound to a deleted storage policy.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ForceCleanupByPolicyResult {
+    /// Number of local upload-session rows removed.
     pub cleaned: u64,
+    /// Remote object keys handed to the deferred background sweep that re-deletes
+    /// the temp uploads after presigned URLs have expired.
     pub deferred_temp_keys: Vec<String>,
+    /// Remote multipart uploads as `(object key, multipart id)` pairs for the same
+    /// deferred background sweep.
     pub deferred_multipart_uploads: Vec<(String, String)>,
 }
 
@@ -517,6 +523,7 @@ async fn cancel_upload_impl(state: &PrimaryAppState, session: upload_session::Mo
     Ok(())
 }
 
+/// 取消个人空间的上传会话：加载会话后进入统一的取消路径，并按会话模式记录取消指标。
 pub async fn cancel_upload(state: &PrimaryAppState, upload_id: &str, user_id: i64) -> Result<()> {
     let session =
         load_upload_session(state, state.writer_db(), personal_scope(user_id), upload_id).await?;
@@ -527,6 +534,7 @@ pub async fn cancel_upload(state: &PrimaryAppState, upload_id: &str, user_id: i6
         .inspect_err(|_| record_upload_cancel_metric(state, mode, false))
 }
 
+/// 取消团队空间的上传会话：加载走团队 scope 校验，其余语义与 [`cancel_upload`] 一致。
 pub async fn cancel_upload_for_team(
     state: &PrimaryAppState,
     team_id: i64,

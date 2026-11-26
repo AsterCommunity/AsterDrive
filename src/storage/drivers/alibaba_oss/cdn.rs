@@ -16,11 +16,14 @@ use url::Url;
 
 use super::CdnConfig;
 
+/// Download delivery channel for OSS objects.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OssDownloadDelivery {
+    /// Presigned URL against the OSS public endpoint (V4 signing on the origin).
     #[default]
     OssOrigin,
+    /// Type A signed URL served through the Alibaba CDN edge instead of the origin.
     AlibabaCdnTypeA,
 }
 

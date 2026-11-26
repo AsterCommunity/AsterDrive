@@ -28,11 +28,16 @@ const MAX_REVISION_LENGTH: usize = 128;
 /// construct localization resources through the same validated path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StorageConnectorLocalizationMessage<'a> {
+    /// Stable descriptor message id; validated against the id charset and
+    /// length limits by [`StorageConnectorLocalization::from_messages`].
     pub message_id: &'a str,
+    /// All locale variants shipped for this message; each locale may appear
+    /// at most once.
     pub translations: &'a [StorageConnectorLocalizationTranslation<'a>],
 }
 
 impl<'a> StorageConnectorLocalizationMessage<'a> {
+    /// Builds a message declaration from static connector-owned slices.
     pub const fn new(
         message_id: &'a str,
         translations: &'a [StorageConnectorLocalizationTranslation<'a>],
@@ -47,11 +52,15 @@ impl<'a> StorageConnectorLocalizationMessage<'a> {
 /// One locale variant in a connector-owned Rust message declaration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StorageConnectorLocalizationTranslation<'a> {
+    /// BCP-47-style locale tag; parsed and validated as a [`LocaleTag`].
     pub locale: &'a str,
+    /// Localized text; may contain `{{placeholder}}` interpolations that must
+    /// match the default locale's placeholders.
     pub value: &'a str,
 }
 
 impl<'a> StorageConnectorLocalizationTranslation<'a> {
+    /// Builds one locale variant from static connector-owned slices.
     pub const fn new(locale: &'a str, value: &'a str) -> Self {
         Self { locale, value }
     }
@@ -81,6 +90,12 @@ macro_rules! storage_connector_message {
     };
 }
 
+/// Validated localization resource owned by one connector.
+///
+/// Construction always runs [`Self::validate`], so an instance guarantees:
+/// non-empty revision, 1..=`MAX_LOCALES` locales, every locale carrying the
+/// same message id set as the default locale, matching interpolation
+/// placeholders across locales, and per-message id/text limits.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StorageConnectorLocalization {
     connector_id: ConnectorId,
@@ -154,6 +169,13 @@ impl StorageConnectorLocalization {
         )
     }
 
+    /// Builds a resource from already-assembled maps and validates it.
+    ///
+    /// `revision` is caller-chosen (1..=`MAX_REVISION_LENGTH` bytes, not
+    /// blank); use [`Self::from_messages`] for a deterministic hash-derived
+    /// revision. Returns [`StorageConnectorLocalizationError`] when the
+    /// connector id, revision, locale coverage, or per-message limits fail
+    /// validation.
     pub fn new(
         connector_id: ConnectorId,
         default_locale: LocaleTag,
@@ -170,14 +192,21 @@ impl StorageConnectorLocalization {
         Ok(localization)
     }
 
+    /// Returns the connector that owns this resource.
     pub fn connector_id(&self) -> &ConnectorId {
         &self.connector_id
     }
 
+    /// Returns the resource revision; equal revisions imply identical
+    /// localized content.
     pub fn revision(&self) -> &str {
         &self.revision
     }
 
+    /// Builds the cacheable manifest advertised through the localization API.
+    ///
+    /// The manifest carries metadata only (namespace, locales, revision); the
+    /// actual messages are delivered through [`Self::bundle`].
     pub fn manifest(&self) -> StorageConnectorLocalizationManifest {
         StorageConnectorLocalizationManifest {
             namespace: self.connector_id.as_str().to_string(),
@@ -187,6 +216,12 @@ impl StorageConnectorLocalization {
         }
     }
 
+    /// Resolves the best matching locale and returns its full message map.
+    ///
+    /// Resolution walks the requested tag up through its parent tags
+    /// (`zh-CN` -> `zh`) with ASCII case-insensitive comparison and falls back
+    /// to the default locale when nothing matches, so the returned bundle is
+    /// always complete.
     pub fn bundle(&self, requested_locale: &LocaleTag) -> StorageConnectorLocalizationBundle {
         let resolved_locale = self.resolve_locale(requested_locale);
         StorageConnectorLocalizationBundle {
@@ -199,6 +234,11 @@ impl StorageConnectorLocalization {
         }
     }
 
+    /// Checks that every descriptor message id exists in the default locale.
+    ///
+    /// Callers (descriptor validation) pass the message ids a connector's
+    /// admin UI references; a missing id returns
+    /// [`StorageConnectorLocalizationError`] naming the connector and id.
     pub fn validate_message_ids<'a>(
         &self,
         message_ids: impl IntoIterator<Item = &'a str>,
@@ -289,33 +329,55 @@ impl StorageConnectorLocalization {
     }
 }
 
+/// Metadata describing one connector's localization resource, without the
+/// message bodies.
+///
+/// Clients compare `revision` to decide whether to re-fetch bundles.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorLocalizationManifest {
+    /// Namespace the resource is served under; equals the connector id.
     pub namespace: String,
+    /// Locale used when no supported locale matches the request.
     pub default_locale: LocaleTag,
+    /// Locales the resource provides, sorted.
     pub supported_locales: Vec<LocaleTag>,
+    /// Opaque revision token; content changes imply a new revision.
     pub revision: String,
 }
 
+/// One connector's resolved message set for a locale request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorLocalizationBundle {
+    /// Connector that owns the messages.
     pub connector_id: ConnectorId,
+    /// Serving namespace; equals the connector id.
     pub namespace: String,
+    /// Locale the client asked for, before fallback.
     pub requested_locale: LocaleTag,
+    /// Locale actually served after fallback resolution.
     pub resolved_locale: LocaleTag,
+    /// Resource revision the messages belong to.
     pub revision: String,
+    /// Message id to localized text for the resolved locale.
     pub messages: BTreeMap<String, String>,
 }
 
+/// Aggregated localization response across every connector mounted on a policy.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorLocalizationCatalog {
+    /// Locale requested by the client; each bundle records its own resolution.
     pub requested_locale: LocaleTag,
+    /// Per-connector bundles for the requested locale.
     pub resources: Vec<StorageConnectorLocalizationBundle>,
 }
 
+/// Validation or lookup failure for a connector localization resource.
+///
+/// The message text is user-facing and names the connector plus the offending
+/// id, locale, or limit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StorageConnectorLocalizationError(String);
 

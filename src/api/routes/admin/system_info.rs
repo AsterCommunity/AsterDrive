@@ -5,6 +5,7 @@ use crate::api::response::ApiResponse;
 use crate::api::routes::health;
 use actix_web::HttpResponse;
 
+/// Returns admin system information (build, runtime, and storage backend details).
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/system-info",

@@ -38,6 +38,7 @@ pub(crate) fn download_disposition_from_query(
     }
 }
 
+/// Returns a personal file's info, including its storage usage.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/files/{id}",
@@ -66,6 +67,8 @@ pub async fn get_file(
     .await
 }
 
+/// Returns an archive preview manifest for a personal file; queues generation and
+/// returns 202 while it is being built.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/files/{id}/archive-preview",
@@ -102,6 +105,8 @@ pub async fn get_archive_preview(
     .await
 }
 
+/// Issues a short-lived direct-link token for downloading a personal file without
+/// session cookies, and records the action in the audit log.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/files/{id}/direct-link",
@@ -133,6 +138,8 @@ pub async fn get_direct_link(
     .await
 }
 
+/// Creates a preview link token for a personal file, bound to the request origin,
+/// and records the action in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/files/{id}/preview-link",
@@ -164,6 +171,8 @@ pub async fn get_preview_link(
     .await
 }
 
+/// Resolves a resource handle describing how the frontend should fetch a personal
+/// file resource (URL, credentials, conditional headers, redirect policy, delivery).
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/files/{id}/resource-handle",
@@ -201,6 +210,8 @@ pub async fn resolve_resource_handle(
     .await
 }
 
+/// Creates a WOPI launch session for opening a personal file in the given app, and
+/// records the action in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/files/{id}/wopi/open",
@@ -235,6 +246,8 @@ pub async fn open_wopi(
     .await
 }
 
+/// Downloads a personal file's content, honoring `If-None-Match` and Range requests
+/// (200/206/304) and an inline or attachment disposition.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/files/{id}/download",
@@ -269,6 +282,8 @@ pub async fn download(
     .await
 }
 
+/// Returns a personal file's thumbnail as WebP; queues generation and returns 202
+/// while it is being built.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/files/{id}/thumbnail",
@@ -304,6 +319,8 @@ pub async fn get_thumbnail(
     .await
 }
 
+/// Returns the media metadata extracted from a personal file's blob; returns 202
+/// while extraction is still in progress.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/files/{id}/media-metadata",
@@ -333,6 +350,8 @@ pub async fn get_media_metadata(
     .await
 }
 
+/// Returns a personal file's image preview as WebP; queues generation and returns
+/// 202 while it is being built.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/files/{id}/image-preview",
@@ -368,6 +387,7 @@ pub async fn get_image_preview(
     .await
 }
 
+/// Returns a team file's info, including its storage usage.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/files/{id}",
@@ -399,6 +419,8 @@ pub(crate) async fn team_get_file(
     .await
 }
 
+/// Returns an archive preview manifest for a team file; queues generation and
+/// returns 202 while it is being built.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/files/{id}/archive-preview",
@@ -438,6 +460,8 @@ pub(crate) async fn team_get_archive_preview(
     .await
 }
 
+/// Issues a short-lived direct-link token for downloading a team file without
+/// session cookies, and records the action in the audit log.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/files/{id}/direct-link",
@@ -472,6 +496,8 @@ pub(crate) async fn team_get_direct_link(
     .await
 }
 
+/// Creates a preview link token for a team file, bound to the request origin, and
+/// records the action in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/files/{id}/preview-link",
@@ -506,6 +532,8 @@ pub(crate) async fn team_get_preview_link(
     .await
 }
 
+/// Resolves a resource handle describing how the frontend should fetch a team file
+/// resource (URL, credentials, conditional headers, redirect policy, delivery).
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/files/{id}/resource-handle",
@@ -546,6 +574,8 @@ pub(crate) async fn team_resolve_resource_handle(
     .await
 }
 
+/// Creates a WOPI launch session for opening a team file in the given app, and
+/// records the action in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/files/{id}/wopi/open",
@@ -583,6 +613,8 @@ pub(crate) async fn team_open_wopi(
     .await
 }
 
+/// Returns a team file's thumbnail as WebP; queues generation and returns 202 while
+/// it is being built.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/files/{id}/thumbnail",
@@ -621,6 +653,8 @@ pub(crate) async fn team_get_thumbnail(
     .await
 }
 
+/// Returns a team file's image preview as WebP; queues generation and returns 202
+/// while it is being built.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/files/{id}/image-preview",
@@ -659,6 +693,8 @@ pub(crate) async fn team_get_image_preview(
     .await
 }
 
+/// Returns the media metadata extracted from a team file's blob; returns 202 while
+/// extraction is still in progress.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/files/{id}/media-metadata",
@@ -691,6 +727,8 @@ pub(crate) async fn team_get_media_metadata(
     .await
 }
 
+/// Downloads a team file's content, honoring `If-None-Match` and Range requests
+/// (200/206/304) and an inline or attachment disposition.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/files/{id}/download",

@@ -20,22 +20,35 @@ use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use url::Url;
 
+/// Connection and download-delivery settings for the Kodo driver.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QiniuDriverConfig {
+    /// Native Kodo bucket name; legacy S3-style space names are rejected.
     pub bucket: String,
+    /// Key prefix prepended to every driver-relative storage path.
     pub base_path: String,
+    /// HTTPS origin used to sign direct download URLs (Kodo bound domain).
     pub download_origin: String,
+    /// Channel used for browser-facing download URLs.
     pub download_delivery: QiniuDownloadDelivery,
+    /// Bound Kodo CDN download domain; required for [`QiniuDownloadDelivery::QiniuCdn`].
     pub download_base_url: Option<String>,
+    /// Signed-download validity window in seconds, clamped to 1..=3600.
     pub download_auth_validity_seconds: u32,
+    /// TCP connect timeout applied to Kodo HTTP clients.
     pub connect_timeout: Duration,
+    /// Idle-read timeout bounding Kodo response headers and body reads.
     pub read_timeout: Duration,
+    /// Whole-request timeout bounding Kodo control-plane operations.
     pub operation_timeout: Duration,
 }
 
+/// secret material for the Kodo driver.
 #[derive(Clone, PartialEq, Eq)]
 pub struct QiniuStaticCredentials {
+    /// Qiniu AccessKey.
     pub access_key: String,
+    /// Qiniu secret Key used for QBox request signing.
     pub secret_key: String,
 }
 
@@ -46,6 +59,8 @@ impl std::fmt::Debug for QiniuStaticCredentials {
     }
 }
 
+/// Native Kodo driver speaking the qiniu/go-sdk wire contracts (QBox signing,
+/// UC bucket configuration, and marker-based object listing).
 #[derive(Clone)]
 pub struct QiniuDriver {
     config: QiniuDriverConfig,
@@ -83,6 +98,7 @@ struct MultipartSession {
 }
 
 impl QiniuDriver {
+    /// Validates the bucket/key shapes, download domains, validity bounds, and credentials.
     pub fn validate_config(
         config: &QiniuDriverConfig,
         credentials: &QiniuStaticCredentials,
@@ -120,6 +136,8 @@ impl QiniuDriver {
         Ok(())
     }
 
+    /// Builds the driver once per policy with pooled, redirect-rejecting HTTP
+    /// clients shared by reqwest clones.
     pub fn new(mut config: QiniuDriverConfig, credentials: QiniuStaticCredentials) -> Result<Self> {
         Self::validate_config(&config, &credentials)?;
         config.base_path = config.base_path.trim_matches('/').to_string();

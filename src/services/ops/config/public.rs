@@ -1,3 +1,6 @@
+//! 面向匿名访客的公开配置投影：品牌信息、前端开关、预览应用注册表、自定义条目，
+//! 以及带短 TTL 缓存的媒体能力聚合（缩略图与媒体元数据支持）。
+
 use crate::config::branding;
 use crate::config::site_url;
 use crate::config::{auth_runtime, media_processing, operations};
@@ -16,7 +19,9 @@ use std::time::Duration;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
+/// Lifetime in seconds of the in-process public thumbnail/media-data support caches.
 pub const PUBLIC_SUPPORT_CACHE_TTL_SECS: u64 = 60;
+/// `Cache-Control` header value served with public config responses.
 pub const PUBLIC_CONFIG_CACHE_CONTROL: &str = "public, max-age=60";
 const PUBLIC_MEDIA_DATA_SUPPORT_CACHE_KEY: &str = "public_media_data_support";
 const PUBLIC_THUMBNAIL_SUPPORT_CACHE_KEY: &str = "public_thumbnail_support";
@@ -39,48 +44,71 @@ static PUBLIC_MEDIA_DATA_SUPPORT_CACHE: LazyLock<
         .build()
 });
 
+/// Public branding and login-method flags served to unauthenticated visitors.
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PublicBranding {
+    /// Public site title, falling back to the configured default when unset.
     pub title: String,
+    /// Public site description, falling back to the configured default when unset.
     pub description: String,
+    /// Resolved favicon URL.
     pub favicon_url: String,
+    /// Wordmark image URL used by the dark theme.
     pub wordmark_dark_url: String,
+    /// Wordmark image URL used by the light theme.
     pub wordmark_light_url: String,
+    /// Configured public site URLs.
     pub site_urls: Vec<String>,
+    /// Whether the auth policy currently allows open user registration.
     pub allow_user_registration: bool,
+    /// Whether passkey login is enabled.
     pub passkey_login_enabled: bool,
+    /// Whether password login is enabled.
     pub password_login_enabled: bool,
 }
 
+/// Media-related flags exposed to the frontend.
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PublicFrontendMediaConfig {
+    /// Whether image responses lead with the original file or the generated preview.
     pub image_preview_preference: media_processing::PublicImagePreviewPreference,
 }
 
+/// Download capability flags exposed to the frontend.
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PublicFrontendDownloadConfig {
+    /// Whether users may bundle their own files into an archive download.
     pub archive_download_user_enabled: bool,
+    /// Whether share recipients may bundle shared files into an archive download.
     pub archive_download_share_enabled: bool,
 }
 
+/// Versioned bundle of public configuration consumed by the frontend on boot.
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PublicFrontendConfig {
+    /// Payload schema version; bump it whenever the bundle shape changes. Currently `3`.
     pub version: i32,
+    /// Branding and login-method flags.
     pub branding: PublicBranding,
+    /// Archive download capability flags.
     pub downloads: PublicFrontendDownloadConfig,
+    /// Media-related flags.
     pub media: PublicFrontendMediaConfig,
 }
 
+/// Custom configuration entries exposed through the public config endpoint.
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PublicCustomConfig {
+    /// Custom key/value pairs visible to the requesting caller.
     pub entries: BTreeMap<String, String>,
 }
 
+/// Builds the public branding payload from the runtime config and current auth policy.
 pub fn get_public_branding(state: &impl SharedRuntimeState) -> PublicBranding {
     let runtime_config = state.runtime_config();
     let auth_policy = auth_runtime::RuntimeAuthPolicy::from_runtime_config(runtime_config);
@@ -97,6 +125,7 @@ pub fn get_public_branding(state: &impl SharedRuntimeState) -> PublicBranding {
     }
 }
 
+/// Builds the versioned public frontend config bundle for the requesting caller.
 pub fn get_public_frontend_config(state: &impl SharedRuntimeState) -> PublicFrontendConfig {
     PublicFrontendConfig {
         version: 3,
@@ -119,10 +148,14 @@ fn public_frontend_download_config(
     }
 }
 
+/// Returns the public preview app registry, keeping the default entries when unset.
 pub fn get_public_preview_apps(state: &impl SharedRuntimeState) -> apps::PublicPreviewAppsConfig {
     apps::get_public_preview_apps(state)
 }
 
+/// Returns custom config entries visible to the caller; pass
+/// `include_authenticated = true` to also include entries reserved for
+/// authenticated users.
 pub async fn get_public_custom_config(
     state: &impl SharedRuntimeState,
     include_authenticated: bool,
@@ -135,6 +168,8 @@ pub async fn get_public_custom_config(
     Ok(PublicCustomConfig { entries })
 }
 
+/// Returns the aggregated public media metadata support, memoized in a
+/// short-TTL cache keyed by the config and policy snapshot state.
 pub async fn get_public_media_data_support(
     state: &impl SharedRuntimeState,
 ) -> Result<media_processing::PublicMediaDataSupport> {
@@ -154,6 +189,8 @@ pub(crate) fn invalidate_public_media_data_support_cache() {
     PUBLIC_MEDIA_DATA_SUPPORT_CACHE.invalidate_all();
 }
 
+/// Returns the aggregated public thumbnail support, memoized in a short-TTL
+/// cache keyed by the config and policy snapshot state.
 pub async fn get_public_thumbnail_support(
     state: &impl SharedRuntimeState,
 ) -> Result<media_processing::PublicThumbnailSupport> {

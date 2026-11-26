@@ -21,6 +21,8 @@ use actix_web::{HttpRequest, HttpResponse, web};
 use aster_forge_api::NullablePatch;
 use aster_forge_middleware::actix::rate_limit::RateLimit;
 
+/// Builds the personal `/api/v1/folders` route scope behind JWT auth and the API
+/// rate limiter.
 pub fn routes(
     rl: &RateLimitConfig,
     network_trust: &NetworkTrustConfig,
@@ -46,6 +48,8 @@ pub fn routes(
         .route("/{id}", web::patch().to(patch_folder))
 }
 
+/// Builds the team folder route scope mounted under `/api/v1/teams/{team_id}`;
+/// mirrors the personal folder routes and embeds the team file routes.
 pub fn team_routes() -> actix_web::Scope {
     web::scope("/{team_id}")
         .route("/folders", web::get().to(team_list_root))
@@ -65,6 +69,7 @@ pub fn team_routes() -> actix_web::Scope {
         .service(files::team_routes())
 }
 
+/// Creates a folder in a personal workspace.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/folders",
@@ -95,6 +100,7 @@ pub async fn create_folder(
     .await
 }
 
+/// Lists the contents of the personal workspace root (files and folders).
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/folders",
@@ -123,6 +129,7 @@ pub async fn list_root(
     .await
 }
 
+/// Lists the contents of a personal folder (files and folders).
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/folders/{id}",
@@ -153,6 +160,7 @@ pub async fn list_folder(
     .await
 }
 
+/// Returns a personal folder's info, including its storage usage.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/folders/{id}/info",
@@ -181,6 +189,7 @@ pub async fn get_folder_info(
     .await
 }
 
+/// Returns the ancestor chain of a personal folder from the root down to it.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/folders/{id}/ancestors",
@@ -209,6 +218,8 @@ pub async fn get_ancestors(
     .await
 }
 
+/// Moves a personal folder tree to trash; returns 202 with a task when the deletion
+/// is queued for large trees, and 409 while a trash purge is pending or active.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/folders/{id}",
@@ -242,6 +253,8 @@ pub async fn delete_folder(
     .await
 }
 
+/// Renames or moves a personal folder; storage policy changes are rejected here and
+/// must go through the admin-only folder policy API.
 #[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/folders/{id}",
@@ -278,6 +291,7 @@ pub async fn patch_folder(
 
 // ── Lock ────────────────────────────────────────────────────────────
 
+/// Toggles a personal folder's manual lock state.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/folders/{id}/lock",
@@ -312,6 +326,7 @@ pub async fn set_lock(
     .await
 }
 
+/// Sets a personal folder's custom icon.
 #[aster_forge_api_docs_macros::path(
     put,
     path = "/api/v1/folders/{id}/icon",
@@ -349,6 +364,7 @@ pub async fn set_icon(
 
 // ── Copy ───────────────────────────────────────────────────────────
 
+/// Recursively copies a personal folder tree into a target parent folder.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/folders/{id}/copy",
@@ -383,6 +399,7 @@ pub async fn copy_folder(
     .await
 }
 
+/// Lists the contents of a team workspace's root (files and folders).
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/folders",
@@ -414,6 +431,7 @@ pub(crate) async fn team_list_root(
     .await
 }
 
+/// Creates a folder in a team workspace.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/folders",
@@ -445,6 +463,7 @@ pub(crate) async fn team_create_folder(
     .await
 }
 
+/// Lists the contents of a team folder (files and folders).
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/folders/{id}",
@@ -479,6 +498,7 @@ pub(crate) async fn team_list_folder(
     .await
 }
 
+/// Returns a team folder's info, including its storage usage.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/folders/{id}/info",
@@ -510,6 +530,7 @@ pub(crate) async fn team_get_folder_info(
     .await
 }
 
+/// Returns the ancestor chain of a team folder from the team root down to it.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/folders/{id}/ancestors",
@@ -541,6 +562,8 @@ pub(crate) async fn team_get_ancestors(
     .await
 }
 
+/// Moves a team folder tree to trash; returns 202 with a task when the deletion is
+/// queued for large trees, and 409 while a trash purge is pending or active.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/teams/{team_id}/folders/{id}",
@@ -577,6 +600,8 @@ pub(crate) async fn team_delete_folder(
     .await
 }
 
+/// Renames or moves a team folder; storage policy changes are rejected here and
+/// must go through the admin-only folder policy API.
 #[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/teams/{team_id}/folders/{id}",
@@ -614,6 +639,7 @@ pub(crate) async fn team_patch_folder(
     .await
 }
 
+/// Recursively copies a team folder tree into a target parent folder.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/folders/{id}/copy",
@@ -651,6 +677,7 @@ pub(crate) async fn team_copy_folder(
     .await
 }
 
+/// Toggles a team folder's manual lock state.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/folders/{id}/lock",
@@ -688,6 +715,7 @@ pub(crate) async fn team_set_lock(
     .await
 }
 
+/// Sets a team folder's custom icon.
 #[aster_forge_api_docs_macros::path(
     put,
     path = "/api/v1/teams/{team_id}/folders/{id}/icon",

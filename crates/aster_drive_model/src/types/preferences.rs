@@ -1,3 +1,5 @@
+//! 用户偏好、UI 配置与 locale 标签类型。
+
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 use std::collections::BTreeMap;
@@ -9,9 +11,12 @@ use utoipa::ToSchema;
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ThemeMode {
+    /// Follow the operating system setting.
     #[default]
     System,
+    /// Always use the light theme.
     Light,
+    /// Always use the dark theme.
     Dark,
 }
 
@@ -30,6 +35,7 @@ const DEFAULT_COLOR_PRESET: &str = "#2563eb";
 pub struct ColorPreset(String);
 
 impl ColorPreset {
+    /// Parses a `#rrggbb` hex color, accepting legacy preset names as aliases.
     pub fn parse(value: impl AsRef<str>) -> std::result::Result<Self, String> {
         let value = value.as_ref().trim();
         if let Some(hex) = legacy_color_preset(value) {
@@ -41,6 +47,7 @@ impl ColorPreset {
         Err("color_preset must be a #rrggbb hex color".to_string())
     }
 
+    /// Returns the normalized `#rrggbb` hex color string.
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -94,8 +101,10 @@ fn legacy_color_preset(value: &str) -> Option<&'static str> {
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum PrefViewMode {
+    /// Render items as rows in a list.
     #[default]
     List,
+    /// Render items as thumbnails in a grid.
     Grid,
 }
 
@@ -104,8 +113,10 @@ pub enum PrefViewMode {
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum BrowserOpenMode {
+    /// A single click opens the item.
     #[default]
     SingleClick,
+    /// A double click opens the item.
     DoubleClick,
 }
 
@@ -124,6 +135,7 @@ pub enum BrowserOpenMode {
 pub struct LocaleTag(String);
 
 impl LocaleTag {
+    /// Parses and normalizes a BCP 47 language tag.
     pub fn parse(value: impl AsRef<str>) -> std::result::Result<Self, String> {
         let value = value.as_ref().trim();
         if value.is_empty() {
@@ -135,10 +147,12 @@ impl LocaleTag {
             .map_err(|error| format!("invalid BCP 47 locale tag '{value}': {error}"))
     }
 
+    /// Returns the normalized tag string.
     pub fn as_str(&self) -> &str {
         &self.0
     }
 
+    /// Returns the primary language subtag, for example `zh` for `zh-Hans-CN`.
     pub fn primary_language(&self) -> &str {
         self.0.split('-').next().unwrap_or(self.as_str())
     }
@@ -174,18 +188,29 @@ impl<'de> Deserialize<'de> for LocaleTag {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct UserPreferences {
+    /// Selected UI theme mode.
     pub theme_mode: Option<ThemeMode>,
+    /// Selected UI accent color.
     pub color_preset: Option<ColorPreset>,
+    /// File browser view mode.
     pub view_mode: Option<PrefViewMode>,
+    /// Gesture that opens items in the file browser.
     pub browser_open_mode: Option<BrowserOpenMode>,
+    /// Default sort key for file and folder listings.
     pub sort_by: Option<super::sort::SortBy>,
+    /// Default sort direction for file and folder listings.
     pub sort_order: Option<aster_forge_api::SortOrder>,
+    /// Preferred UI locale.
     pub language: Option<LocaleTag>,
+    /// Time zone used to render timestamps: an IANA identifier or the literal
+    /// `browser` to follow the client's zone.
     pub display_time_zone: Option<String>,
+    /// Whether the client receives real-time storage change events.
     pub storage_event_stream_enabled: Option<bool>,
 }
 
 impl UserPreferences {
+    /// Returns `true` when every preference is unset.
     pub fn is_empty(&self) -> bool {
         *self == Self::default()
     }
@@ -195,13 +220,16 @@ impl UserPreferences {
 /// structured built-in preferences + arbitrary custom frontend keys.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct UserConfig {
+    /// Structured built-in preferences.
     #[serde(flatten, default)]
     pub preferences: UserPreferences,
+    /// Arbitrary extra keys written by frontend versions; preserved verbatim.
     #[serde(flatten, default)]
     pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 impl UserConfig {
+    /// Returns `true` when neither preferences nor extra keys are present.
     pub fn is_empty(&self) -> bool {
         self.preferences.is_empty() && self.extra.is_empty()
     }
@@ -212,10 +240,12 @@ impl UserConfig {
 pub struct StoredUserConfig(pub String);
 
 impl StoredUserConfig {
+    /// Deserializes the stored JSON text into a `UserConfig`.
     pub fn parse(&self) -> serde_json::Result<UserConfig> {
         serde_json::from_str(&self.0)
     }
 
+    /// Serializes a `UserConfig` into the stored JSON representation.
     pub fn from_config(config: &UserConfig) -> serde_json::Result<Self> {
         serde_json::to_string(config).map(Self)
     }

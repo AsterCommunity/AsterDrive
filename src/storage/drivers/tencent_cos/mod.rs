@@ -38,6 +38,7 @@ fn non_empty_xml_text(text: Option<&str>) -> Option<String> {
     (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
+/// 腾讯云 COS 存储驱动：基础对象 I/O 复用 S3 兼容层，CI 数据处理扩展走 COS 原生 query 签名。
 pub struct TencentCosDriver {
     storage: S3CompatibleDriver,
     client: aster_forge_http::HttpClient,
@@ -53,24 +54,39 @@ pub struct TencentCosDriver {
     cdn_auth_key: Option<String>,
 }
 
+/// COS 驱动的连接与下载交付配置。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TencentCosDriverConfig {
+    /// COS endpoint；未启用 CNAME 模式时必须是 `*.myqcloud.com` 主机。
     pub endpoint: String,
+    /// COS bucket 名称（通常含 APPID 后缀）。
     pub bucket: String,
+    /// 拼接在每条 driver 相对路径之前的对象 key 前缀。
     pub base_path: String,
+    /// 将 `endpoint` 视为绑定 bucket 的自定义域名（path-style 寻址）。
     pub use_cname: bool,
+    /// HTTPS 下载域名；CustomOrigin 与 TencentCdnTypeDSha256 模式必需。
     pub download_base_url: Option<String>,
+    /// 浏览器下载链接的交付通道。
     pub download_delivery: CosDownloadDelivery,
+    /// CDN Type D 有效期（秒），取值 1..=3600。
     pub cdn_auth_validity_seconds: u32,
+    /// COS 请求的 TCP 连接超时。
     pub connect_timeout: Duration,
+    /// 等待 COS 响应字节的空闲读取超时。
     pub read_timeout: Duration,
+    /// 限制单次 COS 操作整体耗时。
     pub operation_timeout: Duration,
 }
 
+/// COS 驱动的凭据材料。
 #[derive(Clone, PartialEq, Eq)]
 pub struct TencentCosStaticCredentials {
+    /// 腾讯云 SecretId。
     pub access_key: String,
+    /// 用于 COS query 签名的腾讯云 secret Key。
     pub secret_key: String,
+    /// CDN Type D 认证密钥；选择 CDN 交付时必需。
     pub cdn_auth_key: Option<String>,
 }
 
@@ -82,6 +98,7 @@ impl std::fmt::Debug for TencentCosStaticCredentials {
 }
 
 impl TencentCosDriver {
+    /// 校验 endpoint/下载域名形态与 CDN 交付选项，不涉及凭据。
     pub fn validate_connection_config(config: &TencentCosDriverConfig) -> Result<()> {
         match config.download_delivery {
             CosDownloadDelivery::CosOrigin => {}
@@ -169,6 +186,7 @@ impl TencentCosDriver {
         Ok(())
     }
 
+    /// 校验连接配置与凭据；CDN 交付模式额外要求格式正确的认证密钥。
     pub fn validate_config(
         config: &TencentCosDriverConfig,
         credentials: &TencentCosStaticCredentials,
@@ -222,6 +240,8 @@ impl TencentCosDriver {
         Ok(())
     }
 
+    /// 构建驱动：对象 I/O 走 COS query 签名，multipart 采用 COS UploadPart 契约
+    /// （part 1 MiB..5 GiB，最多 10_000 个）。
     pub fn new(
         config: TencentCosDriverConfig,
         credentials: TencentCosStaticCredentials,
@@ -289,6 +309,7 @@ impl TencentCosDriver {
         })
     }
 
+    /// 承载对象 I/O 的 S3 client，已接入 COS query 签名。
     pub fn s3_driver(&self) -> std::sync::Arc<super::s3::S3Driver> {
         self.storage.s3_driver()
     }

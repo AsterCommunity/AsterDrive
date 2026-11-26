@@ -23,6 +23,10 @@ fn state_from_single_use(
     }
 }
 
+/// Projects a persisted external-login record into a flow snapshot.
+///
+/// The record is single-use: a consumed row maps to `Consumed` (and bumps revision to 1), which
+/// makes any further consumption transition fail rather than issue a second session.
 pub fn external_login_snapshot(
     flow: &external_auth_login_flow::Model,
     now: DateTime<Utc>,
@@ -43,6 +47,10 @@ pub fn external_login_snapshot(
     }
 }
 
+/// Projects a persisted external email-verification record into a recovery flow snapshot.
+///
+/// Revision counts two independent progress markers (token issued + token consumed) so a caller
+/// holding a stale snapshot cannot consume a flow that advanced underneath it.
 pub fn external_recovery_snapshot(
     flow: &external_auth_email_verification_flow::Model,
     now: DateTime<Utc>,
@@ -64,6 +72,10 @@ pub fn external_recovery_snapshot(
     }
 }
 
+/// Projects a contact-verification token into a flow snapshot.
+///
+/// The token's purpose selects the flow kind (registration activation, email change, or password
+/// reset); the token hash itself never enters the snapshot.
 pub fn contact_verification_snapshot(
     token: &contact_verification_token::Model,
     now: DateTime<Utc>,
@@ -89,6 +101,10 @@ pub fn contact_verification_snapshot(
     }
 }
 
+/// Projects a user invitation into a flow snapshot.
+///
+/// Accepted maps to `Completed`, revoked to `Cancelled`, and a pending invitation past its
+/// deadline to `Expired`; only pending, unexpired invitations sit in `RecoveryPending`.
 pub fn invitation_snapshot(
     invitation: &user_invitation::Model,
     now: DateTime<Utc>,
@@ -111,20 +127,32 @@ pub fn invitation_snapshot(
     }
 }
 
+/// Derived lifecycle state of a refresh session; revocation takes precedence over expiry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuthSessionLifecycleState {
+    /// Revocation flag unset and the refresh window still open.
     Active,
+    /// Refresh deadline passed; the session can no longer mint access tokens.
     Expired,
+    /// Explicitly revoked (logout, admin revoke, or credential rotation).
     Revoked,
 }
 
+/// Snapshot of a persisted auth session's refresh-window state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthSessionSnapshot {
+    /// Session identifier matching the `sid` claim of issued access tokens.
     pub session_id: String,
+    /// Derived lifecycle state at the instant of projection.
     pub state: AuthSessionLifecycleState,
+    /// Deadline after which the session can no longer be refreshed.
     pub refresh_expires_at: DateTime<Utc>,
 }
 
+/// Projects a persisted auth session into its refresh-window lifecycle state.
+///
+/// Revocation is checked before expiry so a revoked session never reports `Active` even when both
+/// flags would apply.
 pub fn auth_session_snapshot(
     session: &auth_session::Model,
     now: DateTime<Utc>,

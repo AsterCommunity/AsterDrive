@@ -9,10 +9,14 @@ use utoipa::ToSchema;
 
 use crate::types::RemoteNodeTransportMode;
 
+/// Remote follower node administered by this primary: control-plane
+/// credentials, transport selection, latest probe state, and the
+/// binding-control revision counters synced from the follower.
 #[derive(Clone, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[sea_orm(table_name = "managed_followers")]
 pub struct Model {
+    /// Primary key.
     #[sea_orm(primary_key)]
     pub id: i64,
     /// Administrative display name for the remote node.
@@ -75,8 +79,10 @@ impl fmt::Debug for Model {
     }
 }
 
+/// SeaORM relation definitions for this entity.
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
+    /// Enrollment handshakes issued for this node.
     #[sea_orm(has_many = "super::follower_enrollment_session::Entity")]
     FollowerEnrollmentSessions,
 }

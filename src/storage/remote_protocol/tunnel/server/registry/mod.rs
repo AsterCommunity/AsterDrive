@@ -104,6 +104,9 @@ struct ConnectionLifecycleState {
     observation_revision: u64,
 }
 
+/// In-memory registry of follower reverse-tunnel connections: buffered poll
+/// connections, streaming lanes, pending responses, handshake/error state,
+/// and connection lifecycle telemetry.
 #[derive(Default)]
 pub struct RemoteTunnelRegistry {
     metrics: parking_lot::RwLock<Option<aster_drive_metrics::SharedMetricsRecorder>>,
@@ -121,22 +124,30 @@ pub struct RemoteTunnelRegistry {
 }
 
 impl RemoteTunnelRegistry {
+    /// Creates an empty registry; wire metrics, persistence, and audit config
+    /// through the setters before serving traffic.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Installs the metrics recorder used by connection and stream guards.
     pub fn set_metrics(&self, metrics: aster_drive_metrics::SharedMetricsRecorder) {
         *self.metrics.write() = Some(metrics);
     }
 
+    /// Installs the database used to persist handshake and error state.
     pub fn set_persistence_db(&self, db: DatabaseConnection) {
         *self.persistence_db.write() = Some(db);
     }
 
+    /// Installs the runtime config consulted before writing connection
+    /// lifecycle audit entries.
     pub fn set_audit_runtime_config(&self, runtime_config: Arc<RuntimeConfig>) {
         *self.audit_runtime_config.write() = Some(runtime_config);
     }
 
+    /// Reports liveness from the newer of the in-memory handshake timestamp
+    /// and the persisted one, judged against the online TTL.
     pub fn is_online(&self, remote_node: &managed_follower::Model) -> bool {
         let local_last_handshake = self
             .last_handshake_at
@@ -332,6 +343,8 @@ impl RemoteTunnelRegistry {
         });
     }
 
+    /// Latest transient tunnel error recorded for the follower, if any; cleared
+    /// by the next successful handshake.
     pub fn runtime_error(&self, remote_node_id: i64) -> Option<String> {
         self.runtime_errors
             .get(&remote_node_id)
@@ -406,6 +419,8 @@ fn is_recent_tunnel_handshake_at(last_handshake_at: chrono::DateTime<chrono::Utc
         .is_some_and(|ttl| last_handshake_at + ttl > chrono::Utc::now())
 }
 
+/// Builds the transient error returned when no reverse tunnel connection is
+/// currently available for the follower.
 pub fn reverse_tunnel_offline_error(remote_node_id: i64) -> crate::errors::AsterError {
     crate::errors::storage_driver_error(
         StorageErrorKind::Transient,

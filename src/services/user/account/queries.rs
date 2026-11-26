@@ -13,6 +13,7 @@ use super::models::{
 };
 use super::preferences::parse_preferences;
 
+/// Pairs a user row with an already-resolved profile into a [`UserSummary`].
 pub fn to_user_summary_with_profile(
     user: &user::Model,
     profile: profile::UserProfileInfo,
@@ -24,6 +25,8 @@ pub fn to_user_summary_with_profile(
     }
 }
 
+/// Builds a [`UserSummary`] for one user, resolving the profile for the
+/// given audience.
 pub async fn to_user_summary(
     state: &impl SharedRuntimeState,
     user: &user::Model,
@@ -35,6 +38,10 @@ pub async fn to_user_summary(
     ))
 }
 
+/// Builds summaries for a batch of user IDs, keyed by user ID.
+///
+/// Non-positive and duplicate IDs are ignored; IDs without a profile row fall
+/// back to a default profile with the given avatar audience.
 pub async fn user_summaries_by_ids(
     state: &impl SharedRuntimeState,
     user_ids: &[i64],
@@ -66,6 +73,8 @@ pub async fn user_summaries_by_ids(
         .collect())
 }
 
+/// Builds a [`UserSummary`] for one user, or `None` when the user does not
+/// exist.
 pub async fn user_summary_by_id(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -78,6 +87,8 @@ pub async fn user_summary_by_id(
     }
 }
 
+/// Builds full [`UserInfo`] for one user, resolving the profile for the
+/// given audience.
 pub async fn to_user_info(
     state: &impl SharedRuntimeState,
     user: &user::Model,
@@ -102,6 +113,8 @@ pub async fn to_user_info(
     })
 }
 
+/// Builds full [`UserInfo`] for a batch of users, resolving profiles in one
+/// reader query.
 pub async fn to_user_infos(
     state: &impl SharedRuntimeState,
     users: Vec<user::Model>,
@@ -133,6 +146,8 @@ pub async fn to_user_infos(
         .collect())
 }
 
+/// Loads the complete `/auth/me` response for the current user, including
+/// preferences and self-audience profile.
 pub async fn get_me(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -161,6 +176,8 @@ pub async fn get_me(
     })
 }
 
+/// Loads the partial `/auth/me` response, including only the optional groups
+/// selected by `fields`.
 pub async fn get_me_partial(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -195,11 +212,15 @@ pub async fn get_me_partial(
     })
 }
 
+/// Loads full [`UserInfo`] for the current user with the self-audience
+/// profile.
 pub async fn get_self_info(state: &impl SharedRuntimeState, user_id: i64) -> Result<UserInfo> {
     let user = user_repo::find_by_id(state.reader_db(), user_id).await?;
     to_user_info(state, &user, profile::AvatarAudience::SelfUser).await
 }
 
+/// Lists users for the admin console with offset pagination and the given
+/// filters, mapped to [`UserInfo`] with admin-audience profiles.
 pub async fn list_paginated(
     state: &impl SharedRuntimeState,
     limit: u64,
@@ -226,6 +247,7 @@ pub async fn list_paginated(
     ))
 }
 
+/// Loads one user for the admin console with an admin-audience profile.
 pub async fn get(state: &impl SharedRuntimeState, id: i64) -> Result<UserInfo> {
     let user = user_repo::find_by_id(state.reader_db(), id).await?;
     to_user_info(state, &user, profile::AvatarAudience::AdminUser).await

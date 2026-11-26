@@ -16,34 +16,51 @@ use super::shared::{AVATAR_SIZE_LG, AVATAR_SIZE_SM, stored_avatar_prefix};
 const DEFAULT_GRAVATAR_BASE_URL: &str = "https://www.gravatar.com/avatar";
 
 #[derive(Debug, Clone, Copy)]
+/// Selects which API base paths generated avatar URLs point at.
 pub enum AvatarAudience {
+    /// The signed-in user viewing their own profile (`/auth/profile/...`).
     SelfUser,
+    /// An admin viewing another user (`/admin/users/...`).
     AdminUser,
 }
 
+/// Avatar resolution for one user, as embedded in profile responses.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct AvatarInfo {
+    /// Currently active avatar source.
     pub source: AvatarSource,
+    /// Avatar URL for the 512px variant; `None` when no avatar is available.
     pub url_512: Option<String>,
+    /// Avatar URL for the 1024px variant; `None` when no avatar is available.
     pub url_1024: Option<String>,
+    /// Monotonic version used for cache busting; 0 before the first avatar mutation.
     pub version: i32,
 }
 
+/// Display profile of a user: display name plus resolved avatar info.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct UserProfileInfo {
+    /// Free-form display name; `None` falls back to the username in the UI.
     pub display_name: Option<String>,
+    /// Avatar source and URLs for the available size variants.
     pub avatar: AvatarInfo,
 }
 
+/// Outcome of an avatar upload attempt.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct AvatarUploadResult {
+    /// Profile after the attempt: the new state when applied, otherwise the
+    /// unchanged profile that superseded this submission.
     pub profile: UserProfileInfo,
+    /// Whether this submission won the version check and was applied.
     pub applied: bool,
 }
 
+/// Returns the configured Gravatar base URL, falling back to the official
+/// endpoint when unset or blank.
 pub fn resolve_gravatar_base_url(state: &impl SharedRuntimeState) -> String {
     let base_url = state
         .runtime_config()
@@ -121,6 +138,8 @@ fn build_avatar_info(
     }
 }
 
+/// Assembles [`UserProfileInfo`] from a user row and its optional profile
+/// row; users without a profile row get a default avatar info.
 pub fn build_profile_info(
     user: &user::Model,
     profile: Option<&user_profile::Model>,
@@ -133,6 +152,8 @@ pub fn build_profile_info(
     }
 }
 
+/// Builds [`AvatarInfo`] for the public share page, pointing upload avatar
+/// URLs at the share-token endpoint instead of authenticated API paths.
 pub fn build_share_public_avatar_info(
     user: &user::Model,
     profile: Option<&user_profile::Model>,
@@ -172,6 +193,8 @@ pub fn build_share_public_avatar_info(
     }
 }
 
+/// Batch variant of [`build_profile_info`]: resolves profile rows for many
+/// users in one reader query, keyed by user ID.
 pub async fn get_profile_info_map(
     state: &impl SharedRuntimeState,
     users: &[user::Model],

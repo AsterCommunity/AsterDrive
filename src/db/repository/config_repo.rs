@@ -58,10 +58,13 @@ fn map_store_result<T>(result: aster_forge_db::Result<T>) -> Result<T> {
     result.map_err(map_store_error)
 }
 
+/// Lists every system configuration row through the registry-backed store.
 pub async fn find_all<C: ConnectionTrait>(db: &C) -> Result<Vec<system_config::Model>> {
     map_store_result(STORE.find_all(db).await)
 }
 
+/// Returns one offset page of configuration rows ordered by key id, together
+/// with the total row count.
 pub async fn find_paginated(
     db: &DatabaseConnection,
     limit: u64,
@@ -76,6 +79,7 @@ pub async fn find_paginated(
     .await
 }
 
+/// Loads one configuration row by key. Returns `None` when the key is unknown.
 pub async fn find_by_key<C: ConnectionTrait>(
     db: &C,
     key: &str,
@@ -83,6 +87,8 @@ pub async fn find_by_key<C: ConnectionTrait>(
     map_store_result(STORE.find_by_key(db, key).await)
 }
 
+/// Lists custom (non-system) configuration rows whose visibility allows public
+/// reads, and also authenticated-only rows when `include_authenticated` is set.
 pub async fn find_visible_custom(
     db: &DatabaseConnection,
     include_authenticated: bool,
@@ -90,10 +96,15 @@ pub async fn find_visible_custom(
     map_store_result(STORE.find_visible_custom(db, include_authenticated).await)
 }
 
+/// Serializes configuration mutations by taking a row write lock on the given
+/// key (no-op update) inside the caller's transaction. Fails when the key's row
+/// does not exist.
 pub async fn lock_by_key<C: ConnectionTrait>(db: &C, key: &str) -> Result<()> {
     map_store_result(STORE.lock_by_key(db, key).await)
 }
 
+/// Writes a configuration value attributed to an authenticated actor, leaving
+/// visibility unchanged.
 pub async fn upsert<C: ConnectionTrait>(
     db: &C,
     key: &str,
@@ -103,6 +114,8 @@ pub async fn upsert<C: ConnectionTrait>(
     upsert_with_actor(db, key, value, Some(updated_by)).await
 }
 
+/// Writes a configuration value with an optional actor attribution (system
+/// bootstrap writes use `None`), leaving visibility unchanged.
 pub async fn upsert_with_actor<C: ConnectionTrait>(
     db: &C,
     key: &str,
@@ -112,6 +125,9 @@ pub async fn upsert_with_actor<C: ConnectionTrait>(
     upsert_with_options(db, key, value, None, updated_by).await
 }
 
+/// Writes a configuration value, optionally overriding its visibility. The key
+/// must pass the store's pre-validation (unknown or system-protected keys are
+/// rejected); unknown keys are created, existing keys updated.
 pub async fn upsert_with_options<C: ConnectionTrait>(
     db: &C,
     key: &str,
@@ -134,10 +150,15 @@ pub async fn upsert_with_options<C: ConnectionTrait>(
     )
 }
 
+/// Deletes a custom configuration key; system configuration keys are rejected
+/// as forbidden, unknown keys as not-found.
 pub async fn delete_by_key<C: ConnectionTrait>(db: &C, key: &str) -> Result<()> {
     map_store_result(STORE.delete_by_key(db, key).await)
 }
 
+/// Inserts a system configuration value only when the key has no row yet;
+/// returns `true` when this call created it, `false` when a value already
+/// existed (never overwritten).
 pub async fn ensure_system_value_if_missing<C: ConnectionTrait>(
     db: &C,
     key: &str,

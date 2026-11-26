@@ -3,6 +3,9 @@ use super::routes;
 use actix_web::web;
 use aster_forge_metrics::ObservabilityConfig;
 
+/// Configures the follower node's HTTP surface: the `/api/v1` internal storage
+/// scope, follower health routes, and the trusted-client network app data used
+/// when auditing internal endpoints.
 pub fn configure_follower(cfg: &mut web::ServiceConfig, observability: &ObservabilityConfig) {
     // follower 侧同样以 app data 提供可信网络，internal 端点的审计语义与 primary 一致。
     let network_trust = crate::config::try_get_config()

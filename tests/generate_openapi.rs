@@ -1,5 +1,5 @@
-#![cfg(all(debug_assertions, feature = "openapi"))]
 //! OpenAPI 生成测试。
+#![cfg(all(debug_assertions, feature = "openapi"))]
 
 use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::api::openapi::ApiDoc;

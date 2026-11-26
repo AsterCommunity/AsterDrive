@@ -6,11 +6,17 @@ use crate::config::RuntimeConfig;
 use crate::errors::{AsterError, MapAsterErr, Result};
 
 pub use crate::config::definitions::AVATAR_DIR_KEY;
+/// Default `avatar_dir` value: the directory (under the data dir unless
+/// absolute) that stores local avatar files.
 pub const DEFAULT_AVATAR_DIR: &str = "avatar";
 const DEFAULT_DATA_DIR: &str = "data";
 
 const MAX_AVATAR_DIR_LEN: usize = 4096;
 
+/// Normalizes a stored `avatar_dir` value.
+///
+/// Trims surrounding whitespace; an empty value resets to [`DEFAULT_AVATAR_DIR`].
+/// Rejects values longer than 4096 bytes or containing control characters.
 pub fn normalize_avatar_dir_config_value(value: &str) -> Result<String> {
     let normalized = value.trim();
     if normalized.is_empty() {
@@ -29,6 +35,8 @@ pub fn normalize_avatar_dir_config_value(value: &str) -> Result<String> {
     Ok(normalized.to_string())
 }
 
+/// Effective `avatar_dir` value: the trimmed runtime value, or
+/// [`DEFAULT_AVATAR_DIR`] when it is missing or blank.
 pub fn avatar_dir_or_default(runtime_config: &RuntimeConfig) -> String {
     runtime_config
         .get(AVATAR_DIR_KEY)
@@ -37,6 +45,10 @@ pub fn avatar_dir_or_default(runtime_config: &RuntimeConfig) -> String {
         .unwrap_or_else(|| DEFAULT_AVATAR_DIR.to_string())
 }
 
+/// Resolves the local avatar root directory to an absolute path.
+///
+/// Absolute configured values are kept as-is; relative values are resolved
+/// under the process working directory's `data` directory.
 pub fn resolve_local_avatar_root_dir(runtime_config: &RuntimeConfig) -> Result<PathBuf> {
     let configured = avatar_dir_or_default(runtime_config);
     let configured_path = Path::new(&configured);

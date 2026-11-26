@@ -84,6 +84,8 @@ pub(crate) async fn find_top_level_deleted_batch<C: ConnectionTrait>(
     Ok(items)
 }
 
+/// 个人回收站的顶层已删除文件 cursor 分页：只含“顶层”删除条目（其所在文件夹未被一并
+/// 删除），cursor 为 (deleted_at, id)；返回当前页和匹配总数。
 pub async fn find_top_level_deleted_paginated<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -94,6 +96,7 @@ pub async fn find_top_level_deleted_paginated<C: ConnectionTrait>(
         .await
 }
 
+/// 团队空间版本的 [`find_top_level_deleted_paginated`]。
 pub async fn find_top_level_deleted_by_team_paginated<C: ConnectionTrait>(
     db: &C,
     team_id: i64,
@@ -241,6 +244,8 @@ pub async fn find_all_by_user<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// 分页扫描用户的个人空间全部文件（含已删除）：`after_id` 之后按 id 升序取 `limit` 条；
+/// force_delete 遍历用。
 pub async fn find_all_by_user_paginated<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -258,6 +263,9 @@ pub async fn find_all_by_user_paginated<C: ConnectionTrait>(
     query.all(db).await.map_err(AsterError::from)
 }
 
+/// Queries all files of a team workspace (deleted included); force-delete uses it to
+/// enumerate everything before removal.
+/// 查询团队空间下的全部文件（含已删除），force_delete 用。
 pub async fn find_all_by_team<C: ConnectionTrait>(
     db: &C,
     team_id: i64,
@@ -269,6 +277,7 @@ pub async fn find_all_by_team<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// 分页扫描团队空间下的全部文件（含已删除）：`after_id` 之后按 id 升序取 `limit` 条。
 pub async fn find_all_by_team_paginated<C: ConnectionTrait>(
     db: &C,
     team_id: i64,

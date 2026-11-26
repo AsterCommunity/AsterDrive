@@ -34,6 +34,8 @@ use futures::StreamExt;
 use serde::Deserialize;
 use tokio_util::io::ReaderStream;
 
+/// Builds the follower-side `/internal/storage` protocol scope consumed by the
+/// master node, with presigned-request CORS applied.
 pub fn routes() -> impl HttpServiceFactory {
     web::scope("/internal/storage")
         .wrap(PresignedInternalStorageCors)

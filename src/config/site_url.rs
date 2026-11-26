@@ -6,6 +6,8 @@ use crate::errors::{AsterError, MapAsterErr, Result};
 
 pub use crate::config::definitions::PUBLIC_SITE_URL_KEY;
 
+/// Validates a stored `public_site_url` JSON array and returns its canonical
+/// serialized form: trimmed, deduplicated, browser-style origin strings.
 pub fn normalize_public_site_url_config_value(value: &str) -> Result<String> {
     let origins = parse_public_site_url_value(value)?;
     serde_json::to_string(&origins).map_aster_err_ctx(
@@ -55,6 +57,10 @@ fn parse_public_site_url_origin(origin: &str) -> Result<String> {
         .map_err(|_| AsterError::validation_error("invalid public_site_url origin"))
 }
 
+/// Parses a `public_site_url` value into normalized origin strings.
+///
+/// Unlike the runtime reader, any invalid entry fails instead of being
+/// skipped; entries keep their configured order and are deduplicated.
 pub fn parse_public_site_url_value(value: &str) -> Result<Vec<String>> {
     let trimmed = value.trim();
     let mut origins = Vec::new();
@@ -68,6 +74,7 @@ pub fn parse_public_site_url_value(value: &str) -> Result<Vec<String>> {
     Ok(origins)
 }
 
+/// Raw stored `public_site_url` value, or `None` when missing or blank.
 pub fn public_site_url_config_value(runtime_config: &RuntimeConfig) -> Option<String> {
     runtime_config
         .get(PUBLIC_SITE_URL_KEY)
@@ -75,6 +82,10 @@ pub fn public_site_url_config_value(runtime_config: &RuntimeConfig) -> Option<St
         .filter(|value| !value.is_empty())
 }
 
+/// All configured public origins, in stored order.
+///
+/// Invalid entries and unparseable stored values are skipped with a warning
+/// instead of failing requests.
 pub fn public_site_urls(runtime_config: &RuntimeConfig) -> Vec<String> {
     let Some(value) = public_site_url_config_value(runtime_config) else {
         return Vec::new();
@@ -114,10 +125,14 @@ pub fn public_site_urls(runtime_config: &RuntimeConfig) -> Vec<String> {
     origins
 }
 
+/// The first configured public origin, or `None` when none is configured.
 pub fn public_site_url(runtime_config: &RuntimeConfig) -> Option<String> {
     public_site_urls(runtime_config).into_iter().next()
 }
 
+/// Picks the public origin matching the incoming request when the request's
+/// own origin is configured; otherwise falls back to the first configured
+/// origin, so absolute links never echo attacker-controlled hosts.
 pub fn public_site_url_for_request(
     runtime_config: &RuntimeConfig,
     scheme: &str,
@@ -138,11 +153,15 @@ pub fn public_site_url_for_request(
     origins.into_iter().next()
 }
 
+/// Absolute URL for `path` on the first configured public origin, or `None`
+/// when no origin is configured.
 pub fn public_app_url(runtime_config: &RuntimeConfig, path: &str) -> Option<String> {
     let base = public_site_url(runtime_config)?;
     Some(join_origin_and_path(&base, path))
 }
 
+/// Like [`public_app_url`], but prefers the origin matching the incoming
+/// request (see [`public_site_url_for_request`]).
 pub fn public_app_url_for_request(
     runtime_config: &RuntimeConfig,
     path: &str,
@@ -153,10 +172,14 @@ pub fn public_app_url_for_request(
     Some(join_origin_and_path(&base, path))
 }
 
+/// [`public_app_url`] degrading to the bare `path` when no origin is
+/// configured.
 pub fn public_app_url_or_path(runtime_config: &RuntimeConfig, path: &str) -> String {
     public_app_url(runtime_config, path).unwrap_or_else(|| path.to_string())
 }
 
+/// [`public_app_url_for_request`] degrading to the bare `path` when no origin
+/// is configured.
 pub fn public_app_url_or_path_for_request(
     runtime_config: &RuntimeConfig,
     path: &str,
@@ -167,6 +190,8 @@ pub fn public_app_url_or_path_for_request(
         .unwrap_or_else(|| path.to_string())
 }
 
+/// Joins an origin with an absolute `path`, adding the leading slash when the
+/// caller omitted it.
 pub fn join_origin_and_path(base: &str, path: &str) -> String {
     let normalized_path = if path.starts_with('/') {
         path.to_string()

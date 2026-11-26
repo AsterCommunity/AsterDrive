@@ -17,6 +17,9 @@ use aster_drive_model::types::TeamMemberRole;
 use aster_forge_api::LimitOffsetQuery;
 use aster_forge_middleware::actix::rate_limit::RateLimit;
 
+/// Builds the `/api/v1/teams` route scope behind JWT auth and the API rate limiter,
+/// aggregating the team-scoped subroutes (batch, search, shares, tags, trash,
+/// tasks, folders).
 pub fn routes(
     rl: &RateLimitConfig,
     network_trust: &NetworkTrustConfig,
@@ -77,6 +80,8 @@ pub fn routes(
         .service(folders::team_routes())
 }
 
+/// Lists the teams visible to the signed-in user, with keyword filter, archived
+/// toggle, and pagination.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams",
@@ -106,6 +111,8 @@ pub async fn list_teams(
     Ok(HttpResponse::Ok().json(crate::api::response::success(teams)))
 }
 
+/// Creates a team owned by the current user (system admin required) and records the
+/// change in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams",
@@ -141,6 +148,7 @@ pub async fn create_team(
     Ok(HttpResponse::Created().json(crate::api::response::success(team)))
 }
 
+/// Returns a team's details if the caller is a member.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{id}",
@@ -164,6 +172,8 @@ pub async fn get_team(
     Ok(HttpResponse::Ok().json(crate::api::response::success(team)))
 }
 
+/// Updates a team's profile (name, description) as a team admin and records the
+/// change in the audit log.
 #[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/teams/{id}",
@@ -202,6 +212,8 @@ pub async fn patch_team(
     Ok(HttpResponse::Ok().json(crate::api::response::success(team)))
 }
 
+/// Archives a team (soft delete) as a team owner and records the change in the
+/// audit log.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/teams/{id}",
@@ -227,6 +239,7 @@ pub async fn delete_team(
     Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
+/// Restores an archived team as a team owner and records the change in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{id}/restore",
@@ -252,6 +265,7 @@ pub async fn restore_team(
     Ok(HttpResponse::Ok().json(crate::api::response::success(team)))
 }
 
+/// Lists a team's audit log entries for members, with pagination and filtering.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{id}/audit-logs",
@@ -290,6 +304,8 @@ pub async fn list_audit_logs(
     Ok(HttpResponse::Ok().json(crate::api::response::success(page)))
 }
 
+/// Streams a team's audit log entries as a UTF-8 CSV export (owner or admin role
+/// required), capped at 100000 rows.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{id}/audit-logs/export",
@@ -324,6 +340,7 @@ pub async fn export_audit_logs(
     Ok(crate::api::routes::audit_csv::response(export))
 }
 
+/// Lists a team's members with pagination, filtering, and sorting.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{id}/members",
@@ -370,6 +387,8 @@ pub async fn list_members(
     Ok(HttpResponse::Ok().json(crate::api::response::success(members)))
 }
 
+/// Adds a member to a team (role defaults to member) as a team admin and records
+/// the change in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{id}/members",
@@ -409,6 +428,8 @@ pub async fn add_member(
     Ok(HttpResponse::Created().json(crate::api::response::success(member)))
 }
 
+/// Changes a team member's role as a team admin and records the change in the
+/// audit log.
 #[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/teams/{id}/members/{member_user_id}",
@@ -448,6 +469,8 @@ pub async fn patch_member(
     Ok(HttpResponse::Ok().json(crate::api::response::success(member)))
 }
 
+/// Removes a member from a team as a team admin and records the change in the
+/// audit log.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/teams/{id}/members/{member_user_id}",

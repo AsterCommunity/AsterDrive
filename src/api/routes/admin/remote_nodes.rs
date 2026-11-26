@@ -81,6 +81,7 @@ impl From<TestRemoteNodeParamsReq> for remote_node::TestRemoteNodeInput {
     }
 }
 
+/// Lists remote nodes with pagination and sorting.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/remote-nodes",
@@ -110,6 +111,7 @@ pub async fn list_remote_nodes(
     Ok(HttpResponse::Ok().json(crate::api::response::success(nodes)))
 }
 
+/// Registers a remote node and records the change in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/remote-nodes",
@@ -145,6 +147,7 @@ pub async fn create_remote_node(
     Ok(HttpResponse::Created().json(crate::api::response::success(node)))
 }
 
+/// Returns a single remote node by ID.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/remote-nodes/{id}",
@@ -167,6 +170,7 @@ pub async fn get_remote_node(
     Ok(HttpResponse::Ok().json(crate::api::response::success(node)))
 }
 
+/// Updates a remote node and records the change in the audit log.
 #[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/admin/remote-nodes/{id}",
@@ -205,6 +209,7 @@ pub async fn update_remote_node(
     Ok(HttpResponse::Ok().json(crate::api::response::success(node)))
 }
 
+/// Deletes a remote node and records the change in the audit log.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/admin/remote-nodes/{id}",
@@ -241,6 +246,7 @@ pub async fn delete_remote_node(
     Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
+/// Tests the connection to a saved remote node and records the attempt in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/remote-nodes/{id}/test",
@@ -278,6 +284,8 @@ pub async fn test_remote_node(
     Ok(HttpResponse::Ok().json(crate::api::response::success(node)))
 }
 
+/// Tests draft remote node parameters (before saving) and returns the remote
+/// capabilities reported by the target server.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/remote-nodes/test",
@@ -327,6 +335,8 @@ pub async fn test_remote_node_params(
     Ok(HttpResponse::Ok().json(crate::api::response::success(capabilities)))
 }
 
+/// Creates a one-time enrollment command (token) for a remote node, valid until its
+/// expiry, and records the action in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/remote-nodes/{id}/enrollment-token",
@@ -366,6 +376,7 @@ pub async fn create_remote_node_enrollment_token(
     Ok(HttpResponse::Created().json(crate::api::response::success(command)))
 }
 
+/// Lists the storage targets exposed by a remote node.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/remote-nodes/{id}/storage-targets",
@@ -406,6 +417,8 @@ pub async fn list_remote_node_storage_targets(
     ),
     security(("bearer" = [])),
 )]
+/// Lists the follower-owned remote storage target connector catalog, localized for
+/// the requested locale.
 pub async fn list_remote_node_storage_target_connectors(
     state: web::Data<PrimaryAppState>,
     path: web::Path<i64>,

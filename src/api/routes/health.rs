@@ -14,6 +14,8 @@ const READY_DB_UNAVAILABLE_MESSAGE: &str = "Database unavailable";
 const READY_CACHE_UNAVAILABLE_MESSAGE: &str = "Cache unavailable";
 const READY_STORAGE_UNAVAILABLE_MESSAGE: &str = "Storage unavailable";
 
+/// Builds the primary-node `/health` scope: liveness, readiness, and optional
+/// memory/metrics routes depending on feature flags and configuration.
 pub fn primary_routes(config: &ObservabilityConfig) -> actix_web::Scope {
     let scope = web::scope("/health")
         .route("", web::get().to(health))
@@ -24,6 +26,8 @@ pub fn primary_routes(config: &ObservabilityConfig) -> actix_web::Scope {
     attach_optional_routes(scope, config)
 }
 
+/// Builds the follower-node `/health` scope; same surface as the primary scope but
+/// readiness uses follower-specific checks.
 pub fn follower_routes(config: &ObservabilityConfig) -> actix_web::Scope {
     let scope = web::scope("/health")
         .route("", web::get().to(health))
@@ -59,6 +63,8 @@ fn attach_optional_routes(
     }
 }
 
+/// Liveness probe: reports whether this role is running and its local task workers
+/// are alive.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/health",
@@ -77,6 +83,8 @@ pub async fn health(role: Option<web::Data<crate::runtime::role::RoleHealth>>) -
     HttpResponse::Ok().json(status_response("ok"))
 }
 
+/// Primary readiness probe: checks database, cache, role state, and storage before
+/// reporting ready (or the setup state still needed, such as `needs_admin`).
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/health/ready",
@@ -120,6 +128,8 @@ pub async fn primary_ready(
     }
 }
 
+/// Follower readiness probe: checks database, cache, and the follower storage
+/// binding before reporting ready.
 pub async fn follower_ready(state: web::Data<FollowerAppState>) -> HttpResponse {
     if let Err(error) = aster_forge_db::ping_database(state.get_ref().writer_db()).await {
         state.metrics.forge_recorder().role_readiness(false);
@@ -194,10 +204,13 @@ fn ready_storage_error(error: crate::errors::AsterError) -> HttpResponse {
     ))
 }
 
+/// Convenience wrapper around `primary_ready` without a role-health handle, used by
+/// tests and in-process checks.
 pub async fn ready(state: web::Data<PrimaryAppState>) -> HttpResponse {
     primary_ready(state, None).await
 }
 
+/// Returns heap allocation statistics (allocated and peak, in MB) for diagnostics.
 pub async fn memory() -> HttpResponse {
     let (allocated, peak) = aster_forge_alloc::stats();
     HttpResponse::Ok().json(crate::api::response::success(MemoryStatsResponse {
@@ -206,6 +219,7 @@ pub async fn memory() -> HttpResponse {
     }))
 }
 
+/// Builds the system info payload with the crate version and build timestamp.
 pub fn system_info_response() -> SystemInfoResponse {
     SystemInfoResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),

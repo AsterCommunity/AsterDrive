@@ -28,6 +28,8 @@ use aster_forge_api::OffsetPage;
 use aster_forge_api::{LimitOffsetQuery, MAX_PAGE_SIZE};
 use aster_forge_middleware::actix::rate_limit::RateLimit;
 
+/// Builds the personal `/api/v1/tags` route scope behind JWT auth and the API rate
+/// limiter.
 pub fn routes(
     rl: &RateLimitConfig,
     network_trust: &NetworkTrustConfig,
@@ -61,6 +63,8 @@ pub fn routes(
         )
 }
 
+/// Builds the team tag route scope mounted under `/api/v1/teams/{team_id}/tags`,
+/// mirroring the personal tag routes.
 pub fn team_routes() -> actix_web::Scope {
     web::scope("/{team_id}/tags")
         .route("", web::get().to(team_list_tags))
@@ -87,6 +91,7 @@ pub fn team_routes() -> actix_web::Scope {
         )
 }
 
+/// Lists tags visible in the personal workspace, with pagination and keyword search.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/tags",
@@ -117,6 +122,7 @@ pub async fn list_tags(
     .await
 }
 
+/// Creates a tag with a name and color in the personal workspace.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/tags",
@@ -148,6 +154,7 @@ pub async fn create_tag(
     .await
 }
 
+/// Renames or recolors a personal tag.
 #[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/tags/{tag_id}",
@@ -185,6 +192,7 @@ pub async fn patch_tag(
     .await
 }
 
+/// Deletes a personal tag and removes its bindings.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/tags/{tag_id}",
@@ -217,6 +225,7 @@ pub async fn delete_tag(
     .await
 }
 
+/// Attaches a tag to a file or folder in the personal workspace.
 pub async fn attach_tag(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
@@ -236,6 +245,7 @@ pub async fn attach_tag(
     .await
 }
 
+/// Detaches a tag from a file or folder in the personal workspace.
 pub async fn detach_tag(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
@@ -255,6 +265,7 @@ pub async fn detach_tag(
     .await
 }
 
+/// Replaces the full tag set of a personal file or folder with the given tag IDs.
 pub async fn replace_entity_tags(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
@@ -278,6 +289,7 @@ pub async fn replace_entity_tags(
     .await
 }
 
+/// Lists all tags attached to a personal file or folder.
 pub async fn list_entity_tags(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
@@ -295,6 +307,7 @@ pub async fn list_entity_tags(
     .await
 }
 
+/// Attaches one tag to many files and folders at once in the personal workspace.
 pub async fn batch_attach_tag(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
@@ -318,6 +331,7 @@ pub async fn batch_attach_tag(
     .await
 }
 
+/// Detaches one tag from many files and folders at once in the personal workspace.
 pub async fn batch_detach_tag(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
@@ -341,6 +355,7 @@ pub async fn batch_detach_tag(
     .await
 }
 
+/// Lists tags visible in a team workspace, with pagination and keyword search.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/tags",
@@ -371,6 +386,7 @@ pub async fn team_list_tags(
     .await
 }
 
+/// Creates a tag with a name and color in a team workspace.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/tags",
@@ -403,6 +419,7 @@ pub async fn team_create_tag(
     .await
 }
 
+/// Renames or recolors a team tag.
 #[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/teams/{team_id}/tags/{tag_id}",
@@ -441,6 +458,7 @@ pub async fn team_patch_tag(
     .await
 }
 
+/// Deletes a team tag and removes its bindings.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/teams/{team_id}/tags/{tag_id}",
@@ -474,6 +492,7 @@ pub async fn team_delete_tag(
     .await
 }
 
+/// Attaches a tag to a file or folder in a team workspace.
 pub async fn team_attach_tag(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
@@ -494,6 +513,7 @@ pub async fn team_attach_tag(
     .await
 }
 
+/// Detaches a tag from a file or folder in a team workspace.
 pub async fn team_detach_tag(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
@@ -514,6 +534,7 @@ pub async fn team_detach_tag(
     .await
 }
 
+/// Replaces the full tag set of a team file or folder with the given tag IDs.
 pub async fn team_replace_entity_tags(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
@@ -537,6 +558,7 @@ pub async fn team_replace_entity_tags(
     .await
 }
 
+/// Lists all tags attached to a team file or folder.
 pub async fn team_list_entity_tags(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
@@ -554,6 +576,7 @@ pub async fn team_list_entity_tags(
     .await
 }
 
+/// Attaches one team tag to many files and folders at once.
 pub async fn team_batch_attach_tag(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
@@ -574,6 +597,7 @@ pub async fn team_batch_attach_tag(
     .await
 }
 
+/// Detaches one team tag from many files and folders at once.
 pub async fn team_batch_detach_tag(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,

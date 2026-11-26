@@ -39,14 +39,22 @@ pub trait MetricsRecorder: Send + Sync {
         false
     }
 
+    /// Records one upload admission rejection at a stable resource boundary.
     fn admission_rejection(&self, reason: AdmissionReason) {}
 
+    /// Adds bytes observed as consumed at a data-plane boundary; bytes read before
+    /// an error or cancellation still count.
     fn transfer_bytes(&self, labels: TransferLabels, bytes: u64) {}
 
+    /// Adjusts the gauge of data-plane streams currently in flight.
     fn transfer_active(&self, labels: TransferLabels, delta: i64) {}
 
+    /// Observes the terminal duration in seconds of one data-plane stream, ending
+    /// at EOF, error or drop.
     fn transfer_finished(&self, labels: TransferLabels, outcome: TransferOutcome, seconds: f64) {}
 
+    /// Observes the duration in seconds of one upload phase for a mode, labeled by
+    /// phase and outcome.
     fn upload_phase(
         &self,
         mode: &'static str,
@@ -56,6 +64,8 @@ pub trait MetricsRecorder: Send + Sync {
     ) {
     }
 
+    /// Publishes the persisted upload-session snapshot: session count by mode and
+    /// state, plus the age in seconds of the oldest session since creation.
     fn upload_backlog(
         &self,
         mode: &'static str,
@@ -65,12 +75,21 @@ pub trait MetricsRecorder: Send + Sync {
     ) {
     }
 
+    /// Publishes blobs pending physical cleanup and the age in seconds of the oldest
+    /// cleanup interval, retained across retries.
     fn blob_cleanup_backlog(&self, count: u64, oldest_seconds: f64) {}
 
+    /// Records one claimed blob cleanup outcome and the backing bytes retired after
+    /// deletion acknowledgment and metadata removal.
     fn blob_cleanup(&self, outcome: CleanupOutcome, retired_bytes: u64) {}
 
+    /// Marks whether the last sampling attempt for a source succeeded; the Unix
+    /// timestamp of the last success is preserved on invalid samples.
     fn snapshot_status(&self, source: &'static str, valid: bool, last_success: f64) {}
 
+    /// Publishes one capacity snapshot in bytes per scope and kind. `None` marks a
+    /// kind unknown and keeps its last value invalid; the values are independent
+    /// minima and must not be summed.
     fn capacity_snapshot(
         &self,
         scope: &'static str,
@@ -80,14 +99,20 @@ pub trait MetricsRecorder: Send + Sync {
     ) {
     }
 
+    /// Publishes persisted staging or reservation bytes for one kind.
     fn staging_snapshot(&self, kind: &'static str, bytes: u64) {}
 
+    /// Publishes the persisted remote-node count for one status.
     fn remote_nodes(&self, status: &'static str, count: u64) {}
 
+    /// Adjusts the gauge of locally established reverse tunnel connections.
     fn remote_connections(&self, delta: i64) {}
 
+    /// Records one reverse tunnel connection retry decision with its reason.
     fn remote_reconnect(&self, reason: RemoteReason) {}
 
+    /// Records one remote transport request with its duration in seconds; distinct
+    /// from storage-driver operations.
     fn remote_request(
         &self,
         transport: RemoteTransport,

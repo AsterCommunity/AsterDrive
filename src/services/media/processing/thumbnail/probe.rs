@@ -3,6 +3,11 @@ use crate::errors::{AsterError, MapAsterErr, Result};
 
 use crate::services::media::processing::shared::run_cli_command_with_timeout;
 
+/// Validates an `ffmpeg` CLI command for the config test action.
+///
+/// Normalizes the command, checks availability, runs `ffmpeg -version` under
+/// the CLI timeout, and returns a status message including the first output
+/// line (tool version) when present.
 pub async fn probe_ffmpeg_cli_command(command: &str) -> Result<String> {
     let command = media_processing_config::normalize_ffmpeg_command(command)?;
     if !media_processing_config::command_is_available(&command) {

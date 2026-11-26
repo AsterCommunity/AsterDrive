@@ -9,6 +9,8 @@ use sea_orm::{
     QueryFilter, QuerySelect, Select,
 };
 
+/// Loads a user profile by user id (the primary key). Returns `None` when the
+/// user has no profile row.
 pub async fn find_by_user_id(
     db: &DatabaseConnection,
     user_id: i64,
@@ -27,6 +29,9 @@ fn find_by_id_for_update(backend: DbBackend, user_id: i64) -> Select<UserProfile
     }
 }
 
+/// Loads a profile under an exclusive row lock inside the caller's transaction
+/// (row locking only on PostgreSQL/MySQL; SQLite relies on its single-writer
+/// semantics). Returns `None` when the user has no profile row.
 pub async fn lock_by_user_id<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -37,6 +42,8 @@ pub async fn lock_by_user_id<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Loads the profiles of several users keyed by user id. An empty id list
+/// short-circuits to an empty map; missing profiles are absent from the map.
 pub async fn find_by_user_ids(
     db: &DatabaseConnection,
     user_ids: &[i64],
@@ -54,6 +61,7 @@ pub async fn find_by_user_ids(
     Ok(rows.into_iter().map(|row| (row.user_id, row)).collect())
 }
 
+/// Inserts a new user profile from the given active model.
 pub async fn create<C: ConnectionTrait>(
     db: &C,
     model: user_profile::ActiveModel,
@@ -61,6 +69,7 @@ pub async fn create<C: ConnectionTrait>(
     model.insert(db).await.map_err(AsterError::from)
 }
 
+/// Persists the given profile model's changed fields.
 pub async fn update<C: ConnectionTrait>(
     db: &C,
     model: user_profile::ActiveModel,

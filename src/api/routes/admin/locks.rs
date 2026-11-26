@@ -12,6 +12,7 @@ use aster_forge_api::LimitOffsetQuery;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use aster_forge_api::OffsetPage;
 
+/// Lists all WebDAV resource locks with pagination, filtering, and sorting.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/locks",
@@ -40,6 +41,7 @@ pub async fn list_locks(
     Ok(HttpResponse::Ok().json(crate::api::response::success(locks)))
 }
 
+/// Force-releases a WebDAV lock regardless of owner, and records the action in the audit log.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/admin/locks/{id}",
@@ -64,6 +66,7 @@ pub async fn force_unlock(
     Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
+/// Removes all expired WebDAV locks and records the cleanup in the audit log.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/admin/locks/expired",

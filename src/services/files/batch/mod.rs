@@ -26,19 +26,27 @@ pub(crate) use shared::{
 /// 单次批量操作最大条目数
 pub const MAX_BATCH_ITEMS: usize = 1000;
 
+/// Aggregate outcome of a batch operation across files and folders.
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct BatchResult {
+    /// Number of items processed successfully.
     pub succeeded: u32,
+    /// Number of items that failed; equals `errors.len()`.
     pub failed: u32,
+    /// Per-item failure details, in submission order.
     pub errors: Vec<BatchItemError>,
 }
 
+/// Failure detail for a single item rejected inside a batch operation.
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct BatchItemError {
+    /// Kind of the failed item, e.g. `file` or `folder`.
     pub entity_type: String,
+    /// Id of the failed item within its entity table.
     pub entity_id: i64,
+    /// Human-readable reason the item was rejected.
     pub error: String,
 }
 

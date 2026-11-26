@@ -4,6 +4,8 @@ use crate::errors::{AsterError, MapAsterErr, Result};
 use sea_orm::{ConnectionTrait, DbBackend, Statement};
 use std::collections::HashSet;
 
+/// Migrations that create or maintain the SQLite FTS search acceleration; used
+/// to verify the current schema revision carries the search objects.
 pub const SQLITE_SEARCH_MIGRATION_NAMES: &[&str] = &[
     aster_drive_migration::BASELINE_MIGRATION_NAME,
     "m20260415_000001_add_sqlite_search_fts",
@@ -53,6 +55,8 @@ const SQLITE_SEARCH_OBJECTS: &[&str] = &[
 ];
 const SQLITE_SEARCH_PROBE_TABLE: &str = "asterdrive_sqlite_search_probe_fts";
 
+/// Returns `true` when the name is one of the FTS virtual tables or one of
+/// their shadow tables (`_config`, `_content`, `_data`, `_docsize`, `_idx`).
 pub fn is_sqlite_search_table(name: &str) -> bool {
     SQLITE_SEARCH_VIRTUAL_TABLES.iter().any(|table| {
         name == *table
@@ -62,26 +66,40 @@ pub fn is_sqlite_search_table(name: &str) -> bool {
     })
 }
 
+/// Returns `true` when the name is any schema object owned by the search
+/// acceleration: FTS tables, their shadow tables, or the sync triggers.
 pub fn is_sqlite_search_object(name: &str) -> bool {
     is_sqlite_search_table(name) || SQLITE_SEARCH_TRIGGERS.contains(&name)
 }
 
+/// Result of inspecting the SQLite search acceleration on one connection.
 #[derive(Debug, Clone)]
 pub struct SqliteSearchStatus {
+    /// Runtime `sqlite_version()` of the inspected connection.
     pub sqlite_version: String,
+    /// Expected search objects (tables, shadow tables, triggers) missing from
+    /// `sqlite_master`, empty when the schema is complete.
     pub missing_objects: Vec<String>,
+    /// Error from the FTS5 trigram-tokenizer probe, `None` when the probe
+    /// succeeded (or produced only cleanup errors that carry the failure text).
     pub probe_error: Option<String>,
 }
 
 impl SqliteSearchStatus {
+    /// Returns `true` when every expected search object exists and the trigram
+    /// tokenizer probe passed, i.e. search acceleration is fully usable.
     pub fn is_ready(&self) -> bool {
         self.probe_error.is_none() && self.missing_objects.is_empty()
     }
 
+    /// Returns `true` when the FTS5 trigram tokenizer probe succeeded, even if
+    /// schema objects are still missing.
     pub fn probe_supported(&self) -> bool {
         self.probe_error.is_none()
     }
 
+    /// Renders the status as diagnostic lines (version, missing objects, probe
+    /// error) for logs and readiness reports.
     pub fn detail_lines(&self) -> Vec<String> {
         let mut details = vec![format!("sqlite_version={}", self.sqlite_version)];
         details.extend(
@@ -96,6 +114,8 @@ impl SqliteSearchStatus {
     }
 }
 
+/// Inspects the search acceleration objects on a SQLite connection and probes
+/// trigram tokenizer support. Returns `None` on non-SQLite backends.
 pub async fn inspect_sqlite_search_status<C: ConnectionTrait>(
     db: &C,
 ) -> Result<Option<SqliteSearchStatus>> {
@@ -118,6 +138,9 @@ pub async fn inspect_sqlite_search_status<C: ConnectionTrait>(
     }))
 }
 
+/// Guards startup on SQLite: returns the status when the search acceleration is
+/// ready, and a descriptive database error when objects are missing or the
+/// trigram tokenizer is unsupported. Returns `None` on non-SQLite backends.
 pub async fn ensure_sqlite_search_ready<C: ConnectionTrait>(
     db: &C,
 ) -> Result<Option<SqliteSearchStatus>> {

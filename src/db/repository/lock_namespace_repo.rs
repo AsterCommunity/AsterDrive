@@ -1,3 +1,5 @@
+//! 仓储模块：`lock_namespace_repo`。
+
 use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DbBackend, EntityTrait, IntoActiveModel,
@@ -8,6 +10,9 @@ use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::resource_lock_namespace;
 use aster_drive_model::types::LockWorkspaceType;
 
+/// Creates the workspace's lock namespace row when missing (insert-on-conflict
+/// is a no-op), then loads it under an exclusive row lock for the caller's
+/// transaction. Errors if the row vanishes in between.
 pub async fn ensure_and_lock<C: ConnectionTrait>(
     db: &C,
     workspace_type: LockWorkspaceType,
@@ -40,6 +45,7 @@ pub async fn ensure_and_lock<C: ConnectionTrait>(
         .ok_or_else(|| AsterError::internal_error("resource lock namespace disappeared"))
 }
 
+/// Loads a lock namespace by id without locking. Returns `None` when absent.
 pub async fn find_by_id<C: ConnectionTrait>(
     db: &C,
     namespace_id: i64,
@@ -50,6 +56,8 @@ pub async fn find_by_id<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Loads a workspace's namespace row without locking. Returns `None` when the
+/// workspace has no namespace yet.
 pub async fn find_by_workspace<C: ConnectionTrait>(
     db: &C,
     workspace_type: LockWorkspaceType,
@@ -63,6 +71,10 @@ pub async fn find_by_workspace<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Loads a namespace under an exclusive row lock inside the caller's
+/// transaction. On SQLite a no-op update first takes the writer reservation
+/// before the snapshot read, avoiding a deferred read-to-write upgrade race.
+/// Returns `record_not_found` when absent.
 pub async fn lock_by_id<C: ConnectionTrait>(
     db: &C,
     namespace_id: i64,
@@ -86,6 +98,9 @@ pub async fn lock_by_id<C: ConnectionTrait>(
         .ok_or_else(|| AsterError::record_not_found("resource lock namespace"))
 }
 
+/// Bumps the namespace's generation counter (overflow is an internal error)
+/// and refreshes `updated_at`; a changed generation invalidates cached lock
+/// holders that read the old value.
 pub async fn increment_generation<C: ConnectionTrait>(
     db: &C,
     namespace: resource_lock_namespace::Model,
@@ -100,6 +115,8 @@ pub async fn increment_generation<C: ConnectionTrait>(
     active.update(db).await.map_err(AsterError::from)
 }
 
+/// Removes a workspace's namespace row, returning the number of deleted rows
+/// (0 when the workspace had none).
 pub async fn delete_by_workspace<C: ConnectionTrait>(
     db: &C,
     workspace_type: LockWorkspaceType,

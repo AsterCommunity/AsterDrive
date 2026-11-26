@@ -12,6 +12,10 @@ use aster_forge_api::{
     ApiSchema, DEFAULT_FILE_LIMIT, DEFAULT_FOLDER_LIMIT, MAX_PAGE_SIZE, OffsetPage, SortOrder,
 };
 
+/// 拉取一页 offset 分页数据并封装为 Forge `OffsetPage`。
+///
+/// `limit` 先收敛到 `1..=max_limit`；`fetch` 收到收敛后的 limit 与原始 offset，
+/// 返回 `(当前页数据, 总数)`。
 pub async fn load_offset_page<T, F, Fut>(
     limit: u64,
     offset: u64,
@@ -42,163 +46,266 @@ pub fn file_cursor_value(f: &file::Model, sort_by: SortBy) -> String {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
+/// 管理端用户列表的排序字段。
 pub enum AdminUserSortBy {
+    /// 用户 ID。
     Id,
+    /// 用户名。
     Username,
+    /// 邮箱。
     Email,
+    /// 角色。
     Role,
+    /// 账号状态。
     Status,
+    /// 已用存储量（字节）。
     StorageUsed,
+    /// 存储配额上限（字节）。
     StorageQuota,
+    /// 创建时间。
     CreatedAt,
+    /// 更新时间。
     UpdatedAt,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
+/// 管理端团队列表的排序字段。
 pub enum AdminTeamSortBy {
+    /// 团队 ID。
     Id,
+    /// 团队名称。
     Name,
+    /// 已用存储量（字节）。
     StorageUsed,
+    /// 存储配额上限（字节）。
     StorageQuota,
+    /// 创建时间。
     CreatedAt,
+    /// 更新时间。
     UpdatedAt,
+    /// 归档时间。
     ArchivedAt,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
+/// 管理端团队成员列表的排序字段。
 pub enum AdminTeamMemberSortBy {
+    /// 用户名。
     Username,
+    /// 邮箱。
     Email,
+    /// 成员角色。
     Role,
+    /// 成员状态。
     Status,
+    /// 加入团队时间。
     CreatedAt,
+    /// 更新时间。
     UpdatedAt,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
+/// 管理端存储策略列表的排序字段。
 pub enum AdminPolicySortBy {
+    /// 策略 ID。
     Id,
+    /// 策略名称。
     Name,
+    /// 绑定的存储连接器 ID。
     ConnectorId,
+    /// 是否为默认策略。
     IsDefault,
+    /// 创建时间。
     CreatedAt,
+    /// 更新时间。
     UpdatedAt,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
+/// 管理端策略组列表的排序字段。
 pub enum AdminPolicyGroupSortBy {
+    /// 策略组 ID。
     Id,
+    /// 策略组名称。
     Name,
+    /// 是否启用。
     IsEnabled,
+    /// 是否为默认策略组。
     IsDefault,
+    /// 创建时间。
     CreatedAt,
+    /// 更新时间。
     UpdatedAt,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
+/// 管理端远端节点列表的排序字段。
 pub enum AdminRemoteNodeSortBy {
+    /// 节点 ID。
     Id,
+    /// 节点名称。
     Name,
+    /// 节点基础 URL。
     BaseUrl,
+    /// 是否启用。
     IsEnabled,
+    /// 最近一次探测时间。
     LastProbeAt,
+    /// 创建时间。
     CreatedAt,
+    /// 更新时间。
     UpdatedAt,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
+/// 管理端分享列表的排序字段。
 pub enum AdminShareSortBy {
+    /// 分享 ID。
     Id,
+    /// 分享 token。
     Token,
+    /// 创建者用户 ID。
     UserId,
+    /// 累计下载次数。
     DownloadCount,
+    /// 下载次数上限（0 表示不限）。
     MaxDownloads,
+    /// 过期时间。
     ExpiresAt,
+    /// 创建时间。
     CreatedAt,
+    /// 更新时间。
     UpdatedAt,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
+/// 管理端后台任务列表的排序字段。
 pub enum AdminTaskSortBy {
+    /// 任务 ID。
     Id,
+    /// 展示名称。
     DisplayName,
+    /// 任务类型。
     Kind,
+    /// 任务状态。
     Status,
+    /// 当前进度（已完成步数 `progress_current`）。
     Progress,
+    /// 创建时间。
     CreatedAt,
+    /// 更新时间。
     UpdatedAt,
+    /// 开始执行时间。
     StartedAt,
+    /// 执行结束时间。
     FinishedAt,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
+/// 管理端资源锁列表的排序字段。
 pub enum AdminLockSortBy {
+    /// 锁 ID。
     Id,
+    /// 锁定的 lockroot 路径。
     LockrootPath,
+    /// 锁根类型（文件或文件夹）。
     RootKind,
+    /// 持锁用户 ID。
     HolderUserId,
+    /// 锁超时时间。
     TimeoutAt,
+    /// 锁模式（`exclusive` 或 `shared`）。
     Mode,
+    /// 锁深度（`resource` 或 `infinity`）。
     Depth,
+    /// 创建时间。
     CreatedAt,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
+/// 管理端审计日志列表的排序字段。
 pub enum AdminAuditLogSortBy {
+    /// 日志 ID。
     Id,
+    /// 记录时间。
     CreatedAt,
+    /// 操作者用户 ID。
     UserId,
+    /// 操作动作。
     Action,
+    /// 目标实体类型。
     EntityType,
+    /// 目标实体名称。
     EntityName,
+    /// 客户端 IP 地址。
     IpAddress,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
+/// 管理端文件列表的排序字段。
 pub enum AdminFileSortBy {
+    /// 文件 ID。
     Id,
+    /// 文件名。
     Name,
+    /// 文件大小（字节）。
     Size,
+    /// 关联 blob ID。
     BlobId,
+    /// 存储策略 ID。
     PolicyId,
+    /// 所有者用户 ID。
     OwnerUserId,
+    /// 所属团队 ID。
     TeamId,
+    /// 创建时间。
     CreatedAt,
+    /// 更新时间。
     UpdatedAt,
+    /// 删除时间。
     DeletedAt,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
+/// 管理端文件 blob 列表的排序字段。
 pub enum AdminFileBlobSortBy {
+    /// blob ID。
     Id,
+    /// 内容哈希。
     Hash,
+    /// blob 大小（字节）。
     Size,
+    /// 存储策略 ID。
     PolicyId,
+    /// 存储路径。
     StoragePath,
+    /// 引用计数。
     RefCount,
+    /// 创建时间。
     CreatedAt,
+    /// 更新时间。
     UpdatedAt,
 }
 
@@ -226,26 +333,31 @@ pub struct FolderListQuery {
 }
 
 impl FolderListQuery {
+    /// 生效的文件夹上限：显式值截断到 `MAX_PAGE_SIZE`，缺省取 `DEFAULT_FOLDER_LIMIT`（0 表示跳过查询）。
     pub fn folder_limit(&self) -> u64 {
         self.folder_limit
             .map(|v| v.min(MAX_PAGE_SIZE))
             .unwrap_or(DEFAULT_FOLDER_LIMIT)
     }
 
+    /// 生效的文件夹偏移量，缺省为 0。
     pub fn folder_offset(&self) -> u64 {
         self.folder_offset.unwrap_or(0)
     }
 
+    /// 生效的文件上限：显式值截断到 `MAX_PAGE_SIZE`，缺省取 `DEFAULT_FILE_LIMIT`（0 表示跳过查询）。
     pub fn file_limit(&self) -> u64 {
         self.file_limit
             .map(|v| v.min(MAX_PAGE_SIZE))
             .unwrap_or(DEFAULT_FILE_LIMIT)
     }
 
+    /// 生效的排序字段，未指定时用默认的 name。
     pub fn sort_by(&self) -> SortBy {
         self.sort_by.unwrap_or_default()
     }
 
+    /// 生效的排序方向，未指定时用默认的 asc。
     pub fn sort_order(&self) -> SortOrder {
         self.sort_order.unwrap_or_default()
     }
@@ -279,22 +391,26 @@ pub struct TrashListQuery {
 }
 
 impl TrashListQuery {
+    /// 生效的文件夹上限：显式值截断到 `MAX_PAGE_SIZE`，缺省取 `DEFAULT_FOLDER_LIMIT`（0 表示跳过查询）。
     pub fn folder_limit(&self) -> u64 {
         self.folder_limit
             .map(|v| v.min(MAX_PAGE_SIZE))
             .unwrap_or(DEFAULT_FOLDER_LIMIT)
     }
 
+    /// 生效的文件夹偏移量，缺省为 0。
     pub fn folder_offset(&self) -> u64 {
         self.folder_offset.unwrap_or(0)
     }
 
+    /// 生效的文件上限：显式值截断到 `MAX_PAGE_SIZE`，缺省取 `DEFAULT_FILE_LIMIT`（0 表示跳过查询）。
     pub fn file_limit(&self) -> u64 {
         self.file_limit
             .map(|v| v.min(MAX_PAGE_SIZE))
             .unwrap_or(DEFAULT_FILE_LIMIT)
     }
 
+    /// 解析 cursor：`expires_at` 与 `id` 必须同时存在且时间可解析为 UTC，否则返回 `None`。
     pub fn file_cursor(&self) -> Option<(chrono::DateTime<chrono::Utc>, i64)> {
         match (&self.file_after_expires_at, self.file_after_id) {
             (Some(dt_str), Some(id)) => dt_str

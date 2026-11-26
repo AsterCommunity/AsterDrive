@@ -8,19 +8,25 @@ pub(super) const MAX_AUDIT_USER_AGENT_LEN: usize = 512;
 /// 从 HttpRequest 提取的审计上下文
 #[derive(Debug, Clone)]
 pub struct AuditContext {
+    /// 操作者用户 ID；`0` 表示系统自身发起、无对应真人用户的操作。
     pub user_id: i64,
+    /// 经 `TrustedClientNetworks` 解析的客户端 IP；请求无 peer 地址时为 `None`。
     pub ip_address: Option<String>,
+    /// `User-Agent` 请求头原始值，截断到审计字段长度上限。
     pub user_agent: Option<String>,
 }
 
 /// 从 HttpRequest 提取的请求级审计元信息。
 #[derive(Debug, Clone)]
 pub struct AuditRequestInfo {
+    /// 经 `TrustedClientNetworks` 解析的客户端 IP；请求无 peer 地址时为 `None`。
     pub ip_address: Option<String>,
+    /// `User-Agent` 请求头原始值，截断到审计字段长度上限。
     pub user_agent: Option<String>,
 }
 
 impl AuditContext {
+    /// 系统自身操作（如服务器启动/关闭）使用的上下文：用户 ID 为 `0`，无请求元信息。
     pub fn system() -> Self {
         Self {
             user_id: 0,
@@ -38,6 +44,10 @@ impl AuditContext {
 }
 
 impl AuditRequestInfo {
+    /// 解析请求级审计元信息，此时不绑定操作者。
+    ///
+    /// IP 信任规则与 `AuditContext::from_request` 相同：稍后才知道操作者的请求
+    /// （如认证完成后）可先取值，再用 `AuditRequestInfo::to_context` 绑定用户。
     pub fn from_request(req: &HttpRequest) -> Self {
         let ip_address = req
             .app_data::<actix_web::web::Data<TrustedClientNetworks>>()
@@ -54,6 +64,7 @@ impl AuditRequestInfo {
         }
     }
 
+    /// 绑定操作者用户 ID，生成完整 `AuditContext`。
     pub fn to_context(&self, user_id: i64) -> AuditContext {
         AuditContext {
             user_id,

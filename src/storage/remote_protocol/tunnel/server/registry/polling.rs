@@ -116,6 +116,10 @@ impl RemoteTunnelRegistry {
         }
     }
 
+    /// Sends one buffered request to the follower over the poll transport:
+    /// enforces the poll body and envelope limits, queues the request for the
+    /// next poll, and awaits the completion response with a timeout. Tunnel
+    /// errors are recorded on the follower's registry state.
     pub async fn send(
         &self,
         remote_node: &managed_follower::Model,

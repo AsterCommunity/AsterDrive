@@ -294,6 +294,8 @@ pub(crate) async fn create_in_scope(
     Ok(created)
 }
 
+/// Creates a folder in the given user's personal workspace root or a
+/// named parent folder.
 pub async fn create(
     state: &impl StorageChangeRuntimeState,
     user_id: i64,
@@ -916,6 +918,11 @@ async fn lock_folder_ids_in_order<C: ConnectionTrait>(db: &C, ids: &[i64]) -> Re
     Ok(())
 }
 
+/// Updates a folder in the given user's personal workspace.
+///
+/// `name` renames when `Some`. `parent_id` and `policy_id` are tri-state
+/// patches: absent leaves the field untouched, `Some(None)` clears it
+/// (root / inherit team policy), `Some(Some(value))` sets it.
 pub async fn update(
     state: &impl StorageChangeRuntimeState,
     id: i64,

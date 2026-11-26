@@ -6,10 +6,15 @@ mod dispatch;
 
 /// CLI result consumed by the process entry point.
 pub enum CommandOutcome {
+    /// Start serving; `role` selects which responsibilities to run and
+    /// `location` records where the active configuration was loaded from.
     Serve {
+        /// Node responsibilities selected for this process.
         role: crate::runtime::role::ServeRole,
+        /// Where the active configuration file was resolved from.
         location: crate::config::ConfigLocation,
     },
+    /// Exit the process immediately with the given exit code (0 for success).
     Exit(i32),
 }
 

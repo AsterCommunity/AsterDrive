@@ -8,24 +8,42 @@ use utoipa::ToSchema;
 
 use crate::types::{StoredStoragePolicyAllowedTypes, StoredStoragePolicyConfig};
 
+/// Storage policy row: a named connector binding plus its storage and upload
+/// behavior configuration. Policies are routed to users/teams through policy
+/// groups and placement rules.
 #[derive(Clone, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(as = StoragePolicy))]
 #[sea_orm(table_name = "storage_policies")]
 pub struct Model {
+    /// Primary key.
     #[sea_orm(primary_key)]
     pub id: i64,
+    /// Human-readable policy name shown in admin UIs.
     pub name: String,
+    /// Registered storage connector id owning this policy's data plane, e.g.
+    /// `asterdrive.storage.s3`; selects the driver implementation.
     pub connector_id: String,
+    /// Opaque versioned connector/behavior configuration (JSON); parsed only
+    /// by the connector registered under `connector_id`.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub storage_config: StoredStoragePolicyConfig,
-    pub max_file_size: i64, // 0 = unlimited
+    /// Maximum size of a single stored file in bytes; `0` = unlimited.
+    pub max_file_size: i64,
+    /// Legacy file-type allowlist serialized as a JSON array (`[]` = no
+    /// entries); kept for compatibility, admission is now governed by the
+    /// placement profile's admission config.
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
-    pub allowed_types: StoredStoragePolicyAllowedTypes, // JSON array
+    pub allowed_types: StoredStoragePolicyAllowedTypes,
+    /// Whether this policy is the instance-wide default storage policy.
     pub is_default: bool,
-    pub chunk_size: i64, // 0 = single upload, >0 = chunk size in bytes
+    /// Chunked-upload chunk size in bytes; `0` = single-shot upload, `>0` =
+    /// upload in chunks of this many bytes.
+    pub chunk_size: i64,
+    /// Row creation timestamp (UTC).
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: DateTimeUtc,
+    /// Row last-update timestamp (UTC).
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: DateTimeUtc,
 }
@@ -47,14 +65,19 @@ impl fmt::Debug for Model {
     }
 }
 
+/// SeaORM relation definitions for this entity.
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
+    /// Authorization flows started against this policy.
     #[sea_orm(has_many = "super::storage_policy_authorization_flow::Entity")]
     StoragePolicyAuthorizationFlows,
+    /// The connector-owned encrypted credential attached to this policy.
     #[sea_orm(has_one = "super::storage_policy_connector_credential::Entity")]
     StoragePolicyConnectorCredential,
+    /// File blobs currently stored under this policy.
     #[sea_orm(has_many = "super::file_blob::Entity")]
     FileBlobs,
+    /// Folders routed to this policy.
     #[sea_orm(has_many = "super::folder::Entity")]
     Folders,
 }

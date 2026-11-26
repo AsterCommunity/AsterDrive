@@ -4,20 +4,31 @@ use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
+/// Tracks when each follower binding last completed a successful
+/// control-plane exchange with the primary node.
+///
+/// Evidence is process-local: it is rebuilt from live communication after a
+/// restart and is never treated as an authoritative source of truth.
 #[derive(Debug, Default)]
 pub struct FollowerBindingHealth {
     last_success: Mutex<HashMap<i64, Instant>>,
 }
 
 impl FollowerBindingHealth {
+    /// Records a successful control-plane exchange for the binding at the
+    /// current instant.
     pub fn record_success(&self, binding_id: i64) {
         self.last_success.lock().insert(binding_id, Instant::now());
     }
 
+    /// Drops evidence for bindings not in `ids`, keeping entries only for
+    /// bindings that still exist in the current sync state.
     pub fn retain_bindings(&self, ids: &HashSet<i64>) {
         self.last_success.lock().retain(|id, _| ids.contains(id));
     }
 
+    /// Returns whether the binding reported success within `max_age`.
+    /// Returns `false` when the binding has never reported success.
     pub fn is_fresh(&self, binding_id: i64, max_age: Duration) -> bool {
         self.last_success
             .lock()

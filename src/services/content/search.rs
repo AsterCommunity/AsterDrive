@@ -26,6 +26,7 @@ use aster_forge_api::SortOrder;
 use aster_forge_file_classification::FileCategory;
 use aster_forge_file_classification::{parse_extension_filters, parse_file_category};
 
+/// Query parameters for content search; all filters are optional and combined conjunctively.
 #[derive(Deserialize)]
 #[cfg_attr(
     all(debug_assertions, feature = "openapi"),
@@ -67,12 +68,17 @@ pub struct SearchParams {
     pub offset: Option<u64>,
 }
 
+/// Search results split by entity type, with totals for pagination.
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct SearchResults {
+    /// Matching files, ordered per the requested sort, capped by `limit`.
     pub files: Vec<FileListItem>,
+    /// Matching folders, ordered per the requested sort, capped by `limit`.
     pub folders: Vec<FolderListItem>,
+    /// Total number of matching files before pagination.
     pub total_files: u64,
+    /// Total number of matching folders before pagination.
     pub total_folders: u64,
 }
 
@@ -613,6 +619,7 @@ pub(crate) async fn search_in_scope(
     Ok(results)
 }
 
+/// Search the caller's personal storage scope.
 pub async fn search(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -621,6 +628,7 @@ pub async fn search(
     search_in_scope(state, WorkspaceStorageScope::Personal { user_id }, params).await
 }
 
+/// Search a team storage scope; `user_id` identifies the acting member for permission checks.
 pub async fn search_in_team(
     state: &impl SharedRuntimeState,
     team_id: i64,

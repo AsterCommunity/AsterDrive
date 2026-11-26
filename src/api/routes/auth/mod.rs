@@ -73,6 +73,7 @@ pub mod profile;
 pub mod public;
 pub mod session;
 
+/// Builds the `/api/v1/auth` route scope with per-route-group rate limiting.
 pub fn routes(
     rl: &RateLimitConfig,
     limiters: &rate_limit::AuthRouteLimiters,

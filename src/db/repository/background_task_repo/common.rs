@@ -4,16 +4,23 @@ use sea_orm::{ColumnTrait, Condition, QueryFilter, Select};
 use aster_drive_model::entities::background_task::{self, Entity as BackgroundTask};
 use aster_drive_model::types::{BackgroundTaskKind, BackgroundTaskStatus};
 
+/// Optional kind/status filters for admin task listings; `None` means unfiltered.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AdminTaskFilters {
+    /// Restricts results to one task kind.
     pub kind: Option<BackgroundTaskKind>,
+    /// Restricts results to one task status.
     pub status: Option<BackgroundTaskStatus>,
 }
 
+/// Selection criteria for deleting finished background tasks.
 #[derive(Debug, Clone, Copy)]
 pub struct TerminalTaskCleanupFilters {
+    /// Cutoff time: only tasks finished (or stalled) at or before this instant qualify.
     pub finished_before: DateTime<Utc>,
+    /// Restricts cleanup to one task kind; `None` covers all kinds.
     pub kind: Option<BackgroundTaskKind>,
+    /// Restricts cleanup to one terminal status; `None` covers all terminal statuses.
     pub status: Option<BackgroundTaskStatus>,
 }
 

@@ -6,6 +6,15 @@
 //! 所有 `system_config` 键字符串在此处以 `pub const` 形式声明，
 //! 子模块通过 `pub use crate::config::definitions::*_KEY` 重导出，
 //! 不再各自定义本地 `const`，确保单一数据源。
+//!
+//! 键常量命名约定：`CONFIG_CATEGORY_*` 为分类键，其余 `*_KEY` 为
+//! `system_config` 行键；每个键的值语义、默认值与归一化规则由下方
+//! [`ALL_CONFIGS`] 中的 [`ConfigDef`] 条目描述。
+//!
+//! [`SYSTEM_CONFIG_ALLOWED_CATEGORIES`] 是允许写入 `system_config`
+//! 的分类白名单；[`ALL_CONFIGS`] 是全量定义数组；[`CONFIG_REGISTRY`]
+//! 包装该数组供存储层使用；[`DEPRECATED_SYSTEM_CONFIG_KEYS`] 列出
+//! bootstrap 时需要清除的遗留键。
 
 use crate::config::{
     audit, auth_runtime, avatar, branding, cors, local_email_policy, media_processing,
@@ -18,29 +27,55 @@ use aster_forge_config::{
 };
 
 // ── Category keys ───────────────────────────────────────────────────────────
+/// `system_config` 分类：站点与品牌等全局站点设置。
 pub const CONFIG_CATEGORY_SITE: &str = "site";
+/// `system_config` 分类：公开预览（预览应用注册表、WOPI）。
 pub const CONFIG_CATEGORY_SITE_PREVIEW: &str = "site.preview";
+/// `system_config` 分类：注册、登录方式与本地邮箱策略。
 pub const CONFIG_CATEGORY_USER_REGISTRATION: &str = "user.registration_and_login";
+/// `system_config` 分类：用户头像。
 pub const CONFIG_CATEGORY_USER_AVATAR: &str = "user.avatar";
+/// `system_config` 分类：令牌 TTL、冷却时间等认证运行时参数。
 pub const CONFIG_CATEGORY_AUTH: &str = "auth";
+/// `system_config` 分类：SMTP 服务器与发件人配置。
 pub const CONFIG_CATEGORY_MAIL_CONFIG: &str = "mail.config";
+/// `system_config` 分类：事务邮件模板。
 pub const CONFIG_CATEGORY_MAIL_TEMPLATE: &str = "mail.template";
+/// `system_config` 分类：CORS 策略。
 pub const CONFIG_CATEGORY_NETWORK: &str = "network";
+/// `system_config` 分类：邮件 outbox 调度。
 pub const CONFIG_CATEGORY_RUNTIME_MAIL: &str = "runtime.mail";
+/// `system_config` 分类：后台任务调度与并发。
 pub const CONFIG_CATEGORY_RUNTIME_BACKGROUND_TASK: &str = "runtime.background_task";
+/// `system_config` 分类：维护性周期任务与限流。
 pub const CONFIG_CATEGORY_RUNTIME_MAINTENANCE: &str = "runtime.maintenance";
+/// `system_config` 分类：列表分页上限等运行时限流。
 pub const CONFIG_CATEGORY_RUNTIME_LIMITS: &str = "runtime.limits";
+/// `system_config` 分类：分享流会话。
 pub const CONFIG_CATEGORY_RUNTIME_SHARE_STREAM: &str = "runtime.share_stream";
+/// `system_config` 分类：存储版本、回收站、配额。
 pub const CONFIG_CATEGORY_STORAGE: &str = "storage";
+/// `system_config` 分类：在线解压限制。
 pub const CONFIG_CATEGORY_FILE_PROCESSING_ARCHIVE_EXTRACT: &str = "file_processing.archive_extract";
+/// `system_config` 分类：压缩包预览限制。
 pub const CONFIG_CATEGORY_FILE_PROCESSING_ARCHIVE_PREVIEW: &str = "file_processing.archive_preview";
+/// `system_config` 分类：打包压缩与 ZIP 下载限制。
 pub const CONFIG_CATEGORY_FILE_PROCESSING_ARCHIVE_BUILD: &str = "file_processing.archive_build";
+/// `system_config` 分类：离线下载引擎与限制。
 pub const CONFIG_CATEGORY_FILE_PROCESSING_OFFLINE_DOWNLOAD: &str =
     "file_processing.offline_download";
+/// `system_config` 分类：缩略图与媒体元数据处理。
 pub const CONFIG_CATEGORY_FILE_PROCESSING_MEDIA: &str = "file_processing.media";
+/// `system_config` 分类：WebDAV 访问、锁与系统文件保护。
 pub const CONFIG_CATEGORY_WEBDAV: &str = "webdav";
+/// `system_config` 分类：审计日志开关、保留期与记录范围。
 pub const CONFIG_CATEGORY_AUDIT: &str = "audit";
 
+/// 允许出现在 `system_config` 中的分类白名单。
+///
+/// 与 [`ALL_CONFIGS`] 条目上的 `category` 字段联动：任何定义使用
+/// 不在此列表中的分类都视为定义错误（由文件内测试校验）；前端
+/// 设置页也按该列表约束可写的分类。
 pub const SYSTEM_CONFIG_ALLOWED_CATEGORIES: &[&str] = &[
     CONFIG_CATEGORY_SITE,
     CONFIG_CATEGORY_SITE_PREVIEW,
@@ -66,192 +101,341 @@ pub const SYSTEM_CONFIG_ALLOWED_CATEGORIES: &[&str] = &[
 ];
 
 // ── Auth keys ────────────────────────────────────────────────────────────────
+/// 认证与分享验证 cookie 是否要求 HTTPS（`Secure` 属性）。默认 `false`。
 pub const AUTH_COOKIE_SECURE_KEY: &str = "auth_cookie_secure";
+/// 访问令牌有效期，单位秒。默认 `900`。
 pub const AUTH_ACCESS_TOKEN_TTL_SECS_KEY: &str = "auth_access_token_ttl_secs";
+/// 刷新令牌有效期，单位秒。默认 `604800`（7 天）。
 pub const AUTH_REFRESH_TOKEN_TTL_SECS_KEY: &str = "auth_refresh_token_ttl_secs";
+/// 注册激活链接有效期，单位秒。默认 `86400`（24 小时）。
 pub const AUTH_REGISTER_ACTIVATION_TTL_SECS_KEY: &str = "auth_register_activation_ttl_secs";
+/// 邮箱变更确认链接有效期，单位秒。默认 `86400`。
 pub const AUTH_CONTACT_CHANGE_TTL_SECS_KEY: &str = "auth_contact_change_ttl_secs";
+/// 密码重置链接有效期，单位秒。默认 `3600`。
 pub const AUTH_PASSWORD_RESET_TTL_SECS_KEY: &str = "auth_password_reset_ttl_secs";
+/// 管理员邀请用户链接有效期，单位秒。默认 `259200`（3 天）。
 pub const AUTH_USER_INVITATION_TTL_SECS_KEY: &str = "auth_user_invitation_ttl_secs";
+/// 同一邮箱两次验证邮件之间的最小冷却时间，单位秒。默认 `60`。
 pub const AUTH_CONTACT_VERIFICATION_RESEND_COOLDOWN_SECS_KEY: &str =
     "auth_contact_verification_resend_cooldown_secs";
+/// 同一用户两次密码重置邮件请求之间的最小冷却时间，单位秒。默认 `60`。
 pub const AUTH_PASSWORD_RESET_REQUEST_COOLDOWN_SECS_KEY: &str =
     "auth_password_reset_request_cooldown_secs";
+/// 是否允许已验证邮箱用户用一次性邮件验证码完成 MFA；开启前要求 SMTP 配置完整。默认 `false`。
 pub const AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY: &str = "auth_email_code_login_enabled";
+/// 是否允许使用已注册的 passkey 登录；关闭后保留凭据但禁止 passkey 登录。默认 `true`。
 pub const AUTH_PASSKEY_LOGIN_ENABLED_KEY: &str = "auth_passkey_login_enabled";
+/// 是否允许本地密码登录。默认 `true`。
 pub const AUTH_PASSWORD_LOGIN_ENABLED_KEY: &str = "auth_password_login_enabled";
+/// 已启用 TOTP MFA 的用户是否可回退使用邮件验证码 MFA。默认 `false`。
 pub const AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK_KEY: &str =
     "auth_email_code_login_allow_totp_fallback";
+/// 邮件登录验证码的最大有效期，单位秒；实际有效期受剩余 MFA 挑战时间约束。默认 `600`。
 pub const AUTH_EMAIL_CODE_LOGIN_TTL_SECS_KEY: &str = "auth_email_code_login_ttl_secs";
+/// 两次邮件登录验证码发送之间的最小冷却时间，单位秒。默认 `60`。
 pub const AUTH_EMAIL_CODE_LOGIN_RESEND_COOLDOWN_SECS_KEY: &str =
     "auth_email_code_login_resend_cooldown_secs";
+/// 是否允许从公开认证流程自助注册。默认 `true`。
 pub const AUTH_ALLOW_USER_REGISTRATION_KEY: &str = "auth_allow_user_registration";
+/// 新注册用户是否必须先通过邮件激活账号才能登录。默认 `true`。
 pub const AUTH_REGISTER_ACTIVATION_ENABLED_KEY: &str = "auth_register_activation_enabled";
+/// 本地账号邮箱白名单（JSON 字符串数组；精确邮箱地址与精确 ASCII 域名）。
+/// 空 = 不限制；国际化域名需填 punycode 形式；仅作用于本地注册与本地邮箱变更。
 pub const AUTH_LOCAL_EMAIL_ALLOWLIST_KEY: &str = "auth_local_email_allowlist";
+/// 本地账号邮箱黑名单（JSON 字符串数组；精确邮箱地址与精确 ASCII 域名）。
+/// 优先级高于白名单；空 = 不拦截；国际化域名需填 punycode 形式；仅作用于本地注册与本地邮箱变更。
 pub const AUTH_LOCAL_EMAIL_BLOCKLIST_KEY: &str = "auth_local_email_blocklist";
 
 // ── CORS keys ────────────────────────────────────────────────────────────────
+/// CORS 处理总开关；关闭时服务端跳过全部 CORS header 与执行。默认 `false`。
 pub const CORS_ENABLED_KEY: &str = "cors_enabled";
+/// CORS 精确 origin 白名单，JSON 字符串数组。空 = 不下发 CORS header 且不执行；
+/// `["*"]` = 允许任意 origin。默认空数组。
 pub const CORS_ALLOWED_ORIGINS_KEY: &str = "cors_allowed_origins";
+/// CORS 响应是否携带 `Access-Control-Allow-Credentials`；与 `["*"]` 组合会被拒绝。默认 `false`。
 pub const CORS_ALLOW_CREDENTIALS_KEY: &str = "cors_allow_credentials";
+/// CORS preflight 缓存时长，单位秒。默认 `3600`。
 pub const CORS_MAX_AGE_SECS_KEY: &str = "cors_max_age_secs";
 
+/// fallback 后台任务的集群级权威并发上限；`0` 表示无共享限额。默认 `0`。
 pub const TASK_FALLBACK_CLUSTER_CONCURRENCY_KEY: &str = "task_fallback_cluster_concurrency";
+/// 归档（archive）任务的集群级权威并发上限；`0` 表示无共享限额。默认 `0`。
 pub const TASK_ARCHIVE_CLUSTER_CONCURRENCY_KEY: &str = "task_archive_cluster_concurrency";
+/// 缩略图任务的集群级权威并发上限；`0` 表示无共享限额。默认 `0`。
 pub const TASK_THUMBNAIL_CLUSTER_CONCURRENCY_KEY: &str = "task_thumbnail_cluster_concurrency";
+/// 离线下载任务的集群级权威并发上限；`0` 表示无共享限额。默认 `0`。
 pub const TASK_OFFLINE_DOWNLOAD_CLUSTER_CONCURRENCY_KEY: &str =
     "task_offline_download_cluster_concurrency";
+/// 存储迁移任务的集群级权威并发上限；`0` 表示无共享限额。默认 `0`。
 pub const TASK_STORAGE_MIGRATION_CLUSTER_CONCURRENCY_KEY: &str =
     "task_storage_migration_cluster_concurrency";
 // ── Operations keys ──────────────────────────────────────────────────────────
+/// 邮件 outbox 两次派发轮询之间的间隔，单位秒。
 pub const MAIL_OUTBOX_DISPATCH_INTERVAL_SECS_KEY: &str = "mail_outbox_dispatch_interval_secs";
+/// 后台任务派发轮询间隔，单位秒；必须低于 180 秒的任务快照新鲜度窗口。
 pub const BACKGROUND_TASK_DISPATCH_INTERVAL_SECS_KEY: &str =
     "background_task_dispatch_interval_secs";
+/// 后台任务派发空闲退避后的最大轮询间隔，单位秒；必须低于 180 秒的任务快照新鲜度窗口。
 pub const BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS_KEY: &str =
     "background_task_dispatch_idle_max_interval_secs";
+/// 每个 worker 进程并发执行的 fallback 后台任务数量上限。
 pub const BACKGROUND_TASK_MAX_CONCURRENCY_KEY: &str = "background_task_max_concurrency";
+/// 每个 worker 进程同时执行的归档（archive）后台任务数量上限。
 pub const BACKGROUND_TASK_ARCHIVE_MAX_CONCURRENCY_KEY: &str =
     "background_task_archive_max_concurrency";
+/// 每个 worker 进程同时执行的缩略图后台任务数量上限。
 pub const BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY_KEY: &str =
     "background_task_thumbnail_max_concurrency";
+/// 每个 worker 进程同时执行的存储策略迁移任务数量上限。
 pub const BACKGROUND_TASK_STORAGE_MIGRATION_MAX_CONCURRENCY_KEY: &str =
     "background_task_storage_migration_max_concurrency";
+/// 工作区后台任务的最大尝试次数，超过后任务永久失败。
 pub const BACKGROUND_TASK_MAX_ATTEMPTS_KEY: &str = "background_task_max_attempts";
+/// 分享文件流会话的有效期，单位秒。
 pub const SHARE_STREAM_SESSION_TTL_SECS_KEY: &str = "share_stream_session_ttl_secs";
+/// 两次周期性维护清理之间的间隔，单位秒。
 pub const MAINTENANCE_CLEANUP_INTERVAL_SECS_KEY: &str = "maintenance_cleanup_interval_secs";
+/// 两次全量 blob 对账之间的间隔，单位秒。
 pub const BLOB_RECONCILE_INTERVAL_SECS_KEY: &str = "blob_reconcile_interval_secs";
+/// 数据库、缓存与远端节点周期性健康检查的间隔，单位秒。
 pub const REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY: &str = "remote_node_health_test_interval_secs";
+/// 团队成员列表端点接受的最大分页大小。
 pub const TEAM_MEMBER_LIST_MAX_LIMIT_KEY: &str = "team_member_list_max_limit";
+/// 后台任务列表端点接受的最大分页大小。
 pub const TASK_LIST_MAX_LIMIT_KEY: &str = "task_list_max_limit";
+/// 头像上传大小上限，单位字节，超过即拒绝请求。
 pub const AVATAR_MAX_UPLOAD_SIZE_BYTES_KEY: &str = "avatar_max_upload_size_bytes";
+/// 可生成缩略图的原始文件大小上限，单位字节。
 pub const THUMBNAIL_MAX_SOURCE_BYTES_KEY: &str = "thumbnail_max_source_bytes";
+/// 生成缩略图的最大宽度或高度，单位像素。
 pub const THUMBNAIL_MAX_DIMENSION_KEY: &str = "thumbnail_max_dimension";
+/// 生成图片预览的最大宽度或高度，单位像素。
 pub const IMAGE_PREVIEW_MAX_DIMENSION_KEY: &str = "image_preview_max_dimension";
+/// 是否启用后端 blob 级媒体元数据提取与缓存。
 pub const MEDIA_METADATA_ENABLED_KEY: &str = "media_metadata_enabled";
+/// 可进行后端媒体元数据提取的原始文件大小上限，单位字节。
 pub const MEDIA_METADATA_MAX_SOURCE_BYTES_KEY: &str = "media_metadata_max_source_bytes";
+/// 缩略图与元数据处理器共用的统一媒体处理注册表，JSON 格式。
 pub const MEDIA_PROCESSING_REGISTRY_JSON_KEY: &str = "media_processing_registry_json";
+/// Web 前端图片预览策略：`original_first`（先原图）或 `preview_first`（先预览图）。
 pub const FRONTEND_IMAGE_PREVIEW_PREFERENCE_KEY: &str = "frontend_image_preview_preference";
+/// 已弃用的旧缩略图处理器选择键，仅存在于历史存量数据。
 pub const THUMBNAIL_DEFAULT_PROCESSOR_KEY: &str = "thumbnail_default_processor";
+/// 已弃用的旧 VIPS CLI 开关键，仅存在于历史存量数据。
 pub const THUMBNAIL_VIPS_CLI_ENABLED_KEY: &str = "thumbnail_vips_cli_enabled";
+/// 已弃用的旧 VIPS 命令行配置键，仅存在于历史存量数据。
 pub const THUMBNAIL_VIPS_COMMAND_KEY: &str = "thumbnail_vips_command";
 
 // ── Storage keys ─────────────────────────────────────────────────────────────
+/// 每个文件保留的历史版本数量上限。默认 `10`。
 pub const MAX_VERSIONS_PER_FILE_KEY: &str = "max_versions_per_file";
+/// 软删除项在回收站中保留的天数，到期后永久清除。默认 `7`。
 pub const TRASH_RETENTION_DAYS_KEY: &str = "trash_retention_days";
+/// 归档团队在永久删除前保留的天数。默认 `7`。
 pub const TEAM_ARCHIVE_RETENTION_DAYS_KEY: &str = "team_archive_retention_days";
+/// 临时后台任务产物过期的小时数；任务记录本身作为历史保留。默认 `24`。
 pub const TASK_RETENTION_HOURS_KEY: &str = "task_retention_hours";
+/// 新用户和新团队的默认存储配额，单位字节；`0` 表示不限量。默认 `0`。
 pub const DEFAULT_STORAGE_QUOTA_KEY: &str = "default_storage_quota";
+/// 在线解压接受的最大压缩包源文件大小，单位字节。
 pub const ARCHIVE_EXTRACT_MAX_SOURCE_BYTES_KEY: &str = "archive_extract_max_source_bytes";
+/// 单次解压允许的总临时占用字节上限，含下载的源压缩包与解压产物。
 pub const ARCHIVE_EXTRACT_MAX_STAGING_BYTES_KEY: &str = "archive_extract_max_staging_bytes";
+/// ZIP 压缩包导入前接受的总解压后字节上限。
 pub const ARCHIVE_EXTRACT_MAX_UNCOMPRESSED_BYTES_KEY: &str =
     "archive_extract_max_uncompressed_bytes";
+/// ZIP 压缩包接受的中央目录条目数量上限。
 pub const ARCHIVE_EXTRACT_MAX_ENTRIES_KEY: &str = "archive_extract_max_entries";
+/// ZIP 压缩包接受的文件条目数量上限。
 pub const ARCHIVE_EXTRACT_MAX_FILES_KEY: &str = "archive_extract_max_files";
+/// ZIP 压缩包接受的目录路径数量上限。
 pub const ARCHIVE_EXTRACT_MAX_DIRECTORIES_KEY: &str = "archive_extract_max_directories";
+/// ZIP 条目规范化路径接受的最大层级深度。
 pub const ARCHIVE_EXTRACT_MAX_DEPTH_KEY: &str = "archive_extract_max_depth";
+/// 单个 ZIP 条目规范化路径接受的 UTF-8 字节长度上限。
 pub const ARCHIVE_EXTRACT_MAX_PATH_BYTES_KEY: &str = "archive_extract_max_path_bytes";
+/// 整个 ZIP 压缩包接受的解压后/压缩后字节比上限（zip bomb 防护）。
 pub const ARCHIVE_EXTRACT_MAX_COMPRESSION_RATIO_KEY: &str = "archive_extract_max_compression_ratio";
+/// ZIP 单个条目接受的解压后/压缩后字节比上限（zip bomb 防护）。
 pub const ARCHIVE_EXTRACT_MAX_ENTRY_COMPRESSION_RATIO_KEY: &str =
     "archive_extract_max_entry_compression_ratio";
+/// 单次在线解压任务允许的最大墙钟时长，单位秒。
 pub const ARCHIVE_EXTRACT_MAX_DURATION_SECS_KEY: &str = "archive_extract_max_duration_secs";
+/// 只读压缩包预览的总开关。默认 `false`。
 pub const ARCHIVE_PREVIEW_ENABLED_KEY: &str = "archive_preview_enabled";
+/// 登录用户是否可预览个人与团队文件的压缩包清单。默认 `false`。
 pub const ARCHIVE_PREVIEW_USER_ENABLED_KEY: &str = "archive_preview_user_enabled";
+/// 公开分享页在通过分享访问校验后是否可预览压缩包清单。默认 `false`。
 pub const ARCHIVE_PREVIEW_SHARE_ENABLED_KEY: &str = "archive_preview_share_enabled";
+/// 压缩包预览接受的最大源文件大小，单位字节。
 pub const ARCHIVE_PREVIEW_MAX_SOURCE_BYTES_KEY: &str = "archive_preview_max_source_bytes";
+/// 压缩包预览接受的条目数量上限。
 pub const ARCHIVE_PREVIEW_MAX_ENTRIES_KEY: &str = "archive_preview_max_entries";
+/// 返回给客户端的序列化预览清单字节上限。
 pub const ARCHIVE_PREVIEW_MAX_MANIFEST_BYTES_KEY: &str = "archive_preview_max_manifest_bytes";
+/// 单次压缩包预览扫描允许的最大墙钟时长，单位秒。
 pub const ARCHIVE_PREVIEW_MAX_DURATION_SECS_KEY: &str = "archive_preview_max_duration_secs";
+/// 是否允许用户把多个文件打包成 ZIP 作为新的工作区文件。默认 `true`。
 pub const ARCHIVE_COMPRESS_ENABLED_KEY: &str = "archive_compress_enabled";
+/// 登录用户是否可把选中的个人与团队文件打包为 ZIP 下载。默认 `true`。
 pub const ARCHIVE_DOWNLOAD_USER_ENABLED_KEY: &str = "archive_download_user_enabled";
+/// 公开分享访客是否可把选中的分享文件打包为 ZIP 下载。默认 `true`。
 pub const ARCHIVE_DOWNLOAD_SHARE_ENABLED_KEY: &str = "archive_download_share_enabled";
+/// 打包压缩或 ZIP 下载接受的展开后文件与目录条目总数上限。
 pub const ARCHIVE_BUILD_MAX_ENTRIES_KEY: &str = "archive_build_max_entries";
+/// 打包压缩或 ZIP 下载接受的总源文件字节上限。
 pub const ARCHIVE_BUILD_MAX_TOTAL_SOURCE_BYTES_KEY: &str = "archive_build_max_total_source_bytes";
+/// 打包压缩或 ZIP 下载接受的估算/实际 ZIP 输出字节上限。
 pub const ARCHIVE_BUILD_MAX_TEMP_BYTES_KEY: &str = "archive_build_max_temp_bytes";
+/// 离线 HTTP/HTTPS 下载允许的最大文件大小，单位字节；需与请求超时配套调整。
 pub const OFFLINE_DOWNLOAD_MAX_FILE_SIZE_BYTES_KEY: &str = "offline_download_max_file_size_bytes";
+/// 离线 HTTP/HTTPS 下载限速，单位 MB/s；`0` 表示不限速。低于大小/超时比值会导致大文件下载超时。
 pub const OFFLINE_DOWNLOAD_MAX_MB_PER_SEC_KEY: &str = "offline_download_max_mb_per_sec";
+/// 同时执行的离线下载任务数量上限。
 pub const OFFLINE_DOWNLOAD_MAX_CONCURRENCY_KEY: &str = "offline_download_max_concurrency";
+/// 单个离线下载 HTTP 请求的超时时间，单位秒。
 pub const OFFLINE_DOWNLOAD_REQUEST_TIMEOUT_SECS_KEY: &str = "offline_download_request_timeout_secs";
+/// 离线下载可选的绝对暂存目录；AsterDrive 与 aria2 等外部下载器须都能访问同一路径。
+/// 空 = 使用服务器常规临时目录。
 pub const OFFLINE_DOWNLOAD_TEMP_DIR_KEY: &str = "offline_download_temp_dir";
+/// 离线下载引擎选择：`builtin`（默认内置引擎）或 `aria2`。
 pub const OFFLINE_DOWNLOAD_ENGINE_KEY: &str = "offline_download_engine";
+/// 有序离线下载引擎注册表，JSON 格式；启用的引擎按顺序尝试，启用集为空时禁用链接导入。
 pub const OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY: &str = "offline_download_engine_registry_json";
+/// 引擎为 `aria2` 时使用的 aria2 JSON-RPC 端点，例如 `http://127.0.0.1:6800/jsonrpc`。
 pub const OFFLINE_DOWNLOAD_ARIA2_RPC_URL_KEY: &str = "offline_download_aria2_rpc_url";
+/// aria2 JSON-RPC 令牌，以 `token:<secret>` 形式发送；独立于任务载荷存储，按敏感值处理。
 pub const OFFLINE_DOWNLOAD_ARIA2_RPC_SECRET_KEY: &str = "offline_download_aria2_rpc_secret";
+/// 单个 aria2 JSON-RPC 请求的超时时间，单位秒；整体下载时长仍由
+/// `offline_download_request_timeout_secs` 控制。
 pub const OFFLINE_DOWNLOAD_ARIA2_REQUEST_TIMEOUT_SECS_KEY: &str =
     "offline_download_aria2_request_timeout_secs";
+/// 离线下载应用的 aria2 `split` 选项；管理员可控的安全子集，不是任意 aria2 选项透传。
 pub const OFFLINE_DOWNLOAD_ARIA2_SPLIT_KEY: &str = "offline_download_aria2_split";
+/// 离线下载应用的 aria2 `max-connection-per-server` 选项。
 pub const OFFLINE_DOWNLOAD_ARIA2_MAX_CONNECTION_PER_SERVER_KEY: &str =
     "offline_download_aria2_max_connection_per_server";
+/// aria2 `lowest-speed-limit` 阈值，单位字节/秒；`0` 表示禁用 aria2 侧的停滞中止。
 pub const OFFLINE_DOWNLOAD_ARIA2_LOWEST_SPEED_LIMIT_BYTES_PER_SEC_KEY: &str =
     "offline_download_aria2_lowest_speed_limit_bytes_per_sec";
 
 // ── Mail keys ────────────────────────────────────────────────────────────────
+/// 事务邮件投递使用的 SMTP 服务器主机名。
 pub const MAIL_SMTP_HOST_KEY: &str = "mail_smtp_host";
+/// 事务邮件投递使用的 SMTP 服务器端口。默认 `587`。
 pub const MAIL_SMTP_PORT_KEY: &str = "mail_smtp_port";
+/// 带认证投递使用的 SMTP 用户名。
 pub const MAIL_SMTP_USERNAME_KEY: &str = "mail_smtp_username";
+/// 带认证投递使用的 SMTP 密码，按敏感值处理。
 pub const MAIL_SMTP_PASSWORD_KEY: &str = "mail_smtp_password";
+/// 账号激活与邮箱验证等邮件使用的发件地址。
 pub const MAIL_FROM_ADDRESS_KEY: &str = "mail_from_address";
+/// 账号激活与邮箱验证等邮件使用的发件人显示名。默认 `AsterDrive`。
 pub const MAIL_FROM_NAME_KEY: &str = "mail_from_name";
+/// SMTP 是否启用加密：端口 465 使用隐式 SSL/TLS，其余端口在开启时使用 STARTTLS。默认 `true`。
 pub const MAIL_SECURITY_KEY: &str = "mail_security";
+/// 注册激活邮件的主题模板。
 pub const MAIL_TEMPLATE_REGISTER_ACTIVATION_SUBJECT_KEY: &str =
     "mail_template_register_activation_subject";
+/// 注册激活邮件的 HTML 模板；为获得最佳客户端兼容性，建议使用完整 HTML 文档。
 pub const MAIL_TEMPLATE_REGISTER_ACTIVATION_HTML_KEY: &str =
     "mail_template_register_activation_html";
+/// 邮箱变更确认邮件的主题模板。
 pub const MAIL_TEMPLATE_CONTACT_CHANGE_CONFIRMATION_SUBJECT_KEY: &str =
     "mail_template_contact_change_confirmation_subject";
+/// 邮箱变更确认邮件的 HTML 模板；建议使用完整 HTML 文档。
 pub const MAIL_TEMPLATE_CONTACT_CHANGE_CONFIRMATION_HTML_KEY: &str =
     "mail_template_contact_change_confirmation_html";
+/// 密码重置邮件的主题模板。
 pub const MAIL_TEMPLATE_PASSWORD_RESET_SUBJECT_KEY: &str = "mail_template_password_reset_subject";
+/// 密码重置邮件的 HTML 模板；建议使用完整 HTML 文档。
 pub const MAIL_TEMPLATE_PASSWORD_RESET_HTML_KEY: &str = "mail_template_password_reset_html";
+/// 密码重置完成通知邮件的主题模板。
 pub const MAIL_TEMPLATE_PASSWORD_RESET_NOTICE_SUBJECT_KEY: &str =
     "mail_template_password_reset_notice_subject";
+/// 密码重置完成通知邮件的 HTML 模板；建议使用完整 HTML 文档。
 pub const MAIL_TEMPLATE_PASSWORD_RESET_NOTICE_HTML_KEY: &str =
     "mail_template_password_reset_notice_html";
+/// 发往原地址的邮箱变更通知邮件的主题模板。
 pub const MAIL_TEMPLATE_CONTACT_CHANGE_NOTICE_SUBJECT_KEY: &str =
     "mail_template_contact_change_notice_subject";
+/// 发往原地址的邮箱变更通知邮件的 HTML 模板；建议使用完整 HTML 文档。
 pub const MAIL_TEMPLATE_CONTACT_CHANGE_NOTICE_HTML_KEY: &str =
     "mail_template_contact_change_notice_html";
+/// 外部认证邮箱验证邮件的主题模板。
 pub const MAIL_TEMPLATE_EXTERNAL_AUTH_EMAIL_VERIFICATION_SUBJECT_KEY: &str =
     "mail_template_external_auth_email_verification_subject";
+/// 外部认证邮箱验证邮件的 HTML 模板；建议使用完整 HTML 文档。
 pub const MAIL_TEMPLATE_EXTERNAL_AUTH_EMAIL_VERIFICATION_HTML_KEY: &str =
     "mail_template_external_auth_email_verification_html";
+/// 登录邮件验证码消息的主题模板。
 pub const MAIL_TEMPLATE_LOGIN_EMAIL_CODE_SUBJECT_KEY: &str =
     "mail_template_login_email_code_subject";
+/// 登录邮件验证码消息的 HTML 模板；建议使用完整 HTML 文档。
 pub const MAIL_TEMPLATE_LOGIN_EMAIL_CODE_HTML_KEY: &str = "mail_template_login_email_code_html";
+/// 用户邀请邮件的主题模板。
 pub const MAIL_TEMPLATE_USER_INVITATION_SUBJECT_KEY: &str = "mail_template_user_invitation_subject";
+/// 用户邀请邮件的 HTML 模板；建议使用完整 HTML 文档。
 pub const MAIL_TEMPLATE_USER_INVITATION_HTML_KEY: &str = "mail_template_user_invitation_html";
 
 // ── General / branding keys ──────────────────────────────────────────────────
+/// 受信任的公开前端 origin，JSON 字符串数组；用于生成分享、预览、WebDAV、WOPI 与回调 URL，
+/// 并作为同站 cookie CSRF 校验的受信 origin 补充（与 CORS 独立）。第一个 origin 是回退值。
+/// 只填自己控制的域名。默认空数组。
 pub const PUBLIC_SITE_URL_KEY: &str = "public_site_url";
+/// 公开浏览器标题，匿名与登录页面共用。默认 `AsterDrive`。
 pub const BRANDING_TITLE_KEY: &str = "branding_title";
+/// 暴露给匿名页面的公开 HTML 描述元数据。默认 `Self-hosted cloud storage`。
 pub const BRANDING_DESCRIPTION_KEY: &str = "branding_description";
+/// 运行时应用的公开 favicon URL。默认 `/favicon.svg`。
 pub const BRANDING_FAVICON_URL_KEY: &str = "branding_favicon_url";
+/// 浅色表面（页头、表单）使用的站点 logo URL。默认 `/static/asterdrive/asterdrive-dark.svg`。
 pub const BRANDING_WORDMARK_DARK_URL_KEY: &str = "branding_wordmark_dark_url";
+/// 深色表面（登录页主视觉）使用的站点 logo URL。默认 `/static/asterdrive/asterdrive-light.svg`。
 pub const BRANDING_WORDMARK_LIGHT_URL_KEY: &str = "branding_wordmark_light_url";
 
 // ── WOPI keys ────────────────────────────────────────────────────────────────
+/// WOPI access token 有效期，单位秒。默认 `900`（15 分钟）。
 pub const WOPI_ACCESS_TOKEN_TTL_SECS_KEY: &str = "wopi_access_token_ttl_secs";
+/// 活动 WOPI lock 的有效期，单位秒，到期自动失效。默认 `1800`（30 分钟）。
 pub const WOPI_LOCK_TTL_SECS_KEY: &str = "wopi_lock_ttl_secs";
+/// 拉取到的 WOPI discovery 元数据缓存时长，单位秒。默认 `300`（5 分钟）。
 pub const WOPI_DISCOVERY_CACHE_TTL_SECS_KEY: &str = "wopi_discovery_cache_ttl_secs";
 
 // ── Avatar keys ──────────────────────────────────────────────────────────────
+/// 上传头像文件使用的本地目录；相对路径解析到 `./data` 之下。默认 `avatar`。
 pub const AVATAR_DIR_KEY: &str = "avatar_dir";
 
 // ── Audit keys ───────────────────────────────────────────────────────────────
+/// 是否允许管理员以"必填理由 + 强制审计"的方式查看并下载工作区内容。默认 `false`。
 pub const ADMIN_WORKSPACE_CONTENT_ACCESS_ENABLED_KEY: &str =
     "admin_workspace_content_access_enabled";
+/// 审计日志总开关。默认 `true`。
 pub const AUDIT_LOG_ENABLED_KEY: &str = "audit_log_enabled";
+/// 审计日志条目永久删除前的保留天数。默认 `90`。
 pub const AUDIT_LOG_RETENTION_DAYS_KEY: &str = "audit_log_retention_days";
+/// 需要记录的审计动作集合（枚举集合，JSON 序列化）。
 pub const AUDIT_LOG_RECORDED_ACTIONS_KEY: &str = "audit_log_recorded_actions";
 
 // ── WebDAV keys ──────────────────────────────────────────────────────────────
+/// WebDAV 访问总开关。默认 `true`。
 pub const WEBDAV_ENABLED_KEY: &str = "webdav_enabled";
+/// 单个用户可持有的活动 WebDAV lock 上限，超限后新 LOCK 请求被拒绝。
+/// 默认 [`DEFAULT_WEBDAV_MAX_ACTIVE_LOCKS_PER_USER`]。
 pub const WEBDAV_MAX_ACTIVE_LOCKS_PER_USER_KEY: &str = "webdav_max_active_locks_per_user";
+/// 单用户活动 WebDAV lock 数量的默认上限。
 pub const DEFAULT_WEBDAV_MAX_ACTIVE_LOCKS_PER_USER: u64 = 1024;
+/// 对同一账号、文件、请求类型与客户端指纹重复产生的 WebDAV 下载审计记录的合并窗口，
+/// 单位秒；`0` 表示每次读取都单独记录。默认 [`DEFAULT_WEBDAV_DOWNLOAD_AUDIT_COALESCE_WINDOW_SECS`]。
 pub const WEBDAV_DOWNLOAD_AUDIT_COALESCE_WINDOW_SECS_KEY: &str =
     "webdav_download_audit_coalesce_window_secs";
+/// WebDAV 下载审计合并窗口的默认值，单位秒。
 pub const DEFAULT_WEBDAV_DOWNLOAD_AUDIT_COALESCE_WINDOW_SECS: u64 = 30;
+/// 是否阻止 WebDAV 客户端创建常见操作系统元数据文件与目录。默认 `true`。
 pub const WEBDAV_BLOCK_SYSTEM_FILES_ENABLED_KEY: &str = "webdav_block_system_files_enabled";
+/// 系统文件保护启用时被拦截的 basename glob 模式，JSON 字符串数组；匹配不区分大小写，`*` 为通配符。
 pub const WEBDAV_BLOCK_SYSTEM_FILE_PATTERNS_KEY: &str = "webdav_block_system_file_patterns";
+/// [`WEBDAV_BLOCK_SYSTEM_FILE_PATTERNS_KEY`] 的默认拦截模式列表。
 pub const DEFAULT_WEBDAV_SYSTEM_FILE_PATTERNS: &[&str] = &[
     ".DS_Store",
     "._*",
@@ -2499,9 +2683,13 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
     },
 ];
 
+/// 全量配置定义的注册表句柄，供 `system_config` 存储层（`SystemConfigDbBinding`）
+/// 校验键、修补元数据与解析默认值使用。
 pub static CONFIG_REGISTRY: aster_forge_config::ConfigRegistry =
     aster_forge_config::ConfigRegistry::new(ALL_CONFIGS);
 
+/// 已弃用但仍需在数据库中清理的 `system_config` 键。
+/// bootstrap 阶段由 `SystemConfigDbBinding::delete_deprecated_keys` 删除这些行。
 pub const DEPRECATED_SYSTEM_CONFIG_KEYS: &[&str] = &[
     "node_runtime_mode",
     "thumbnail_default_processor",

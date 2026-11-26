@@ -14,6 +14,7 @@ use aster_forge_api::LimitOffsetQuery;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use aster_forge_api::OffsetPage;
 
+/// Lists all files across workspaces with pagination, filtering, and a blob summary.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/files",
@@ -42,6 +43,7 @@ pub async fn list_files(
     Ok(HttpResponse::Ok().json(crate::api::response::success(page)))
 }
 
+/// Returns admin file details including the current blob and version summaries.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/files/{id}",
@@ -64,6 +66,7 @@ pub async fn get_file(
     Ok(HttpResponse::Ok().json(crate::api::response::success(file)))
 }
 
+/// Lists file blobs with pagination and filtering.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/file-blobs",
@@ -92,6 +95,7 @@ pub async fn list_file_blobs(
     Ok(HttpResponse::Ok().json(crate::api::response::success(page)))
 }
 
+/// Returns blob details including the files and versions referencing it.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/file-blobs/{id}",
@@ -114,6 +118,8 @@ pub async fn get_file_blob(
     Ok(HttpResponse::Ok().json(crate::api::response::success(blob)))
 }
 
+/// Creates a background blob maintenance task (e.g. re-upload or verification) for the
+/// given blob IDs, and records the action in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/file-blobs/maintenance",

@@ -99,6 +99,8 @@ pub async fn find_blob_storage_paths_by_storage_paths<C: ConnectionTrait>(
     Ok(paths.into_iter().collect())
 }
 
+/// Returns true when any blob under `policy_id` already uses `storage_path`; used to
+/// guard against publishing two blob rows onto one connector object key.
 pub async fn blob_storage_path_exists_for_policy<C: ConnectionTrait>(
     db: &C,
     policy_id: i64,
@@ -113,6 +115,8 @@ pub async fn blob_storage_path_exists_for_policy<C: ConnectionTrait>(
     Ok(count > 0)
 }
 
+/// Records the generated thumbnail's path, processor, and version on the blob row and
+/// refreshes `updated_at`. Returns false when the blob no longer exists.
 pub async fn set_thumbnail_metadata<C: ConnectionTrait>(
     db: &C,
     id: i64,
@@ -141,6 +145,8 @@ pub async fn set_thumbnail_metadata<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// Clears all three thumbnail fields on the blob row (cache invalidation) and refreshes
+/// `updated_at`. Returns false when the blob no longer exists.
 pub async fn clear_thumbnail_metadata<C: ConnectionTrait>(db: &C, id: i64) -> Result<bool> {
     let result = FileBlob::update_many()
         .col_expr(
@@ -188,6 +194,8 @@ pub async fn sum_blob_bytes(db: &DatabaseConnection) -> Result<i64> {
         .unwrap_or(0))
 }
 
+/// Sums the logical byte size of all blobs under one storage policy; returns 0 when the
+/// policy has no blobs. The SUM is cast per backend before aggregation.
 pub async fn sum_blob_bytes_by_policy<C: ConnectionTrait>(db: &C, policy_id: i64) -> Result<i64> {
     let type_name = match db.get_database_backend() {
         DbBackend::Postgres => "bigint",
@@ -208,6 +216,11 @@ pub async fn sum_blob_bytes_by_policy<C: ConnectionTrait>(db: &C, policy_id: i64
         .unwrap_or(0))
 }
 
+/// Moves a blob row to the target policy only while it still belongs to
+/// `source_policy_id`, rewriting its hash and storage path to the object published on
+/// the target connector and dropping the now-invalid thumbnail metadata. Returning
+/// false means another migration worker already moved the row and this attempt is
+/// skipped; the caller must then clean up the object it staged.
 pub async fn move_blob_policy_if_current<C: ConnectionTrait>(
     db: &C,
     blob_id: i64,
@@ -247,6 +260,9 @@ pub async fn move_blob_policy_if_current<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// Re-parents a policy's metadata-only empty blob (`VirtualEmpty` backing, no connector
+/// object) to the target policy, only while the row still belongs to
+/// `source_policy_id`. Returning false means another migration already moved it.
 pub async fn move_virtual_empty_blob_policy_if_current<C: ConnectionTrait>(
     db: &C,
     blob_id: i64,
@@ -268,6 +284,7 @@ pub async fn move_virtual_empty_blob_policy_if_current<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+/// Hard-deletes one blob row by id; returns false when no row matched.
 pub async fn delete_blob_by_id<C: ConnectionTrait>(db: &C, blob_id: i64) -> Result<bool> {
     let result = FileBlob::delete_by_id(blob_id)
         .exec(db)

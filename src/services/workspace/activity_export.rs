@@ -12,10 +12,14 @@ use bytes::Bytes;
 use futures::Stream;
 use std::pin::Pin;
 
+/// Byte stream of the activity CSV body; the first chunk carries the header row.
 pub type ActivityCsvStream = Pin<Box<dyn Stream<Item = Result<Bytes>> + Send>>;
 
+/// Bounded activity CSV export: total row count plus the streaming body.
 pub struct ActivityCsvExport {
+    /// Number of data rows the stream will emit, checked against the export row limit up front.
     pub total: u64,
+    /// CSV body chunks, starting with the header row.
     pub stream: ActivityCsvStream,
 }
 

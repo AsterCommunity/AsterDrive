@@ -89,6 +89,8 @@ async fn bootstrap_runtime_config_from_setup(
     bootstrap_public_site_url_from_setup(state, &origin, user_id).await;
 }
 
+/// Reports the unauthenticated auth state used by the login/setup screens: setup
+/// status, whether users exist, and which login and registration methods are enabled.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/check",
@@ -112,6 +114,8 @@ pub async fn check(state: web::Data<PrimaryAppState>) -> Result<HttpResponse> {
     )
 }
 
+/// One-time initial setup: creates the first admin account. Also bootstraps the
+/// public site URL and secure-cookie config from the request origin.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/setup",
@@ -148,6 +152,7 @@ pub async fn setup(
     response
 }
 
+/// Registers a new local account and queues the activation email.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/register",
@@ -183,6 +188,9 @@ pub async fn register(
     response
 }
 
+/// Resends the activation email for an unactivated account. The response is
+/// intentionally uniform (with a timing floor) and does not reveal whether the
+/// account exists or is eligible.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/register/resend",
@@ -223,6 +231,8 @@ pub async fn resend_register_activation(
     )
 }
 
+/// Verifies an invitation token and returns its public info (email and target team)
+/// so the invitee can preview it before accepting.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/auth/invitations/{token}",
@@ -242,6 +252,8 @@ pub async fn verify_user_invitation(
     Ok(HttpResponse::Ok().json(crate::api::response::success(info)))
 }
 
+/// Accepts an invitation by creating the user account with the chosen username and
+/// password, and records the registration in the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/invitations/{token}/accept",
@@ -279,6 +291,8 @@ pub async fn accept_user_invitation(
     Ok(HttpResponse::Created().json(crate::api::response::success(user_info)))
 }
 
+/// Email link landing endpoint that consumes a contact (email) verification token
+/// and redirects the browser to the frontend with the verification status.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/auth/contact-verification/confirm",
@@ -384,6 +398,8 @@ pub async fn confirm_contact_verification(
     ))
 }
 
+/// Requests a password reset email. The response is intentionally uniform (with a
+/// timing floor) and does not reveal whether the email belongs to an account.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/password/reset/request",
@@ -419,6 +435,8 @@ pub async fn request_password_reset(
     )
 }
 
+/// Completes a password reset using the emailed token, and records the change in
+/// the audit log.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/password/reset/confirm",

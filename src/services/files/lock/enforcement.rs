@@ -9,21 +9,31 @@ use aster_drive_model::types::{LockDepth, LockOrigin, LockRootKind};
 
 use super::domain::{LockRoot, LockTarget, LockWorkspace};
 
+/// Lock-satisfying evidence submitted with a mutation request, e.g. a
+/// WebDAV `If` header token or an authenticated lock holder.
 #[derive(Debug, Default)]
 pub struct SubmittedLockCredentials<'a> {
+    /// Authenticated user id presented as the lock holder; only satisfies
+    /// locks created by Drive itself.
     pub holder_user_id: Option<i64>,
+    /// Raw lock tokens presented by the client.
     pub tokens: &'a [String],
 }
 
+/// Caller-supplied credentials for mutating a possibly locked resource.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum LockMutationCredentials {
+    /// No credentials; the mutation must hit no lock.
     #[default]
     None,
+    /// The authenticated user claims to be the lock holder.
     HolderUser(i64),
+    /// The client submitted lock tokens, typically via WebDAV `If`.
     SubmittedTokens(Vec<String>),
 }
 
 impl LockMutationCredentials {
+    /// Converts the credentials into their borrowable enforcement form.
     #[must_use]
     pub fn submitted(&self) -> SubmittedLockCredentials<'_> {
         match self {
@@ -41,6 +51,7 @@ impl LockMutationCredentials {
 }
 
 impl SubmittedLockCredentials<'_> {
+    /// Empty credentials that satisfy no lock.
     #[must_use]
     pub const fn none() -> Self {
         Self {
@@ -50,6 +61,12 @@ impl SubmittedLockCredentials<'_> {
     }
 }
 
+/// Checks that the file can be mutated inside the caller's transaction,
+/// row-locking the file first and rejecting any lock that covers it and
+/// is not satisfied by `credentials`.
+///
+/// Returns the re-read file row so callers operate on locked state.
+/// Fails with `resource_locked` when the workspace changes under the lock.
 pub async fn enforce_file_mutation_on<C: ConnectionTrait>(
     txn: &C,
     file: &file::Model,
@@ -78,6 +95,12 @@ pub async fn enforce_file_mutation_on<C: ConnectionTrait>(
     Ok(current)
 }
 
+/// Checks that the folder can be mutated inside the caller's transaction,
+/// row-locking the folder first and rejecting any lock covering it (or,
+/// with infinite `depth`, anything below it) that `credentials` do not
+/// satisfy.
+///
+/// Returns the re-read folder row for follow-up checks.
 pub async fn enforce_folder_mutation_on<C: ConnectionTrait>(
     txn: &C,
     folder: &folder::Model,
@@ -109,6 +132,12 @@ pub async fn enforce_folder_mutation_on<C: ConnectionTrait>(
     Ok(current)
 }
 
+/// Checks that creating, moving, or deleting entries under
+/// `parent_folder_id` is allowed, rejecting locks anchored on the parent
+/// folder or workspace root.
+///
+/// `None` targets the workspace root, which additionally row-locks the
+/// owning user or team before evaluation.
 pub async fn enforce_collection_membership_mutation_on<C: ConnectionTrait>(
     txn: &C,
     workspace: LockWorkspace,
@@ -152,6 +181,7 @@ pub async fn enforce_collection_membership_mutation_on<C: ConnectionTrait>(
     .await
 }
 
+/// Runs [`enforce_file_mutation_on`] in its own transaction on `db`.
 pub async fn enforce_file_mutation(
     db: &DatabaseConnection,
     file: &file::Model,
@@ -164,6 +194,7 @@ pub async fn enforce_file_mutation(
     .await
 }
 
+/// Runs [`enforce_folder_mutation_on`] in its own transaction on `db`.
 pub async fn enforce_folder_mutation(
     db: &DatabaseConnection,
     folder: &folder::Model,
@@ -177,6 +208,9 @@ pub async fn enforce_folder_mutation(
     .await
 }
 
+/// Loads the workspace's lock namespace row and holds its advisory lock
+/// inside the caller's transaction, serializing all lock checks for that
+/// workspace.
 pub async fn lock_workspace_for_mutation_on<C: ConnectionTrait>(
     txn: &C,
     workspace: LockWorkspace,

@@ -17,36 +17,61 @@ pub use snapshots::{
     invitation_snapshot,
 };
 
+/// Typed category of an authentication flow; selects the legal state machine in
+/// [`plan_transition`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AuthFlowKind {
+    /// First-factor username/email + password login.
     PasswordLogin,
+    /// Browser WebAuthn credential creation flow.
     PasskeyRegistration,
+    /// Discoverable-credential WebAuthn login flow.
     PasskeyLogin,
+    /// Login completed through an external identity provider.
     ExternalLogin,
+    /// Second-factor challenge issued after a validated first factor.
     MfaLogin,
+    /// Email token that activates a freshly registered account.
     RegistrationActivation,
+    /// Email token that lets an invitee join and activate their account.
     InvitationAcceptance,
+    /// Email token granting a one-shot password change for a locked-out account.
     PasswordReset,
+    /// Email token confirming a pending email address change.
     EmailChange,
+    /// Email token verifying an address claimed through external sign-in.
     ExternalEmailVerification,
 }
 
+/// Lifecycle state of a flow. Terminal states reject every further transition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AuthFlowState {
+    /// First factor (identifier + password, passkey, external identity) still owes verification.
     FirstFactorPending,
+    /// First factor verified; an MFA challenge must still pass.
     SecondFactorPending,
+    /// Recovery-style token issued and waiting to be exchanged (activation, reset, invitation).
     RecoveryPending,
+    /// Provider challenge is in flight; only provider completion may leave this state.
     Processing,
+    /// Second factor passed but the account still owes an administrator-forced password change.
     PasswordChangeRequired,
+    /// Terminal: login fully succeeded and session issuance is authorized.
     Authenticated,
+    /// Terminal: single-use token or registration-style flow finished successfully.
     Completed,
+    /// Terminal: attempt budget exhausted.
     Failed,
+    /// Terminal: expiry deadline passed.
     Expired,
+    /// Terminal: explicitly abandoned by the caller.
     Cancelled,
+    /// Terminal: single-use token exchanged; replay attempts land here.
     Consumed,
 }
 
 impl AuthFlowState {
+    /// Whether no further command may ever be applied to a flow in this state.
     pub const fn is_terminal(self) -> bool {
         matches!(
             self,
@@ -60,56 +85,92 @@ impl AuthFlowState {
     }
 }
 
+/// Immutable projection of a flow's persisted state at the moment a command is planned.
+///
+/// Adapters derive this from their owning record (consumed flag, attempt counter, expiry) and
+/// feed it back into [`plan_transition`]; the result must be persisted with the new revision.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthFlowSnapshot {
+    /// Stable identifier used for audit trails; must never contain token material.
     pub flow_id: String,
+    /// Flow category driving the legal transition table.
     pub kind: AuthFlowKind,
+    /// Current lifecycle state.
     pub state: AuthFlowState,
+    /// Optimistic-concurrency counter; commands carry the revision they were planned against.
     pub revision: u64,
+    /// Failed verification attempts recorded so far.
     pub attempt_count: u32,
+    /// Upper bound on failed attempts before the flow fails; `None` means unlimited.
     pub max_attempts: Option<u32>,
+    /// Inclusive deadline; every non-expiry command is rejected once `now` passes it.
     pub expires_at: DateTime<Utc>,
 }
 
+/// Command applied to a flow snapshot. Every variant carries the revision the caller observed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuthFlowCommand {
+    /// Move the flow to a new state; validated against the per-kind transition table.
     Transition {
+        /// Revision the caller read; must equal the snapshot's current revision.
         expected_revision: u64,
+        /// Requested next state.
         to: AuthFlowState,
     },
+    /// Record a failed verification attempt; consumes the attempt budget and may fail the flow.
     RecordFailure {
+        /// Revision the caller read; must equal the snapshot's current revision.
         expected_revision: u64,
     },
+    /// Abandon the flow; legal from any non-terminal state and subject to expiry.
     Cancel {
+        /// Revision the caller read; must equal the snapshot's current revision.
         expected_revision: u64,
     },
+    /// Force the expired terminal state; the only command allowed on an already-expired flow.
     Expire {
+        /// Revision the caller read; must equal the snapshot's current revision.
         expected_revision: u64,
     },
 }
 
+/// Why a command was rejected. Order of checks: revision, terminal, expiry, then per-command rules.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuthFlowTransitionError {
+    /// A `Transition` was attempted after the attempt budget was already exhausted.
     AttemptBudgetExhausted,
+    /// The flow's `expires_at` deadline passed before the command was applied.
     Expired,
+    /// The requested state is not reachable from the current state for this flow kind.
     IllegalTransition {
+        /// State the flow was in when the illegal command arrived.
         from: AuthFlowState,
+        /// State the command tried to move to.
         to: AuthFlowState,
     },
+    /// Optimistic concurrency check failed; re-read the flow and retry.
     RevisionConflict {
+        /// Revision the command expected.
         expected: u64,
+        /// Revision actually present on the snapshot.
         actual: u64,
     },
+    /// The flow already sits in this terminal state.
     Terminal(AuthFlowState),
 }
 
+/// Successful result of planning a command: the values the adapter must persist atomically.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AuthFlowTransition {
+    /// Next lifecycle state after the command.
     pub state: AuthFlowState,
+    /// Revision to persist (previous revision + 1).
     pub revision: u64,
+    /// Attempt count to persist; only `RecordFailure` changes it.
     pub attempt_count: u32,
 }
 
+/// Validates a lifecycle command against a flow snapshot without touching any record.
 pub fn plan_transition(
     snapshot: &AuthFlowSnapshot,
     command: AuthFlowCommand,
@@ -183,6 +244,7 @@ pub fn plan_transition(
     }
 }
 
+/// Per-kind transition table. `Failed` and `Consumed` are reachable from any non-terminal state.
 const fn transition_allowed(kind: AuthFlowKind, from: AuthFlowState, to: AuthFlowState) -> bool {
     if matches!(to, AuthFlowState::Failed) {
         return true;

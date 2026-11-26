@@ -22,6 +22,7 @@ pub async fn purge_file(state: &PrimaryAppState, id: i64, user_id: i64) -> Resul
     Ok(())
 }
 
+/// 永久删除团队回收站中的单个文件。
 pub async fn purge_team_file(
     state: &PrimaryAppState,
     team_id: i64,
@@ -49,6 +50,7 @@ pub async fn purge_folder(state: &PrimaryAppState, id: i64, user_id: i64) -> Res
     Ok(())
 }
 
+/// 永久删除团队回收站中的单个文件夹（递归）。
 pub async fn purge_team_folder(
     state: &PrimaryAppState,
     team_id: i64,
@@ -238,6 +240,7 @@ pub async fn purge_all(state: &PrimaryAppState, user_id: i64) -> Result<u32> {
     purge_all_in_scope(state, WorkspaceStorageScope::Personal { user_id }).await
 }
 
+/// 清空团队回收站（返回实际成功删除数量），语义同 [`purge_all`]。
 pub async fn purge_all_team(state: &PrimaryAppState, team_id: i64, user_id: i64) -> Result<u32> {
     purge_all_in_scope(
         state,

@@ -11,6 +11,8 @@ use actix_web::{HttpRequest, HttpResponse, web};
 use aster_forge_middleware::actix::csrf::{self, RequestSourceMode};
 use mfa::{MfaChallengeVerifyRequest, MfaEmailCodeSendRequest};
 
+/// Verifies an MFA challenge code during login and, on success, sets the session
+/// tokens in HttpOnly cookies.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/mfa/challenge/verify",
@@ -53,6 +55,8 @@ pub async fn verify_challenge(
     )
 }
 
+/// Sends (or resends, subject to a cooldown) the MFA email verification code for an
+/// active login challenge.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/mfa/challenge/email-code/send",
@@ -90,6 +94,7 @@ pub async fn send_email_code(
     )))
 }
 
+/// Returns the current user's MFA enrollment status and enrolled factors.
 #[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/auth/mfa",
@@ -110,6 +115,7 @@ pub async fn status(
     )))
 }
 
+/// Starts TOTP enrollment and returns the secret and provisioning URI to scan.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/mfa/totp/setup/start",
@@ -130,6 +136,8 @@ pub async fn start_totp_setup(
     )))
 }
 
+/// Completes TOTP enrollment by verifying a first code; on success enables TOTP MFA
+/// and returns the one-time recovery codes.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/mfa/totp/setup/finish",
@@ -154,6 +162,7 @@ pub async fn finish_totp_setup(
     )))
 }
 
+/// Removes one of the current user's MFA factors after sensitive-action verification.
 #[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/auth/mfa/factors/{id}",
@@ -193,6 +202,8 @@ pub async fn delete_factor(
     Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
+/// Regenerates the current user's MFA recovery codes after sensitive-action
+/// verification; previous codes are invalidated.
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/mfa/recovery-codes/regenerate",

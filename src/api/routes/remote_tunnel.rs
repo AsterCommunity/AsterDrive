@@ -35,13 +35,18 @@ async fn read_limited_body(
     Ok(body.freeze())
 }
 
+/// Request body for a follower tunnel poll; the access key must match the signed
+/// credentials.
 #[derive(Debug, serde::Deserialize, Validate)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct RemoteTunnelPollReq {
+    /// Follower node access key echoed inside the signed body.
     #[validate(custom(function = "crate::api::dto::validation::validate_non_blank"))]
     pub access_key: String,
 }
 
+/// Builds the master-side `/internal/remote-tunnel` reverse tunnel scope with
+/// bounded JSON payload limits.
 pub fn routes() -> impl actix_web::dev::HttpServiceFactory + use<> {
     web::scope("/internal/remote-tunnel")
         .app_data(web::PayloadConfig::new(REMOTE_TUNNEL_JSON_LIMIT))
@@ -55,6 +60,8 @@ pub fn routes() -> impl actix_web::dev::HttpServiceFactory + use<> {
         )
 }
 
+/// Master-side proxy entry: forwards a client storage request to a follower through
+/// the reverse tunnel and relays the response back.
 pub async fn proxy_remote_tunnel(
     state: web::Data<PrimaryAppState>,
     req: HttpRequest,
@@ -72,6 +79,7 @@ pub async fn proxy_remote_tunnel(
     .await
 }
 
+/// Follower long-poll entry: returns the next queued tunnel command for this node.
 pub async fn poll_remote_tunnel(
     state: web::Data<PrimaryAppState>,
     req: HttpRequest,
@@ -106,6 +114,8 @@ pub async fn poll_remote_tunnel(
     Ok(tunnel::envelope_response(response))
 }
 
+/// Follower completion entry: delivers the result envelope of an executed tunnel
+/// command back to the master.
 pub async fn complete_remote_tunnel(
     state: web::Data<PrimaryAppState>,
     req: HttpRequest,
@@ -139,6 +149,8 @@ pub async fn complete_remote_tunnel(
     Ok(tunnel::empty_envelope_response())
 }
 
+/// Follower WebSocket entry: upgrades the connection to a streaming reverse tunnel
+/// session driven until server shutdown or disconnect.
 pub async fn connect_remote_tunnel(
     state: web::Data<PrimaryAppState>,
     shutdown_token: web::Data<CancellationToken>,

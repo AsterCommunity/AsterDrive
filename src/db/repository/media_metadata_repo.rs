@@ -11,6 +11,8 @@ use aster_drive_model::types::{
     MediaMetadataKind, MediaMetadataStatus, StoredMediaMetadataPayload,
 };
 
+/// Loads the media metadata record for a blob. Returns `None` when the blob
+/// has no metadata row yet.
 pub async fn find_by_blob_id(
     db: &DatabaseConnection,
     blob_id: i64,
@@ -22,18 +24,31 @@ pub async fn find_by_blob_id(
         .map_err(AsterError::from)
 }
 
+/// Full payload for one blob media metadata row, used by the upsert.
 pub struct MediaMetadataRecordInput<'a> {
+    /// Blob the record is keyed on; one record per blob.
     pub blob_id: i64,
+    /// Content hash of the blob, refreshed on every upsert.
     pub blob_hash: &'a str,
+    /// Metadata category produced by the parse attempt.
     pub kind: MediaMetadataKind,
+    /// Parse outcome (success, unsupported, failure and so on).
     pub status: MediaMetadataStatus,
+    /// Parsed payload; `None` for records without extractable metadata.
     pub metadata_json: Option<&'a StoredMediaMetadataPayload>,
+    /// Human-readable failure detail; `None` on success.
     pub error_message: Option<&'a str>,
+    /// Name of the parser implementation that produced the record.
     pub parser: &'a str,
+    /// Version of the parser implementation, for cache invalidation.
     pub parser_version: &'a str,
+    /// Timestamp written to both `created_at` (on insert) and `updated_at`.
     pub now: DateTime<Utc>,
 }
 
+/// Inserts the blob's metadata record, or replaces all of its fields (except
+/// `created_at`) when a record already exists for the blob. Returns the reloaded
+/// row; errors if it cannot be reloaded afterwards.
 pub async fn upsert_record(
     db: &DatabaseConnection,
     input: MediaMetadataRecordInput<'_>,

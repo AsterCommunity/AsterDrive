@@ -15,54 +15,104 @@ pub use crate::config::definitions::{
     AUTH_USER_INVITATION_TTL_SECS_KEY,
 };
 
+/// Default for `auth_cookie_secure` in the system_config registry: plain HTTP
+/// first boot is allowed.
 pub const DEFAULT_AUTH_COOKIE_SECURE: bool = false;
+/// Fail-safe read default when the `auth_cookie_secure` runtime value is
+/// missing or invalid: cookies stay `Secure`.
 const FAILSAFE_AUTH_COOKIE_SECURE: bool = true;
+/// Default for `auth_allow_user_registration`: public registration is open.
 pub const DEFAULT_AUTH_ALLOW_USER_REGISTRATION: bool = true;
+/// Default for `auth_register_activation_enabled`: email activation is required.
 pub const DEFAULT_AUTH_REGISTER_ACTIVATION_ENABLED: bool = true;
+/// Default access token TTL in seconds (15 minutes).
 pub const DEFAULT_AUTH_ACCESS_TOKEN_TTL_SECS: u64 = 900;
+/// Default refresh token TTL in seconds (7 days).
 pub const DEFAULT_AUTH_REFRESH_TOKEN_TTL_SECS: u64 = 604800;
+/// Default register-activation link TTL in seconds (24 hours).
 pub const DEFAULT_AUTH_REGISTER_ACTIVATION_TTL_SECS: u64 = 86_400;
+/// Default contact (email) change confirmation link TTL in seconds (24 hours).
 pub const DEFAULT_AUTH_CONTACT_CHANGE_TTL_SECS: u64 = 86_400;
+/// Default password reset link TTL in seconds (1 hour).
 pub const DEFAULT_AUTH_PASSWORD_RESET_TTL_SECS: u64 = 3_600;
+/// Default user invitation link TTL in seconds (72 hours).
 pub const DEFAULT_AUTH_USER_INVITATION_TTL_SECS: u64 = 72 * 60 * 60;
+/// Default resend cooldown for contact-verification codes, in seconds.
 pub const DEFAULT_AUTH_CONTACT_VERIFICATION_RESEND_COOLDOWN_SECS: u64 = 60;
+/// Default cooldown between password reset request attempts, in seconds.
 pub const DEFAULT_AUTH_PASSWORD_RESET_REQUEST_COOLDOWN_SECS: u64 = 60;
+/// Default for `auth_email_code_login_enabled`: email-code login is off.
 pub const DEFAULT_AUTH_EMAIL_CODE_LOGIN_ENABLED: bool = false;
+/// Default for `auth_passkey_login_enabled`: passkey login is on.
 pub const DEFAULT_AUTH_PASSKEY_LOGIN_ENABLED: bool = true;
+/// Default for `auth_password_login_enabled`: password login is on.
 pub const DEFAULT_AUTH_PASSWORD_LOGIN_ENABLED: bool = true;
+/// Default for allowing TOTP as a fallback during email-code login: disabled.
 pub const DEFAULT_AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK: bool = false;
+/// Default email login code TTL in seconds (10 minutes).
 pub const DEFAULT_AUTH_EMAIL_CODE_LOGIN_TTL_SECS: u64 = 600;
+/// Default resend cooldown for email login codes, in seconds.
 pub const DEFAULT_AUTH_EMAIL_CODE_LOGIN_RESEND_COOLDOWN_SECS: u64 = 60;
 
+/// Snapshot of the runtime auth policy read once per request scope.
+///
+/// Invalid or missing runtime values fall back to the safe defaults declared
+/// in this module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeAuthPolicy {
+    /// Whether auth cookies are marked `Secure` (HTTPS-only).
     pub cookie_secure: bool,
+    /// Whether self-service user registration is allowed at all.
     pub allow_user_registration: bool,
+    /// Whether passkey (WebAuthn) login is enabled.
     pub passkey_login_enabled: bool,
+    /// Whether password login is enabled.
     pub password_login_enabled: bool,
+    /// Whether new accounts must confirm their email before activation.
     pub register_activation_enabled: bool,
+    /// Access token TTL in seconds; strictly positive.
     pub access_token_ttl_secs: u64,
+    /// Refresh token TTL in seconds; strictly positive.
     pub refresh_token_ttl_secs: u64,
 }
 
+/// TTLs and cooldowns for email verification flows, in seconds.
+///
+/// All values are strictly positive; invalid runtime values fall back to the
+/// defaults declared in this module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeContactVerificationPolicy {
+    /// Validity window of register-activation links.
     pub register_activation_ttl_secs: u64,
+    /// Validity window of email-change confirmation links.
     pub contact_change_ttl_secs: u64,
+    /// Minimum wait before resending a contact-verification code.
     pub resend_cooldown_secs: u64,
+    /// Validity window of password reset links.
     pub password_reset_ttl_secs: u64,
+    /// Minimum wait between password reset request attempts.
     pub password_reset_request_cooldown_secs: u64,
 }
 
+/// Runtime policy for email-code login.
+///
+/// Invalid or missing runtime values fall back to the defaults declared in
+/// this module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeEmailCodeLoginPolicy {
+    /// Whether email-code login is enabled at all.
     pub enabled: bool,
+    /// Whether a user with TOTP configured may fall back to it instead.
     pub allow_totp_fallback: bool,
+    /// Login code validity window in seconds; strictly positive.
     pub ttl_secs: u64,
+    /// Minimum wait before resending a login code, in seconds.
     pub resend_cooldown_secs: u64,
 }
 
 impl RuntimeAuthPolicy {
+    /// Reads the auth policy from the runtime config, falling back to the
+    /// defaults declared in this module for missing or invalid values.
     pub fn from_runtime_config(runtime_config: &RuntimeConfig) -> Self {
         let cookie_secure = read_bool(
             runtime_config,
@@ -131,12 +181,16 @@ impl RuntimeAuthPolicy {
         }
     }
 
+    /// Whether anonymous visitors can self-register: registration must be
+    /// allowed and password login must be available to complete it.
     pub fn public_registration_enabled(self) -> bool {
         self.allow_user_registration && self.password_login_enabled
     }
 }
 
 impl RuntimeContactVerificationPolicy {
+    /// Reads the verification TTLs from the runtime config, falling back to
+    /// the defaults declared in this module for missing or invalid values.
     pub fn from_runtime_config(runtime_config: &RuntimeConfig) -> Self {
         let register_activation_ttl_secs = read_positive_u64(
             runtime_config,
@@ -175,6 +229,8 @@ impl RuntimeContactVerificationPolicy {
 }
 
 impl RuntimeEmailCodeLoginPolicy {
+    /// Reads the email-code login policy from the runtime config, falling back
+    /// to the defaults declared in this module for missing or invalid values.
     pub fn from_runtime_config(runtime_config: &RuntimeConfig) -> Self {
         let enabled = read_bool(
             runtime_config,
@@ -206,6 +262,7 @@ impl RuntimeEmailCodeLoginPolicy {
     }
 }
 
+/// Normalizes the `auth_cookie_secure` value to a canonical `"true"`/`"false"`.
 pub fn normalize_cookie_secure_config_value(value: &str) -> Result<String> {
     match parse_bool_str(value) {
         Some(value) => Ok(if value { "true" } else { "false" }.to_string()),
@@ -215,6 +272,7 @@ pub fn normalize_cookie_secure_config_value(value: &str) -> Result<String> {
     }
 }
 
+/// Normalizes the `auth_allow_user_registration` value to `"true"`/`"false"`.
 pub fn normalize_allow_user_registration_config_value(value: &str) -> Result<String> {
     match parse_bool_str(value) {
         Some(value) => Ok(if value { "true" } else { "false" }.to_string()),
@@ -224,6 +282,7 @@ pub fn normalize_allow_user_registration_config_value(value: &str) -> Result<Str
     }
 }
 
+/// Normalizes the `auth_register_activation_enabled` value to `"true"`/`"false"`.
 pub fn normalize_register_activation_enabled_config_value(value: &str) -> Result<String> {
     match parse_bool_str(value) {
         Some(value) => Ok(if value { "true" } else { "false" }.to_string()),
@@ -233,6 +292,8 @@ pub fn normalize_register_activation_enabled_config_value(value: &str) -> Result
     }
 }
 
+/// Normalizes a boolean email-code login value (identified by `key`) to
+/// `"true"`/`"false"`.
 pub fn normalize_email_code_login_bool_config_value(key: &str, value: &str) -> Result<String> {
     match parse_bool_str(value) {
         Some(value) => Ok(if value { "true" } else { "false" }.to_string()),
@@ -242,6 +303,8 @@ pub fn normalize_email_code_login_bool_config_value(key: &str, value: &str) -> R
     }
 }
 
+/// Validates a token/config TTL value for `key` as a strictly positive integer
+/// and returns its canonical decimal form.
 pub fn normalize_token_ttl_config_value(key: &str, value: &str) -> Result<String> {
     let Some(ttl) = parse_positive_u64(value) else {
         return Err(AsterError::validation_error(format!(
@@ -251,6 +314,8 @@ pub fn normalize_token_ttl_config_value(key: &str, value: &str) -> Result<String
     Ok(ttl.to_string())
 }
 
+/// User invitation link TTL in seconds, read from the runtime config with the
+/// module default applied for missing or invalid values.
 pub fn user_invitation_ttl_secs(runtime_config: &RuntimeConfig) -> u64 {
     read_positive_u64(
         runtime_config,

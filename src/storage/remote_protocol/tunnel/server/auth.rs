@@ -2,6 +2,9 @@ use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use aster_drive_model::entities::managed_follower;
 
+/// Authenticates a reverse tunnel endpoint request: verifies the internal
+/// request signature, rejects disabled followers, and requires the node's
+/// transport mode to resolve to the reverse tunnel.
 pub async fn authorize_tunnel_request<S: SharedRuntimeState>(
     state: &S,
     method: &actix_web::http::Method,

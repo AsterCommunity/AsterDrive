@@ -29,6 +29,8 @@ impl From<SystemHealthReport> for task::RuntimeTaskRunOutcome {
     }
 }
 
+/// Readiness probe for a primary process: deployment topology, system setup
+/// state, and the system default storage policy's driver must all be usable.
 pub async fn check_primary_ready<S: SharedRuntimeState>(
     state: &S,
 ) -> Result<crate::services::system_setup::SystemSetupState> {
@@ -91,6 +93,8 @@ pub async fn check_follower_ready<S: FollowerRuntimeState>(state: &S) -> Result<
     Ok("ready")
 }
 
+/// Runs the primary diagnostics health checks (database, cache, remote nodes)
+/// and records the resulting report in metrics.
 pub async fn run_primary_system_health_checks<S>(state: &S) -> SystemHealthReport
 where
     S: RemoteProtocolRuntimeState + Clone + Send + Sync + 'static,
@@ -121,6 +125,8 @@ where
     report
 }
 
+/// Builds the primary instance's health component bundle: the Forge database
+/// and cache probes plus the product-level remote node diagnostics component.
 pub fn primary_health_component<S>(
     state: S,
 ) -> RuntimeComponentBundleRegistration<impl RuntimeComponentBundle + use<S>>

@@ -64,14 +64,19 @@ pub(crate) fn team_keyword_condition(backend: DbBackend, query: &str) -> Conditi
     }
 }
 
+/// Inserts a new team row.
 pub async fn create<C: ConnectionTrait>(db: &C, model: team::ActiveModel) -> Result<team::Model> {
     model.insert(db).await.map_err(AsterError::from)
 }
 
+/// Updates an existing team row.
 pub async fn update<C: ConnectionTrait>(db: &C, model: team::ActiveModel) -> Result<team::Model> {
     model.update(db).await.map_err(AsterError::from)
 }
 
+/// Finds a team by id, including archived teams.
+///
+/// Errors with `RecordNotFound` when the team does not exist.
 pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<team::Model> {
     Team::find_by_id(id)
         .one(db)
@@ -94,6 +99,9 @@ pub async fn lock_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<team::Mod
     }
 }
 
+/// Finds a non-archived team by id.
+///
+/// Errors with `RecordNotFound` when the team does not exist or is archived.
 pub async fn find_active_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<team::Model> {
     Team::find()
         .filter(team::Column::Id.eq(id))
@@ -104,6 +112,9 @@ pub async fn find_active_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<te
         .ok_or_else(|| AsterError::record_not_found(format!("team #{id}")))
 }
 
+/// Finds an archived team by id.
+///
+/// Errors with `RecordNotFound` when the team does not exist or is not archived.
 pub async fn find_archived_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<team::Model> {
     Team::find()
         .filter(team::Column::Id.eq(id))
@@ -114,6 +125,10 @@ pub async fn find_archived_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<
         .ok_or_else(|| AsterError::record_not_found(format!("team #{id}")))
 }
 
+/// Finds a non-archived team by id with an exclusive row lock on PostgreSQL and MySQL.
+///
+/// Other backends fall back to an unlocked read. Errors with `RecordNotFound` when the
+/// team does not exist or is archived.
 pub async fn lock_active_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<team::Model> {
     match db.get_database_backend() {
         DbBackend::Postgres | DbBackend::MySql => Team::find()
@@ -129,6 +144,10 @@ pub async fn lock_active_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<te
     }
 }
 
+/// Finds an archived team by id with an exclusive row lock on PostgreSQL and MySQL.
+///
+/// Other backends fall back to an unlocked read. Errors with `RecordNotFound` when the
+/// team does not exist or is not archived.
 pub async fn lock_archived_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<team::Model> {
     match db.get_database_backend() {
         DbBackend::Postgres | DbBackend::MySql => Team::find()
@@ -144,6 +163,7 @@ pub async fn lock_archived_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<
     }
 }
 
+/// Lists every team, ordered by id ascending.
 pub async fn find_all<C: ConnectionTrait>(db: &C) -> Result<Vec<team::Model>> {
     Team::find()
         .order_by_asc(team::Column::Id)
@@ -152,6 +172,9 @@ pub async fn find_all<C: ConnectionTrait>(db: &C) -> Result<Vec<team::Model>> {
         .map_err(AsterError::from)
 }
 
+/// Returns one admin page of non-archived teams and the total count.
+///
+/// The keyword is matched against team name and description.
 pub async fn find_active_paginated(
     db: &DatabaseConnection,
     limit: u64,
@@ -163,6 +186,9 @@ pub async fn find_active_paginated(
     find_paginated_by_archived_state(db, limit, offset, keyword, false, sort_by, sort_order).await
 }
 
+/// Returns one admin page of archived teams and the total count.
+///
+/// The keyword is matched against team name and description.
 pub async fn find_archived_paginated(
     db: &DatabaseConnection,
     limit: u64,
@@ -237,6 +263,7 @@ fn apply_admin_team_sort(
     }
 }
 
+/// Lists teams archived before the given time, oldest archive first.
 pub async fn find_archived_before<C: ConnectionTrait>(
     db: &C,
     before: chrono::DateTime<chrono::Utc>,
@@ -251,6 +278,9 @@ pub async fn find_archived_before<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Deletes a team row by id.
+///
+/// Errors with `RecordNotFound` when no row with the id exists.
 pub async fn delete<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     let result = Team::delete_by_id(id)
         .exec(db)
@@ -262,6 +292,7 @@ pub async fn delete<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     Ok(())
 }
 
+/// Counts the teams assigned to a policy group.
 pub async fn count_by_policy_group<C: ConnectionTrait>(
     db: &C,
     policy_group_id: i64,
@@ -273,14 +304,16 @@ pub async fn count_by_policy_group<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Moves every team from one policy group to another, returning the updated row count.
+///
+/// Archived teams are migrated as well: restoring one later must not resurrect an
+/// obsolete or deleted policy group binding.
 pub async fn migrate_policy_group_assignments<C: ConnectionTrait>(
     db: &C,
     source_group_id: i64,
     target_group_id: i64,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<u64> {
-    // Include archived teams as well: they can later be restored, and restoring
-    // a team should not resurrect an obsolete or deleted policy group binding.
     let result = Team::update_many()
         .col_expr(
             team::Column::PolicyGroupId,
@@ -294,6 +327,10 @@ pub async fn migrate_policy_group_assignments<C: ConnectionTrait>(
     Ok(result.rows_affected)
 }
 
+/// Fast-fail quota precheck for a non-archived team; quota `0` means unlimited.
+///
+/// Not atomic under concurrency: the authoritative compare-and-swap happens in
+/// `update_storage_used`.
 pub async fn check_quota<C: ConnectionTrait>(db: &C, team_id: i64, needed_size: i64) -> Result<()> {
     let team = find_active_by_id(db, team_id).await?;
     let projected_storage_used = team.storage_used.checked_add(needed_size).ok_or_else(|| {
@@ -311,6 +348,11 @@ pub async fn check_quota<C: ConnectionTrait>(db: &C, team_id: i64, needed_size: 
     Ok(())
 }
 
+/// Atomically applies a delta to a team's recorded storage usage in bytes.
+///
+/// Positive deltas are guarded by a SQL compare-and-swap against the quota (`0` means
+/// unlimited); negative deltas saturate at zero. When no row is updated, the error is
+/// quota-exceeded or `RecordNotFound` depending on the current state.
 pub async fn update_storage_used<C: ConnectionTrait>(db: &C, id: i64, delta: i64) -> Result<()> {
     let expr = if delta >= 0 {
         Expr::col(team::Column::StorageUsed).add(delta)
@@ -359,6 +401,9 @@ pub async fn update_storage_used<C: ConnectionTrait>(db: &C, id: i64, delta: i64
     Ok(())
 }
 
+/// Overwrites a team's recorded storage usage in bytes.
+///
+/// Errors with `RecordNotFound` when the team does not exist.
 pub async fn set_storage_used<C: ConnectionTrait>(db: &C, id: i64, value: i64) -> Result<()> {
     let result = Team::update_many()
         .col_expr(team::Column::StorageUsed, Expr::value(value))

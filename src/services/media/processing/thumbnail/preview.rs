@@ -14,6 +14,11 @@ use aster_drive_model::types::MediaProcessorKind;
 use super::cache::load_thumbnail_from_path;
 use super::render::render_image_preview_bytes;
 
+/// Loads the cached image preview for a blob if it exists.
+///
+/// Probes cache paths for all configured preview processors, then falls back
+/// to the path computed from the single resolved processor; returns `None` on
+/// cache miss.
 pub async fn load_image_preview_if_exists(
     state: &PrimaryAppState,
     blob: &file_blob::Model,
@@ -72,6 +77,11 @@ pub async fn load_image_preview_if_exists(
     }))
 }
 
+/// Renders the image preview on cache miss and stores it in object storage.
+///
+/// Reuses an existing cache entry when present. Unlike thumbnails, preview
+/// metadata is not persisted on the blob, so lookups always go through the
+/// computed cache path.
 pub async fn generate_and_store_image_preview(
     state: &PrimaryAppState,
     blob: &file_blob::Model,

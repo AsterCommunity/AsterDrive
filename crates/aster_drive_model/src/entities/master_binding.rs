@@ -7,24 +7,44 @@ use std::fmt;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
+/// Binding row created on a follower node when it enrolls against a master
+/// primary: holds the master's control-plane credentials, the local storage
+/// namespace all provider object keys must live under, and the binding-control
+/// revision counters between the two sides.
 #[derive(Clone, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[sea_orm(table_name = "master_bindings")]
 pub struct Model {
+    /// Primary key.
     #[sea_orm(primary_key)]
     pub id: i64,
+    /// Administrative display name of the master connection.
     pub name: String,
+    /// Control-plane base URL of the master this follower enrolls against.
     pub master_url: String,
+    /// Credential used to authenticate control-plane requests to the master.
     pub access_key: String,
+    /// Secret paired with `access_key`; never serialize or log this value.
     #[serde(skip_serializing)]
     pub secret_key: String,
+    /// Provider object-key prefix allocated for this binding (`mb_<token>`);
+    /// all content served for the master is stored under it. Unique.
     pub storage_namespace: String,
+    /// Whether control-plane requests and storage operations from this master
+    /// are accepted.
     pub is_enabled: bool,
+    /// Transport actually used to reach the master after configuration
+    /// resolution.
     pub resolved_transport: ResolvedRemoteTransport,
+    /// Latest binding-control revision published by the master; bumped on
+    /// every master-side configuration change.
     pub desired_revision: i64,
+    /// Latest binding-control revision this follower has applied locally.
     pub applied_revision: i64,
+    /// Row creation timestamp (UTC).
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: DateTimeUtc,
+    /// Row last-update timestamp (UTC).
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: DateTimeUtc,
 }
@@ -48,8 +68,10 @@ impl fmt::Debug for Model {
     }
 }
 
+/// SeaORM relation definitions for this entity.
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
+    /// Remote storage targets configured under this binding.
     #[sea_orm(has_many = "super::remote_storage_target::Entity")]
     RemoteStorageTargets,
 }
