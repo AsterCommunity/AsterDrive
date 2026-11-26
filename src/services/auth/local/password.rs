@@ -42,7 +42,7 @@ pub(crate) fn ensure_password_login_enabled(state: &impl SharedRuntimeState) -> 
 /// identifiers, which burn a dummy Argon2 verification so timing cannot enumerate accounts.
 /// Disabled and unactivated accounts are also folded into that error while keeping the precise
 /// reason for the login metric. On success the flow hands off to MFA: either session issuance
-/// (no second factor configured) or a pending [`MfaChallengeStart`] challenge.
+/// (no second factor configured) or a pending `MfaChallengeStart` challenge.
 ///
 /// # Errors
 /// Returns invalid credentials, disabled policy, or rate-limit/session errors; never reveals
@@ -155,7 +155,7 @@ fn record_login_metric(
 /// Authenticated self-service password change.
 ///
 /// Requires the current password, rejects reuse of the old value, and commits through
-/// [`commit_verified_password_change`], which re-checks account status, password hash,
+/// `commit_verified_password_change`, which re-checks account status, password hash,
 /// session version, and session liveness under locks so a concurrent credential change or
 /// revocation aborts the swap.
 ///

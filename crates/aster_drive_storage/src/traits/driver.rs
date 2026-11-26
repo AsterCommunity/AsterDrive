@@ -35,7 +35,7 @@ pub struct BlobMetadata {
 ///
 /// Providers honor these overrides only where their URL format supports them;
 /// a driver that cannot authenticate the requested overrides reports that
-/// through [`DirectDownloadStorageDriver::resolve_download_url`] returning
+/// through `DirectDownloadStorageDriver::resolve_download_url` returning
 /// `None` so callers can fall back to relay.
 #[derive(Debug, Clone, Default)]
 pub struct DirectDownloadOptions {
@@ -324,7 +324,7 @@ pub trait StorageDriver: Send + Sync {
     ///
     /// Drivers own these defaults (local vs network cost profiles); connector
     /// configuration may only override the probe timeout. The value is
-    /// validated by [`StorageCapacityProbePolicy::validate`] before use.
+    /// validated by `StorageCapacityProbePolicy::validate` before use.
     fn capacity_probe_policy(&self) -> super::extensions::StorageCapacityProbePolicy {
         super::extensions::StorageCapacityProbePolicy::default()
     }

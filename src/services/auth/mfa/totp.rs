@@ -41,7 +41,7 @@ pub fn decode_secret(secret: &str) -> Result<Vec<u8>> {
 }
 
 /// 构造标准 `otpauth://totp/` enrollment URI，参数固定为本实现的常量
-/// （SHA1、[`TOTP_DIGITS`] 位、[`TOTP_STEP_SECS`] 秒周期）。
+/// （SHA1、`TOTP_DIGITS` 位、`TOTP_STEP_SECS` 秒周期）。
 pub fn otpauth_uri(secret_base32: &str, issuer: &str, account: &str) -> String {
     format!(
         "otpauth://totp/{}:{}?secret={}&issuer={}&algorithm=SHA1&digits={}&period={}",

@@ -60,7 +60,7 @@ pub struct BrowserUploadStep {
     pub instruction: Option<BrowserUploadInstruction>,
 }
 
-/// Result the browser reports back for one issued [`BrowserUploadInstruction`].
+/// Result the browser reports back for one issued `BrowserUploadInstruction`.
 #[derive(Clone, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct BrowserUploadReport {

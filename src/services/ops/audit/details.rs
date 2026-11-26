@@ -29,7 +29,7 @@ pub struct ConfigUpdateDetails<'a> {
 /// Audit details for a config action execution (e.g. a test email or a CLI probe).
 #[derive(Serialize)]
 pub struct ConfigActionDetails<'a> {
-    /// Executed action name, serialized from [`ConfigActionType`](crate::services::ops::config::actions::ConfigActionType).
+    /// Executed action name, serialized from `ConfigActionType`.
     pub action: &'a str,
     /// Email address targeted by the action, when the action sends mail.
     #[serde(skip_serializing_if = "Option::is_none")]

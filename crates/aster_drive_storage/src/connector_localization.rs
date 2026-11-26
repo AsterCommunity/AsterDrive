@@ -92,7 +92,7 @@ macro_rules! storage_connector_message {
 
 /// Validated localization resource owned by one connector.
 ///
-/// Construction always runs [`Self::validate`], so an instance guarantees:
+/// Construction always runs `Self::validate`, so an instance guarantees:
 /// non-empty revision, 1..=`MAX_LOCALES` locales, every locale carrying the
 /// same message id set as the default locale, matching interpolation
 /// placeholders across locales, and per-message id/text limits.

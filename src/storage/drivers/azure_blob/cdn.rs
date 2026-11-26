@@ -1,8 +1,8 @@
 //! Azure Front Door uses Blob service SAS, including the response overrides.
 //! The edge must forward and cache by the entire query string. Cache retention
 //! is independent of SAS expiry; cache hits do not reauthenticate at Blob.
-//! https://learn.microsoft.com/azure/frontdoor/scenario-storage-blobs
-//! https://learn.microsoft.com/azure/frontdoor/front-door-caching
+//! <https://learn.microsoft.com/azure/frontdoor/scenario-storage-blobs>
+//! <https://learn.microsoft.com/azure/frontdoor/front-door-caching>
 
 use aster_drive_storage::{Result, StorageErrorKind, storage_driver_error};
 use serde::{Deserialize, Serialize};

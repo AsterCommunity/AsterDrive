@@ -48,14 +48,14 @@ pub struct AdminOverviewQuery {
 }
 
 impl AdminOverviewQuery {
-    /// Resolved window length in days, defaulting to [`DEFAULT_DAYS`].
+    /// Resolved window length in days, defaulting to `DEFAULT_DAYS`.
     pub fn days_or_default(&self) -> u32 {
         self.days
             .map(|days| days.clamp(1, MAX_DAYS))
             .unwrap_or(DEFAULT_DAYS)
     }
 
-    /// Resolved recent-event limit, defaulting to [`DEFAULT_EVENT_LIMIT`].
+    /// Resolved recent-event limit, defaulting to `DEFAULT_EVENT_LIMIT`.
     pub fn event_limit_or_default(&self) -> u64 {
         self.event_limit
             .map(|limit| limit.clamp(1, MAX_EVENT_LIMIT))

@@ -1,6 +1,6 @@
 //! Alibaba Cloud CDN Type A delivery, separate from OSS V4 origin signing.
 //!
-//! https://help.aliyun.com/zh/cdn/user-guide/type-a-signing
+//! <https://help.aliyun.com/zh/cdn/user-guide/type-a-signing>
 //! Type A authenticates the encoded path, timestamp, nonce and uid, not
 //! arbitrary query parameters or response-header overrides.
 

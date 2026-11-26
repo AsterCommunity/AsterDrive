@@ -6,7 +6,7 @@ use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
-/// The host creates this only after approving a plugin's network:<origin> capability.
+/// The host creates this only after approving a plugin's network:`<origin>` capability.
 /// Construction validates the scope; it does not substitute for manifest authorization/audit.
 #[derive(Clone, Debug)]
 pub struct NetworkGrant {

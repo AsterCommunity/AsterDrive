@@ -3,8 +3,8 @@
 //! Service SAS signs a scoped resource and expiry into a query token. Shared Key
 //! authenticates an HTTP request, including its method, headers and service query.
 //! These are distinct Azure formats; both use the SDK's HMAC implementation.
-//! https://learn.microsoft.com/rest/api/storageservices/create-service-sas
-//! https://learn.microsoft.com/rest/api/storageservices/authorize-with-shared-key
+//! <https://learn.microsoft.com/rest/api/storageservices/create-service-sas>
+//! <https://learn.microsoft.com/rest/api/storageservices/authorize-with-shared-key>
 
 use std::time::Duration;
 

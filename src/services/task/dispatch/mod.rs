@@ -34,7 +34,7 @@ pub use maintenance::{cleanup_expired, drain};
 /// Claims and executes all currently due background tasks across every lane.
 ///
 /// Runs a single dispatch pass with a fresh cancellation token, so it never
-/// stops early on shutdown; use [`dispatch_due_with_shutdown`] when the pass
+/// stops early on shutdown; use `dispatch_due_with_shutdown` when the pass
 /// must honor a shutdown signal.
 pub async fn dispatch_due(state: &PrimaryAppState) -> Result<DispatchStats> {
     dispatch_due_with_shutdown(state, CancellationToken::new()).await

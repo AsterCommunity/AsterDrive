@@ -11,7 +11,7 @@ use super::{TASK_DRAIN_MAX_ROUNDS, dispatch_due};
 use aster_forge_tasks::DispatchStats;
 
 /// Drains the background task dispatcher until no due tasks remain and no
-/// claimed task is still processing, or until [`TASK_DRAIN_MAX_ROUNDS`] is
+/// claimed task is still processing, or until `TASK_DRAIN_MAX_ROUNDS` is
 /// reached.
 ///
 /// Used on shutdown paths to give in-flight work a bounded window to finish.

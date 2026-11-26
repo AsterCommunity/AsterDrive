@@ -144,7 +144,7 @@ macro_rules! storage_connector_schema {
 /// Declare a typed connector action input and its descriptor fields together.
 ///
 /// Action values are ephemeral and every declared field must use
-/// [`StorageConnectorFieldScope::ActionInput`]. Keeping the serde struct and
+/// [`crate::StorageConnectorFieldScope::ActionInput`]. Keeping the serde struct and
 /// descriptor declarations in one macro prevents plugin UI metadata from
 /// drifting away from the connector's actual decoder.
 #[macro_export]

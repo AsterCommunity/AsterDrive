@@ -484,7 +484,7 @@ pub async fn rename_file(
 }
 
 /// WOPI PutUserInfo: stores the app-provided ASCII user info string (bounded
-/// by [`MAX_WOPI_USER_INFO_LEN`]) on the acting user's profile.
+/// by `MAX_WOPI_USER_INFO_LEN`) on the acting user's profile.
 pub async fn put_user_info(
     state: &PrimaryAppState,
     file_id: i64,

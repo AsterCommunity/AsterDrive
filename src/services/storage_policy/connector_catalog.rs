@@ -106,7 +106,7 @@ pub fn connector_compatible_with_deployment(
 
 /// Loads the system setup state and guards connector selection during setup.
 ///
-/// Returns the current [`SystemSetupState`] so callers can tell that the
+/// Returns the current [`crate::services::system_setup::SystemSetupState`] so callers can tell that the
 /// policy being created would become the initial default. Fails with a
 /// validation error when setup still waits for storage and the connector
 /// cannot complete initial setup on its own.

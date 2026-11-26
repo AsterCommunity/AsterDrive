@@ -1,7 +1,7 @@
 //! Account-wide Blob service CORS. Azure selects the first origin/method match;
 //! omitted service properties remain unchanged by Set Blob Service Properties.
-//! https://learn.microsoft.com/rest/api/storageservices/set-blob-service-properties
-//! https://learn.microsoft.com/rest/api/storageservices/cross-origin-resource-sharing--cors--support-for-the-azure-storage-services
+//! <https://learn.microsoft.com/rest/api/storageservices/set-blob-service-properties>
+//! <https://learn.microsoft.com/rest/api/storageservices/cross-origin-resource-sharing--cors--support-for-the-azure-storage-services>
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;

@@ -1,6 +1,6 @@
 //! Huawei CDN Type A / SHA-256 delivery, separate from native OBS signing.
 //!
-//! https://support.huaweicloud.com/usermanual-cdn/cdn_01_0040.html
+//! <https://support.huaweicloud.com/usermanual-cdn/cdn_01_0040.html>
 //! Sign the encoded wire path, decimal start time, nonce, uid=0 and CDN key.
 //! Expiration is start time + console validity; business queries are not signed.
 

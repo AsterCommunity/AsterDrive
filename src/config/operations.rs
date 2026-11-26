@@ -263,7 +263,7 @@ pub fn task_cluster_concurrency(runtime: &RuntimeConfig, key: &str) -> Option<us
 }
 
 /// Normalizes a per-worker concurrency value, rejecting zero and values above
-/// [`MAX_BACKGROUND_TASK_CONCURRENCY`].
+/// `MAX_BACKGROUND_TASK_CONCURRENCY`.
 pub fn normalize_concurrency_config_value(key: &str, value: &str) -> Result<String> {
     let parsed = parse_positive_u64(value)
         .ok_or_else(|| AsterError::validation_error(format!("{key} must be a positive integer")))?;
@@ -667,7 +667,7 @@ pub fn media_metadata_max_source_bytes(runtime_config: &RuntimeConfig) -> i64 {
 }
 
 /// Whether image responses should lead with the original file or the generated
-/// preview; falls back to [`PublicImagePreviewPreference::OriginalFirst`] when
+/// preview; falls back to [`media_processing::PublicImagePreviewPreference::OriginalFirst`] when
 /// unset or invalid.
 pub fn frontend_image_preview_preference(
     runtime_config: &RuntimeConfig,

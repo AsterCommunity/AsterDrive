@@ -94,7 +94,7 @@ impl FolderIcon {
     /// (kind, value) pair.
     ///
     /// Emoji values must be exactly one RGI emoji of 1 to
-    /// [`MAX_FOLDER_EMOJI_BYTES`] UTF-8 bytes.
+    /// `MAX_FOLDER_EMOJI_BYTES` UTF-8 bytes.
     pub fn normalize(self) -> Result<(FolderIconKind, Option<String>)> {
         match self {
             Self::Default {} => Ok((FolderIconKind::Default, None)),

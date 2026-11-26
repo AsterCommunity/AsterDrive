@@ -1,6 +1,6 @@
 //! Tencent CDN Type D delivery, separate from COS origin Q-Sign.
 //!
-//! https://cloud.tencent.com/document/product/228/41625
+//! <https://cloud.tencent.com/document/product/228/41625>
 //! Only sign/t are emitted: Type D does not authenticate response overrides.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
