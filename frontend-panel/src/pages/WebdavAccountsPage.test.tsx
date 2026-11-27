@@ -477,7 +477,9 @@ describe("WebdavAccountsPage", () => {
 		render(<WebdavAccountsPage />);
 		await screen.findByText("dav-readonly");
 
-		expect(screen.getByText("webdav:access_mode_read_only")).toBeInTheDocument();
+		expect(
+			screen.getByText("webdav:access_mode_read_only"),
+		).toBeInTheDocument();
 		expect(
 			screen.getByText("webdav:access_mode_read_write"),
 		).toBeInTheDocument();
