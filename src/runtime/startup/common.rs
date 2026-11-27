@@ -25,6 +25,10 @@ pub(super) async fn prepare_common(
     role: crate::runtime::role::ServeRole,
 ) -> Result<CommonRuntimeParts> {
     let cfg = config::get_config();
+    // Configs built in memory bypass the loader pipeline, so the runtime entry
+    // re-runs the loader's exact sequence: section validation, then the root
+    // cross-section pass.
+    aster_forge_config::ConfigSections::validate_sections(cfg.as_ref())?;
     aster_forge_config::ValidatableConfig::validate(cfg.as_ref())?;
     crate::services::mail::template::validate_template_registry()?;
     let config_sync = aster_forge_config::build_config_sync_runtime(

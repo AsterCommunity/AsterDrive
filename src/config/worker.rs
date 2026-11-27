@@ -78,6 +78,21 @@ mod tests {
         }
     }
 
+    /// Regression for issue #770: configs assembled in memory bypass the
+    /// loader, so the root config's generated section orchestration must
+    /// reject shutdown budgets that only `WorkerConfig::validate` catches.
+    #[test]
+    fn root_config_section_validation_reaches_worker_budgets() {
+        let mut config = crate::config::Config::default();
+        config.worker.drain_timeout_secs = 86_400;
+        config.worker.cancellation_timeout_secs = 1;
+
+        assert!(
+            aster_forge_config::ConfigSections::validate_sections(&config).is_err(),
+            "worker shutdown budget above 24h must fail root section validation"
+        );
+    }
+
     #[test]
     fn cluster_quota_bounds_and_unlimited_value() {
         use crate::config::operations::{
