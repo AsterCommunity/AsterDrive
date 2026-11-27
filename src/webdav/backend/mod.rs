@@ -678,6 +678,19 @@ impl AsterDavFs {
         options: DavWriteOptions,
         file_precondition: Option<crate::services::workspace::storage::FileWritePrecondition>,
     ) -> Result<AsterDavWriteHandle, DavBackendError> {
+        // Reject read-only WebDAV accounts before any temp file is staged or
+        // request body is consumed. The authoritative recheck still runs
+        // inside the store transaction at finish time; this precheck only
+        // spares the client the upload.
+        crate::services::workspace::scope::authorize_workspace_on(
+            self.state.writer_db(),
+            self.scope,
+            crate::services::workspace::scope::WorkspaceOperation::UpdateContent,
+            &self.access_constraints,
+        )
+        .await
+        .map_err(to_fs_error)
+        .map_err(DavBackendError::from)?;
         let (parent_id, filename) = path_resolver::resolve_parent_cached_in_scope(
             &self.state,
             self.scope,

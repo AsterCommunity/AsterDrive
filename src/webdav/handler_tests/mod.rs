@@ -2406,6 +2406,16 @@ async fn read_only_webdav_account_rejects_write_methods_without_side_effects() {
     )
     .await;
     assert_eq!(response.status(), StatusCode::FORBIDDEN, "PUT must 403");
+    assert_eq!(
+        driver.put_reader_calls.load(Ordering::SeqCst),
+        0,
+        "read-only PUT must be rejected before any storage write opens"
+    );
+    assert_eq!(
+        driver.put_file_calls.load(Ordering::SeqCst),
+        0,
+        "read-only PUT must not fall back to any storage write"
+    );
 
     // MKCOL
     let req = actix_web::test::TestRequest::default()
@@ -2548,11 +2558,11 @@ async fn read_only_webdav_account_rejects_write_methods_without_side_effects() {
         ))
         .to_http_request();
     let request_head = parsed_request_head(&req);
-    let response = handle_unlock(&req, &request_head, lock_system.as_ref()).await;
-    assert_ne!(
+    let response = handle_unlock(&req, &request_head, &dav_fs, lock_system.as_ref()).await;
+    assert_eq!(
         response.status(),
-        StatusCode::OK,
-        "UNLOCK must not succeed for a read-only account"
+        StatusCode::FORBIDDEN,
+        "UNLOCK must answer the read-only ceiling with 403 (RFC 4918 9.11.1)"
     );
 
     // No side effects: nothing new appeared, nothing existing changed.
@@ -2723,10 +2733,12 @@ async fn read_only_webdav_account_cannot_unlock_a_lock_it_holds() {
         ))
         .to_http_request();
     let request_head = parsed_request_head(&req);
-    let response = handle_unlock(&req, &request_head, lock_system.as_ref()).await;
-    assert!(
-        !response.status().is_success(),
-        "UNLOCK must fail for a read-only account even with the real token"
+    let response = handle_unlock(&req, &request_head, &dav_fs, lock_system.as_ref()).await;
+    assert_eq!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "UNLOCK must answer the read-only ceiling with 403 (RFC 4918 9.11.1) \
+         even for the token the account itself holds"
     );
 
     let held = crate::db::repository::lock_repo::find_by_token(state.writer_db(), &token)

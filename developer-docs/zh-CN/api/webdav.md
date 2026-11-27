@@ -96,7 +96,7 @@ http://localhost:3000/webdav
 
 限制也很直接：
 
-- AsterDrive 使用不可变 `file_revision_histories` / `file_revisions` 作为 REST、WebDAV 写入和 WOPI writeback 共用的产品版本事实；每次成功创建/覆盖都追加 revision，restore 也追加新 head，不截断历史。它仍不直接构成 RFC 3253 wire model：当前 capability snapshot 不声明 `version-control`，`REPORT` / `VERSION-CONTROL` 返回资源级 `405 Method Not Allowed`。#448 只在该 ledger 之上实现 DeltaV method、property、URL 和 XML 映射。
+- AsterDrive 使用不可变 `file_revision_histories` / `file_revisions` 作为 REST、WebDAV 写入和 WOPI writeback 共用的产品版本事实；每次成功创建/覆盖都追加 revision，restore 也追加新 head，不截断历史。它仍不直接构成 RFC 3253 wire model：当前 capability snapshot 不声明 `version-control`，`VERSION-CONTROL` 返回资源级 `405 Method Not Allowed`；`REPORT` 不按 `405` 拒绝——受支持的报告（如 version-tree / expand-property）在资源能力允许时执行查询，未知报告返回 `422`，已知但当前不可用的报告返回 `409`。#448 只在该 ledger 之上实现 DeltaV method、property、URL 和 XML 映射。
 - `/webdav/` 挂载根只是一个虚拟入口，不是持久化的文件夹实体。`PROPFIND /webdav/` 可以列目录和读取 live DAV 属性，但 `PROPPATCH /webdav/` 明确返回 `403 Forbidden`；自定义 dead properties 只支持具体文件或文件夹。
 - `PROPFIND` 的 `Depth` 缺省按 `infinity` 解析；如果目标是目录，会返回 `403` 和 `DAV:propfind-finite-depth`，不会做无界递归。
 - `COPY` 接受 `Depth: 0` 或缺省 / `infinity`，明确拒绝 `Depth: 1`；`COPY Depth: 0` 只复制目录自身和 dead properties，不复制子项。
