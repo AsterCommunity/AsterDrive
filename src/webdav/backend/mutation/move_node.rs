@@ -96,6 +96,7 @@ impl AsterDavFs {
                     folder.id,
                     Some(MUTATION_FOLDER_TREE_LIMITS),
                     &lock_credentials.submitted(),
+                    &self.access_constraints,
                 )
                 .await
                 .map_err(super::super::map_product_mutation_error)?,
@@ -142,6 +143,7 @@ impl AsterDavFs {
                     folder.id,
                     Some(MUTATION_FOLDER_TREE_LIMITS),
                     &lock_credentials.submitted(),
+                    &self.access_constraints,
                 )
                 .await
                 .map_err(super::super::map_product_mutation_error)?,

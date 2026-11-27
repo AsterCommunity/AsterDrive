@@ -1,7 +1,9 @@
 //! API 路由：`webdav_accounts`。
 
 use crate::api::dto::validate_request;
-use crate::api::dto::webdav::{CreateWebdavAccountReq, TestConnectionReq, WebdavSettingsInfo};
+use crate::api::dto::webdav::{
+    CreateWebdavAccountReq, SetWebdavAccessModeReq, TestConnectionReq, WebdavSettingsInfo,
+};
 use crate::api::middleware::auth::JwtAuth;
 use crate::api::middleware::rate_limit;
 #[cfg(all(debug_assertions, feature = "openapi"))]
@@ -55,6 +57,11 @@ pub fn routes(
             web::resource("/{id}/toggle")
                 .wrap(Condition::new(rl.enabled, RateLimit::new(&api_limiter)))
                 .route(web::post().to(toggle_account)),
+        )
+        .service(
+            web::resource("/{id}/access-mode")
+                .wrap(Condition::new(rl.enabled, RateLimit::new(&api_limiter)))
+                .route(web::post().to(set_account_access_mode)),
         )
 }
 
@@ -150,6 +157,8 @@ pub async fn create_account(
         &body.username,
         body.password.as_deref(),
         body.root_folder_id,
+        body.access_mode
+            .unwrap_or(aster_drive_model::types::WebdavAccessMode::ReadWrite),
     )
     .await?;
     let ctx = audit::AuditContext::from_request(&req, &claims);
@@ -242,6 +251,8 @@ pub async fn create_team_account(
         &body.username,
         body.password.as_deref(),
         body.root_folder_id,
+        body.access_mode
+            .unwrap_or(aster_drive_model::types::WebdavAccessMode::ReadWrite),
     )
     .await?;
     let ctx = audit::AuditContext::from_request(&req, &claims);
@@ -354,6 +365,60 @@ pub async fn toggle_team_account(
     Ok(HttpResponse::Ok().json(crate::api::response::success(account)))
 }
 
+/// Updates a team WebDAV account's access mode and records the change in the
+/// audit log.
+#[aster_forge_api_docs_macros::path(
+    post,
+    path = "/api/v1/teams/{team_id}/webdav-accounts/{account_id}/access-mode",
+    tag = "webdav",
+    operation_id = "set_team_webdav_account_access_mode",
+    params(
+        ("team_id" = i64, Path, description = "Team ID"),
+        ("account_id" = i64, Path, description = "Account ID"),
+    ),
+    request_body = SetWebdavAccessModeReq,
+    responses(
+        (status = 200, description = "Access mode updated", body = inline(ApiResponse<account::WebdavAccount>)),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 404, description = crate::api::constants::OPENAPI_NOT_FOUND),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn set_team_account_access_mode(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    req: HttpRequest,
+    path: web::Path<TeamWebdavAccountIdPath>,
+    body: web::Json<SetWebdavAccessModeReq>,
+) -> Result<HttpResponse> {
+    validate_request(&*body)?;
+    let account = account::set_team_access_mode(
+        state.get_ref(),
+        path.account_id,
+        claims.user_id,
+        path.team_id,
+        body.access_mode,
+    )
+    .await?;
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
+        state.get_ref(),
+        &ctx,
+        audit::AuditAction::TeamWebdavAccountAccessModeUpdate,
+        crate::services::ops::audit::AuditEntityType::WebdavAccount,
+        Some(account.id),
+        Some(&account.username),
+        || {
+            audit::details(serde_json::json!({
+                "team_id": path.team_id,
+                "access_mode": account.access_mode,
+            }))
+        },
+    )
+    .await;
+    Ok(HttpResponse::Ok().json(crate::api::response::success(account)))
+}
+
 /// Deletes one of the current user's WebDAV accounts and records the action in the
 /// audit log.
 #[aster_forge_api_docs_macros::path(
@@ -431,6 +496,50 @@ pub async fn toggle_account(
     Ok(HttpResponse::Ok().json(crate::api::response::success(account)))
 }
 
+/// Updates one of the current user's WebDAV accounts' access mode and records
+/// the change in the audit log.
+#[aster_forge_api_docs_macros::path(
+    post,
+    path = "/api/v1/webdav-accounts/{id}/access-mode",
+    tag = "webdav",
+    operation_id = "set_webdav_account_access_mode",
+    params(("id" = i64, Path, description = "Account ID")),
+    request_body = SetWebdavAccessModeReq,
+    responses(
+        (status = 200, description = "Access mode updated", body = inline(ApiResponse<account::WebdavAccount>)),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 404, description = crate::api::constants::OPENAPI_NOT_FOUND),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn set_account_access_mode(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    req: HttpRequest,
+    path: web::Path<i64>,
+    body: web::Json<SetWebdavAccessModeReq>,
+) -> Result<HttpResponse> {
+    validate_request(&*body)?;
+    let account =
+        account::set_access_mode(state.get_ref(), *path, claims.user_id, body.access_mode).await?;
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
+        state.get_ref(),
+        &ctx,
+        audit::AuditAction::WebdavAccountAccessModeUpdate,
+        crate::services::ops::audit::AuditEntityType::WebdavAccount,
+        Some(account.id),
+        Some(&account.username),
+        || {
+            audit::details(serde_json::json!({
+                "access_mode": account.access_mode,
+            }))
+        },
+    )
+    .await;
+    Ok(HttpResponse::Ok().json(crate::api::response::success(account)))
+}
+
 /// Tests WebDAV credentials without creating an account.
 #[aster_forge_api_docs_macros::path(
     post,
@@ -469,6 +578,7 @@ fn webdav_created_audit_details(
         "team_id": account.team_id,
         "root_folder_id": root_folder_id,
         "root_folder_path": account.root_folder_path.as_deref(),
+        "access_mode": account.access_mode,
         "is_active": true,
     })
 }
@@ -478,6 +588,7 @@ fn webdav_account_audit_details(account: &account::WebdavAccount) -> serde_json:
         "username": &account.username,
         "team_id": account.team_id,
         "root_folder_id": account.root_folder_id,
+        "access_mode": account.access_mode,
         "is_active": account.is_active,
     })
 }

@@ -16,6 +16,7 @@ WebDAV 相关内容可以分成三块：账号、挂载入口、协议能力。
 | `POST` | `/webdav-accounts` | 创建 WebDAV 账号 |
 | `DELETE` | `/webdav-accounts/{id}` | 删除 WebDAV 账号 |
 | `POST` | `/webdav-accounts/{id}/toggle` | 启用或停用账号 |
+| `POST` | `/webdav-accounts/{id}/access-mode` | 设置账号的只读 / 读写访问模式 |
 | `GET` | `/webdav-accounts/settings` | 读取当前挂载前缀和客户端可直接使用的挂载地址 |
 | `POST` | `/webdav-accounts/test` | 测试一组 WebDAV 凭据 |
 
@@ -27,6 +28,7 @@ WebDAV 相关内容可以分成三块：账号、挂载入口、协议能力。
 | `POST` | `/teams/{team_id}/webdav-accounts` | 创建团队 WebDAV 账号 |
 | `DELETE` | `/teams/{team_id}/webdav-accounts/{account_id}` | 删除团队 WebDAV 账号 |
 | `POST` | `/teams/{team_id}/webdav-accounts/{account_id}/toggle` | 启用或停用团队 WebDAV 账号 |
+| `POST` | `/teams/{team_id}/webdav-accounts/{account_id}/access-mode` | 设置团队账号的只读 / 读写访问模式 |
 
 常用点：
 
@@ -35,6 +37,8 @@ WebDAV 相关内容可以分成三块：账号、挂载入口、协议能力。
 - 个人账号的 `root_folder_id` 为空表示可访问整个用户空间；团队账号的 `root_folder_id` 为空表示可访问整个团队空间
 - 创建账号时如果传了 `root_folder_id`，服务端会校验该文件夹确实属于账号所在的个人或团队工作空间
 - `/toggle` 没有请求体，每调用一次就在启用 / 停用之间切换
+- 创建账号时的 `access_mode` 可选 `read_write`（默认）或 `read_only`；`/access-mode` 请求体 `{"access_mode": "read_only"}` 随时切换
+- `read_only` 账户的 `PUT` / `MKCOL` / `DELETE` / `COPY` / `MOVE` / `PROPPATCH` / `LOCK` / `UNLOCK` 一律返回 `403` 且不产生任何副作用；`PROPFIND` / `GET` / `HEAD` / `OPTIONS` 正常；只读策略不会额外禁止 `REPORT`，但 `REPORT` 的响应取决于报告类型与资源能力（已支持的报告执行查询，未知报告返回 `422`，已知但不可用的报告返回 `409`）。有效权限始终是所有者当前产品权限与账户访问模式的交集，模式变更立即生效，不因认证缓存保留旧权限
 - `/settings` 会返回两个字段：
   - `prefix`：服务端当前实际启用的挂载前缀
   - `endpoint`：面向客户端的可访问地址；如果配置了 `public_site_url`，这里会是绝对 URL，否则返回相对路径。多来源配置下，服务端会用当前请求 Origin（scheme + host[:port]）精确匹配 `public_site_url` 列表。命中时返回对应来源下的 WebDAV 地址，未命中时回退第一项。
@@ -50,9 +54,12 @@ WebDAV 相关内容可以分成三块：账号、挂载入口、协议能力。
 {
   "username": "dav-demo",
   "password": null,
-  "root_folder_id": 12
+  "root_folder_id": 12,
+  "access_mode": "read_write"
 }
 ```
+
+只读账号适合备份拉取、挂载浏览、监控同步这类只消费内容的客户端；挂载型客户端（如 Finder / Windows WebClient）尝试 `LOCK` 失败时会降级为无锁只读访问，这是预期行为。
 
 ## 挂载地址
 
@@ -89,7 +96,7 @@ http://localhost:3000/webdav
 
 限制也很直接：
 
-- AsterDrive 使用不可变 `file_revision_histories` / `file_revisions` 作为 REST、WebDAV 写入和 WOPI writeback 共用的产品版本事实；每次成功创建/覆盖都追加 revision，restore 也追加新 head，不截断历史。它仍不直接构成 RFC 3253 wire model：当前 capability snapshot 不声明 `version-control`，`REPORT` / `VERSION-CONTROL` 返回资源级 `405 Method Not Allowed`。#448 只在该 ledger 之上实现 DeltaV method、property、URL 和 XML 映射。
+- AsterDrive 使用不可变 `file_revision_histories` / `file_revisions` 作为 REST、WebDAV 写入和 WOPI writeback 共用的产品版本事实；每次成功创建/覆盖都追加 revision，restore 也追加新 head，不截断历史。它仍不直接构成 RFC 3253 wire model：当前 capability snapshot 不声明 `version-control`，`VERSION-CONTROL` 返回资源级 `405 Method Not Allowed`；`REPORT` 不按 `405` 拒绝——受支持的报告（如 version-tree / expand-property）在资源能力允许时执行查询，未知报告返回 `422`，已知但当前不可用的报告返回 `409`。#448 只在该 ledger 之上实现 DeltaV method、property、URL 和 XML 映射。
 - `/webdav/` 挂载根只是一个虚拟入口，不是持久化的文件夹实体。`PROPFIND /webdav/` 可以列目录和读取 live DAV 属性，但 `PROPPATCH /webdav/` 明确返回 `403 Forbidden`；自定义 dead properties 只支持具体文件或文件夹。
 - `PROPFIND` 的 `Depth` 缺省按 `infinity` 解析；如果目标是目录，会返回 `403` 和 `DAV:propfind-finite-depth`，不会做无界递归。
 - `COPY` 接受 `Depth: 0` 或缺省 / `infinity`，明确拒绝 `Depth: 1`；`COPY Depth: 0` 只复制目录自身和 dead properties，不复制子项。
@@ -102,7 +109,7 @@ http://localhost:3000/webdav
 
 ## 认证与运行时开关
 
-- Basic Auth：使用 WebDAV 专用账号，可限制到 `root_folder_id`
+- Basic Auth：使用 WebDAV 专用账号，可限制到 `root_folder_id`，并可限制为 `read_only` 访问模式
 - 当前 WebDAV 挂载入口不接受普通 `Authorization: Bearer <jwt>`；Bearer 会按 unsupported auth scheme 拒绝
 - `webdav_enabled = false` 时，WebDAV 请求会直接返回 `503`
 - `webdav_block_system_files_enabled = true` 时，WebDAV 写入 / 移动 / 复制会按 `webdav_block_system_file_patterns` 拦截系统文件名，默认包含 `.DS_Store`、`._*`、`Thumbs.db`、`desktop.ini`、`$RECYCLE.BIN` 等常见客户端垃圾文件；REST 文件夹列表不会应用这层过滤

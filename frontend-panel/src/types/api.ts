@@ -538,6 +538,7 @@ export type WebdavAccount = components["schemas"]["WebdavAccount"];
 export type WebdavAccountCreated =
 	components["schemas"]["WebdavAccountCreated"];
 export type WebdavAccountInfo = components["schemas"]["WebdavAccountInfo"];
+export type WebdavAccessMode = components["schemas"]["WebdavAccessMode"];
 export type WebdavAccountPage =
 	components["schemas"]["OffsetPage_WebdavAccountInfo"];
 export type WebdavAccountListQuery = OperationQuery<"list_webdav_accounts">;

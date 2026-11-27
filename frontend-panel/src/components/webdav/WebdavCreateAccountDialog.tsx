@@ -18,8 +18,15 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import type { WebdavAccessMode } from "@/types/api";
 
 interface WebdavCreateAccountDialogProps {
+	accessMode: WebdavAccessMode;
+	accessModeLabel: string;
+	accessModeOptions: ReadonlyArray<{
+		label: string;
+		value: WebdavAccessMode;
+	}>;
 	autoGenerateLabel: string;
 	createLabel: string;
 	createTitle: string;
@@ -32,6 +39,7 @@ interface WebdavCreateAccountDialogProps {
 	onCreate: () => void;
 	onOpenChange: (open: boolean) => void;
 	onPasswordChange: (password: string) => void;
+	onAccessModeChange: (accessMode: WebdavAccessMode) => void;
 	onRootFolderChange: (folderId: number | undefined) => void;
 	onUsernameChange: (username: string) => void;
 	open: boolean;
@@ -64,6 +72,9 @@ export function WebdavCreateAccountDialog(
 }
 
 function WebdavCreateAccountDialogContent({
+	accessMode,
+	accessModeLabel,
+	accessModeOptions,
 	autoGenerateLabel,
 	createLabel,
 	createTitle,
@@ -73,6 +84,7 @@ function WebdavCreateAccountDialogContent({
 	newPassword,
 	newUsername,
 	noFoldersLabel,
+	onAccessModeChange,
 	onCreate,
 	onOpenChange,
 	onPasswordChange,
@@ -112,6 +124,27 @@ function WebdavCreateAccountDialogContent({
 							onChange={(event) => onPasswordChange(event.target.value)}
 							placeholder={autoGenerateLabel}
 						/>
+					</div>
+					<div className="space-y-1.5">
+						<Label htmlFor="webdav-access-mode">{accessModeLabel}</Label>
+						<Select
+							items={accessModeOptions}
+							value={accessMode}
+							onValueChange={(value) =>
+								onAccessModeChange(value as WebdavAccessMode)
+							}
+						>
+							<SelectTrigger id="webdav-access-mode">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								{accessModeOptions.map((option) => (
+									<SelectItem key={option.value} value={option.value}>
+										{option.label}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
 					</div>
 					<div className="space-y-1.5">
 						<Label htmlFor="webdav-root-folder">{rootFolderLabel}</Label>

@@ -41,4 +41,14 @@ pub struct CreateWebdavAccountReq {
     /// Folder the sub-account is rooted at; `None` = workspace root.
     #[validate(range(min = 1, message = "root_folder_id must be greater than 0"))]
     pub root_folder_id: Option<i64>,
+    /// Access mode assigned to the account; defaults to `read_write`.
+    pub access_mode: Option<aster_drive_model::types::WebdavAccessMode>,
+}
+
+/// Update a WebDAV sub-account's access mode.
+#[derive(Deserialize, Validate)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct SetWebdavAccessModeReq {
+    /// New access mode for the account.
+    pub access_mode: aster_drive_model::types::WebdavAccessMode,
 }

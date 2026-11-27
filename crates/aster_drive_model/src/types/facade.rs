@@ -48,3 +48,4 @@ pub use super::team::TeamMemberRole;
 pub use super::upload_session::{UploadChunkOrdering, UploadScheduling, UploadSessionKind};
 pub use super::user::{AvatarSource, UserRole, UserStatus};
 pub use super::user_invitation::UserInvitationStatus;
+pub use super::webdav::WebdavAccessMode;

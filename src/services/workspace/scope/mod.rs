@@ -477,9 +477,9 @@ mod tests {
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use aster_drive_model::entities::{
         storage_policy_group, storage_policy_group_rule, storage_policy_group_rule_target, team,
-        team_member, user,
+        team_member, user, webdav_account,
     };
-    use aster_drive_model::types::{TeamMemberRole, UserRole, UserStatus};
+    use aster_drive_model::types::{TeamMemberRole, UserRole, UserStatus, WebdavAccessMode};
     use aster_forge_cache as cache;
     use aster_forge_cache::CacheConfig;
     use chrono::Utc;
@@ -868,5 +868,140 @@ mod tests {
             error,
             crate::errors::AsterError::RecordNotFound(_)
         ));
+    }
+
+    async fn seed_webdav_account_for_scope(
+        state: &impl SharedRuntimeState,
+        user_id: i64,
+        access_mode: WebdavAccessMode,
+    ) -> webdav_account::Model {
+        let now = Utc::now();
+        webdav_account::ActiveModel {
+            user_id: Set(user_id),
+            username: Set(format!("dav-scope-{user_id}-{}", now.timestamp_millis())),
+            password_hash: Set("scope-test-hash".to_string()),
+            root_folder_id: Set(None),
+            access_mode: Set(access_mode),
+            team_id: Set(None),
+            is_active: Set(true),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        }
+        .insert(state.writer_db())
+        .await
+        .expect("test webdav account should insert")
+    }
+
+    fn webdav_constraints_for(
+        account: &webdav_account::Model,
+        read_only: bool,
+    ) -> crate::services::workspace::scope::WorkspaceAccessConstraints {
+        crate::services::workspace::scope::WorkspaceAccessConstraints::for_webdav(
+            account.id,
+            aster_forge_crypto::sha256_hex(account.password_hash.as_bytes()),
+            account.root_folder_id,
+            read_only,
+        )
+    }
+
+    /// The constraint snapshot itself rejects every mutating operation before
+    /// any lock, membership check, or side effect is taken.
+    #[tokio::test]
+    async fn read_only_webdav_credential_rejects_mutations_and_permits_reads() {
+        let state = build_cached_state().await;
+        let owner = create_user(&state, "dav-read-only").await;
+        let account =
+            seed_webdav_account_for_scope(&state, owner.id, WebdavAccessMode::ReadOnly).await;
+        let constraints = webdav_constraints_for(&account, true);
+        let scope = WorkspaceStorageScope::Personal { user_id: owner.id };
+
+        for operation in [
+            crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+            crate::services::workspace::scope::WorkspaceOperation::ReadContent,
+        ] {
+            crate::services::workspace::scope::authorize_workspace_on(
+                state.writer_db(),
+                scope,
+                operation,
+                &constraints,
+            )
+            .await
+            .unwrap_or_else(|error| {
+                panic!("read-only account must keep read access for {operation:?}: {error}")
+            });
+        }
+
+        for operation in [
+            crate::services::workspace::scope::WorkspaceOperation::CreateFile,
+            crate::services::workspace::scope::WorkspaceOperation::CreateFolder,
+            crate::services::workspace::scope::WorkspaceOperation::UpdateContent,
+            crate::services::workspace::scope::WorkspaceOperation::UpdateMetadata,
+            crate::services::workspace::scope::WorkspaceOperation::Copy,
+            crate::services::workspace::scope::WorkspaceOperation::Move,
+            crate::services::workspace::scope::WorkspaceOperation::Delete,
+            crate::services::workspace::scope::WorkspaceOperation::ManageLock,
+        ] {
+            let error = crate::services::workspace::scope::authorize_workspace_on(
+                state.writer_db(),
+                scope,
+                operation,
+                &constraints,
+            )
+            .await
+            .err()
+            .unwrap_or_else(|| panic!("read-only account must reject {operation:?}"));
+            assert_eq!(
+                error.api_error_code(),
+                crate::api::api_error_code::ApiErrorCode::WebdavAccessReadOnly,
+                "mutation {operation:?} must fail closed with the stable read-only code"
+            );
+        }
+    }
+
+    /// The database row is the live authority for the access mode: even a
+    /// forged stale snapshot claiming read_write must be rejected while the
+    /// row says read_only, and a flip back to read_write takes effect on the
+    /// next request without any invalidation notice.
+    #[tokio::test]
+    async fn webdav_access_mode_is_rechecked_from_the_database_row_on_mutation() {
+        let state = build_cached_state().await;
+        let owner = create_user(&state, "dav-recheck").await;
+        let account =
+            seed_webdav_account_for_scope(&state, owner.id, WebdavAccessMode::ReadOnly).await;
+        let scope = WorkspaceStorageScope::Personal { user_id: owner.id };
+        let stale_write_snapshot = webdav_constraints_for(&account, false);
+
+        let error = crate::services::workspace::scope::authorize_workspace_on(
+            state.writer_db(),
+            scope,
+            crate::services::workspace::scope::WorkspaceOperation::UpdateMetadata,
+            &stale_write_snapshot,
+        )
+        .await
+        .err()
+        .expect("a stale read_write snapshot must not outrank a read_only database row");
+        assert_eq!(
+            error.api_error_code(),
+            crate::api::api_error_code::ApiErrorCode::WebdavAccessReadOnly
+        );
+
+        let mut active = account.clone().into_active_model();
+        active.access_mode = Set(WebdavAccessMode::ReadWrite);
+        active.updated_at = Set(Utc::now());
+        let updated = active
+            .update(state.writer_db())
+            .await
+            .expect("test webdav account access mode should update");
+
+        let live_write_snapshot = webdav_constraints_for(&updated, false);
+        crate::services::workspace::scope::authorize_workspace_on(
+            state.writer_db(),
+            scope,
+            crate::services::workspace::scope::WorkspaceOperation::UpdateMetadata,
+            &live_write_snapshot,
+        )
+        .await
+        .expect("read_write accounts must keep write access after the row flips");
     }
 }

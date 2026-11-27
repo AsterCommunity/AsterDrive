@@ -21,7 +21,7 @@ import { normalizeWebdavPrefix, webdavEndpointPath } from "@/lib/webdav";
 import { fileService } from "@/services/fileService";
 import { webdavAccountService } from "@/services/webdavAccountService";
 import { useAuthStore } from "@/stores/authStore";
-import type { FolderListItem } from "@/types/api";
+import type { FolderListItem, WebdavAccessMode } from "@/types/api";
 
 export default function WebdavAccountsPage() {
 	const { t } = useTranslation(["core", "admin", "auth", "webdav", "errors"]);
@@ -42,6 +42,10 @@ export default function WebdavAccountsPage() {
 	const {
 		pendingId: togglingAccountId,
 		runWithPending: runWithTogglingAccount,
+	} = usePendingId<number>();
+	const {
+		pendingId: settingAccessModeAccountId,
+		runWithPending: runWithSettingAccessMode,
 	} = usePendingId<number>();
 	const recentCredentials = dialogState.showPassword;
 
@@ -85,6 +89,16 @@ export default function WebdavAccountsPage() {
 			value: String(folder.id),
 		})),
 	];
+	const accessModeOptions = [
+		{
+			label: t("webdav:access_mode_read_write"),
+			value: "read_write",
+		},
+		{
+			label: t("webdav:access_mode_read_only"),
+			value: "read_only",
+		},
+	] as const;
 	const sortedAccounts = useMemo(
 		() =>
 			accounts.toSorted(
@@ -128,6 +142,7 @@ export default function WebdavAccountsPage() {
 				username: dialogState.newUsername.trim(),
 				password: dialogState.newPassword.trim() || undefined,
 				root_folder_id: dialogState.selectedFolderId ?? null,
+				access_mode: dialogState.accessMode,
 			});
 			if (isOwnerCurrent()) {
 				dialogState.showCreatedCredentials(
@@ -170,6 +185,21 @@ export default function WebdavAccountsPage() {
 		});
 	};
 
+	const handleSetAccessMode = async (
+		id: number,
+		accessMode: WebdavAccessMode,
+	) => {
+		await runWithSettingAccessMode(id, async () => {
+			try {
+				await webdavAccountService.setAccessMode(id, accessMode);
+				toast.success(t("webdav:access_mode_updated"));
+				void reload();
+			} catch (err) {
+				handleApiError(err);
+			}
+		});
+	};
+
 	const handleTest = async () => {
 		const latestCredentials = recentCredentials.at(-1);
 		if (!latestCredentials) return;
@@ -201,6 +231,10 @@ export default function WebdavAccountsPage() {
 				onOpenChange={dialogState.setCreateDialogOpen}
 				createTitle={t("webdav:create_webdav_account")}
 				description={t("webdav:webdav_test_hint")}
+				accessMode={dialogState.accessMode}
+				accessModeLabel={t("webdav:access_mode")}
+				accessModeOptions={accessModeOptions}
+				onAccessModeChange={dialogState.setAccessMode}
 				usernameLabel={t("core:username")}
 				usernamePlaceholder={t("webdav:webdav_username_placeholder")}
 				passwordLabel={t("core:password")}
@@ -291,9 +325,14 @@ export default function WebdavAccountsPage() {
 						frameless
 						deletingAccountId={deletingAccountId}
 						togglingAccountId={togglingAccountId}
+						setAccessModeAccountId={settingAccessModeAccountId}
 						onDelete={(accountId) => void handleDelete(accountId)}
 						onToggle={(accountId) => void handleToggle(accountId)}
+						onSetAccessMode={(accountId, accessMode) =>
+							void handleSetAccessMode(accountId, accessMode)
+						}
 						labels={{
+							accessMode: t("webdav:access_mode"),
 							accessScope: t("webdav:access_scope"),
 							actions: t("actions"),
 							active: t("active"),
@@ -305,6 +344,10 @@ export default function WebdavAccountsPage() {
 							disabled: t("disabled_status"),
 							emptyDescription: t("webdav:no_webdav_accounts_desc"),
 							emptyTitle: t("webdav:no_webdav_accounts"),
+							readOnly: t("webdav:access_mode_read_only"),
+							readWrite: t("webdav:access_mode_read_write"),
+							setReadOnly: t("webdav:access_mode_set_read_only"),
+							setReadWrite: t("webdav:access_mode_set_read_write"),
 							status: t("status"),
 							toggleUpdating: t("admin:webdav_account_updating"),
 							username: t("core:username"),

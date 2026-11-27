@@ -1,4 +1,5 @@
 import { useReducer } from "react";
+import type { WebdavAccessMode } from "@/types/api";
 
 export interface WebdavCredentials {
 	password: string;
@@ -6,6 +7,7 @@ export interface WebdavCredentials {
 }
 
 interface WebdavAccountDialogState {
+	accessMode: WebdavAccessMode;
 	createDialogOpen: boolean;
 	credentialsDialogOpen: boolean;
 	creating: boolean;
@@ -24,12 +26,14 @@ type WebdavAccountDialogAction =
 	| { type: "usernameChanged"; username: string }
 	| { type: "passwordChanged"; password: string }
 	| { type: "folderChanged"; folderId: number | undefined }
+	| { type: "accessModeChanged"; accessMode: WebdavAccessMode }
 	| { type: "created"; credentials: WebdavCredentials; finishCreate: boolean }
 	| { type: "credentialsCleared" }
 	| { type: "testingChanged"; testing: boolean }
 	| { type: "testResultChanged"; result: boolean | null };
 
 const initialWebdavAccountDialogState: WebdavAccountDialogState = {
+	accessMode: "read_write",
 	createDialogOpen: false,
 	credentialsDialogOpen: false,
 	creating: false,
@@ -66,6 +70,8 @@ function webdavAccountDialogReducer(
 			return { ...state, newPassword: action.password };
 		case "folderChanged":
 			return { ...state, selectedFolderId: action.folderId };
+		case "accessModeChanged":
+			return { ...state, accessMode: action.accessMode };
 		case "created":
 			return {
 				...state,
@@ -113,6 +119,8 @@ export function useWebdavAccountDialogState() {
 			dispatch({ type: "usernameChanged", username }),
 		setSelectedFolderId: (folderId: number | undefined) =>
 			dispatch({ type: "folderChanged", folderId }),
+		setAccessMode: (accessMode: WebdavAccessMode) =>
+			dispatch({ type: "accessModeChanged", accessMode }),
 		setTestResult: (result: boolean | null) =>
 			dispatch({ type: "testResultChanged", result }),
 		setTesting: (testing: boolean) =>

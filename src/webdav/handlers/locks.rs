@@ -48,6 +48,23 @@ pub(crate) async fn handle_lock(
         }
     };
 
+    // Lock lifecycle mutation is denied up front at this filesystem's
+    // authorization ceiling so permission denials answer 403 (RFC 4918 8.1:
+    // authorization errors take precedence) instead of the lock token
+    // mismatch responses; only backend failures answer 5xx.
+    if let Err(error) = dav_fs
+        .authorize_workspace_operation(
+            crate::services::workspace::scope::WorkspaceOperation::ManageLock,
+        )
+        .await
+    {
+        if matches!(error, crate::errors::AsterError::AuthForbidden(_)) {
+            return responses::fs_error_response(aster_forge_webdav::FsError::Forbidden);
+        }
+        tracing::warn!(error = %error, "WebDAV lock authorization failed");
+        return responses::empty(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
     match plan {
         DavLockPlan::Refresh { token, timeout } => {
             if let Err(resp) = aster_forge_webdav::actix::enforce_if_header_with_backends(
@@ -190,8 +207,25 @@ pub(crate) async fn handle_lock(
 pub(crate) async fn handle_unlock(
     req: &HttpRequest,
     request_head: &DavRequestHead,
+    dav_fs: &backend::AsterDavFs,
     lock_system: &dyn DavLockSystem,
 ) -> HttpResponse {
+    // Unlock lifecycle mutation is denied up front at this filesystem's
+    // authorization ceiling so permission denials answer 403 (RFC 4918 9.11.1),
+    // matching the LOCK handler contract; only backend failures answer 5xx.
+    if let Err(error) = dav_fs
+        .authorize_workspace_operation(
+            crate::services::workspace::scope::WorkspaceOperation::ManageLock,
+        )
+        .await
+    {
+        if matches!(error, crate::errors::AsterError::AuthForbidden(_)) {
+            return responses::fs_error_response(aster_forge_webdav::FsError::Forbidden);
+        }
+        tracing::warn!(error = %error, "WebDAV unlock authorization failed");
+        return responses::empty(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
     let path = request_head.target.clone();
     let headers = match aster_forge_webdav::actix::converted_headers(req.headers()) {
         Ok(headers) => headers,

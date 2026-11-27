@@ -190,6 +190,24 @@ impl AsterDavFs {
         self
     }
 
+    /// Runs the product authorization check for a workspace operation against
+    /// this filesystem's access constraints. Lock lifecycle handlers use it to
+    /// surface the account-level read-only ceiling as 403 Forbidden instead of
+    /// the lock-specific token-mismatch responses.
+    pub(crate) async fn authorize_workspace_operation(
+        &self,
+        operation: crate::services::workspace::scope::WorkspaceOperation,
+    ) -> Result<(), crate::errors::AsterError> {
+        crate::services::workspace::scope::authorize_workspace_on(
+            self.state.writer_db(),
+            self.scope,
+            operation,
+            &self.access_constraints,
+        )
+        .await
+        .map(|_| ())
+    }
+
     fn scope(&self) -> WorkspaceStorageScope {
         self.scope
     }
@@ -660,6 +678,19 @@ impl AsterDavFs {
         options: DavWriteOptions,
         file_precondition: Option<crate::services::workspace::storage::FileWritePrecondition>,
     ) -> Result<AsterDavWriteHandle, DavBackendError> {
+        // Reject read-only WebDAV accounts before any temp file is staged or
+        // request body is consumed. The authoritative recheck still runs
+        // inside the store transaction at finish time; this precheck only
+        // spares the client the upload.
+        crate::services::workspace::scope::authorize_workspace_on(
+            self.state.writer_db(),
+            self.scope,
+            crate::services::workspace::scope::WorkspaceOperation::UpdateContent,
+            &self.access_constraints,
+        )
+        .await
+        .map_err(to_fs_error)
+        .map_err(DavBackendError::from)?;
         let (parent_id, filename) = path_resolver::resolve_parent_cached_in_scope(
             &self.state,
             self.scope,
@@ -764,6 +795,18 @@ impl DavFileSystem for AsterDavFs {
         credentials: DavMutationCredentials,
     ) -> FsFuture<'a, ()> {
         Box::pin(async move {
+            // MKCOL reaches the folder service directly, whose own authorization
+            // carries no WebDAV constraints; the account-level read-only ceiling
+            // must be enforced here with this filesystem's credential binding.
+            crate::services::workspace::scope::authorize_workspace_on(
+                self.state.writer_db(),
+                self.scope,
+                crate::services::workspace::scope::WorkspaceOperation::CreateFolder,
+                &self.access_constraints,
+            )
+            .await
+            .map_err(to_fs_error)?;
+
             match path_resolver::resolve_path_cached_in_scope(
                 &self.state,
                 self.scope,
@@ -795,6 +838,7 @@ impl DavFileSystem for AsterDavFs {
                     credentials.submitted_lock_tokens,
                 ),
                 crate::services::workspace::activity::ActivitySource::Webdav,
+                &self.access_constraints,
             )
             .await
             .map_err(to_fs_error)?;
@@ -805,6 +849,17 @@ impl DavFileSystem for AsterDavFs {
 
     fn remove_dir<'a>(&'a self, path: &'a DavPath) -> FsFuture<'a, ()> {
         Box::pin(async move {
+            // Same rationale as create_dir: the folder service mutates without
+            // WebDAV credential constraints, so the account ceiling is checked
+            // here before any resolution or deletion.
+            crate::services::workspace::scope::authorize_workspace_on(
+                self.state.writer_db(),
+                self.scope,
+                crate::services::workspace::scope::WorkspaceOperation::Delete,
+                &self.access_constraints,
+            )
+            .await
+            .map_err(to_fs_error)?;
             let node = path_resolver::resolve_path_cached_in_scope(
                 &self.state,
                 self.scope,
@@ -829,6 +884,7 @@ impl DavFileSystem for AsterDavFs {
                 folder.id,
                 Some(MUTATION_FOLDER_TREE_LIMITS),
                 crate::services::workspace::activity::ActivitySource::Webdav,
+                &self.access_constraints,
             )
             .await
             .map_err(to_fs_error)?;
@@ -901,6 +957,7 @@ impl DavFileSystem for AsterDavFs {
                 &dest_name,
                 &self.audit_ctx,
                 Some(MUTATION_FOLDER_TREE_LIMITS),
+                &self.access_constraints,
             )
             .await?;
 
@@ -963,6 +1020,7 @@ impl DavFileSystem for AsterDavFs {
                 &dest_name,
                 &self.audit_ctx,
                 Some(MUTATION_FOLDER_TREE_LIMITS),
+                &self.access_constraints,
             )
             .await?;
 
@@ -1713,6 +1771,7 @@ async fn delete_existing_destination_for_overwrite(
     name: &str,
     audit_ctx: &AuditContext,
     traversal_limits: Option<folder::FolderTreeTraversalLimits>,
+    access_constraints: &crate::services::workspace::scope::WorkspaceAccessConstraints,
 ) -> Result<(), FsError> {
     if let Some(existing) = find_file_by_name_in_scope(state, scope, parent_id, name).await? {
         let details = if audit::should_record(state, audit::AuditAction::FileDelete) {
@@ -1769,6 +1828,7 @@ async fn delete_existing_destination_for_overwrite(
             existing.id,
             traversal_limits,
             crate::services::workspace::activity::ActivitySource::Webdav,
+            access_constraints,
         )
         .await
         .map_err(to_fs_error)?;

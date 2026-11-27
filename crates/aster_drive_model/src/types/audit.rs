@@ -175,6 +175,8 @@ macro_rules! define_audit_action_list {
             AdminFileDownload,
             AdminRevisionDownload,
             TaskCancelRequested,
+            WebdavAccountAccessModeUpdate,
+            TeamWebdavAccountAccessModeUpdate,
         }
     };
 }
@@ -669,6 +671,10 @@ pub enum AuditAction {
     /// A personal WebDAV account was enabled or disabled.
     #[sea_orm(string_value = "webdav_account_toggle")]
     WebdavAccountToggle,
+    /// A personal WebDAV account's access mode was changed.
+    #[sea_orm(string_value = "webdav_account_access_mode_update")]
+    WebdavAccountAccessModeUpdate,
+
     /// A team-scoped WebDAV account credential was created.
     #[sea_orm(string_value = "team_webdav_account_create")]
     TeamWebdavAccountCreate,
@@ -678,6 +684,9 @@ pub enum AuditAction {
     /// A team-scoped WebDAV account was enabled or disabled.
     #[sea_orm(string_value = "team_webdav_account_toggle")]
     TeamWebdavAccountToggle,
+    /// A team-scoped WebDAV account's access mode was changed.
+    #[sea_orm(string_value = "team_webdav_account_access_mode_update")]
+    TeamWebdavAccountAccessModeUpdate,
     /// A user changed their own password.
     #[sea_orm(string_value = "user_change_password")]
     UserChangePassword,
@@ -1028,6 +1037,8 @@ impl AuditAction {
             Self::AdminWorkspaceInspect => 155,
             Self::AdminFileDownload => 156,
             Self::AdminRevisionDownload => 157,
+            Self::WebdavAccountAccessModeUpdate => 159,
+            Self::TeamWebdavAccountAccessModeUpdate => 160,
         }
     }
 
@@ -1144,6 +1155,8 @@ impl AuditAction {
             Self::TeamWebdavAccountCreate => "team_webdav_account_create",
             Self::TeamWebdavAccountDelete => "team_webdav_account_delete",
             Self::TeamWebdavAccountToggle => "team_webdav_account_toggle",
+            Self::WebdavAccountAccessModeUpdate => "webdav_account_access_mode_update",
+            Self::TeamWebdavAccountAccessModeUpdate => "team_webdav_account_access_mode_update",
             Self::UserChangePassword => "user_change_password",
             Self::UserConfirmPasswordReset => "user_confirm_password_reset",
             Self::UserConfirmEmailChange => "user_confirm_email_change",
@@ -1313,6 +1326,10 @@ impl AuditAction {
             "team_webdav_account_create" => Some(Self::TeamWebdavAccountCreate),
             "team_webdav_account_delete" => Some(Self::TeamWebdavAccountDelete),
             "team_webdav_account_toggle" => Some(Self::TeamWebdavAccountToggle),
+            "webdav_account_access_mode_update" => Some(Self::WebdavAccountAccessModeUpdate),
+            "team_webdav_account_access_mode_update" => {
+                Some(Self::TeamWebdavAccountAccessModeUpdate)
+            }
             "user_change_password" => Some(Self::UserChangePassword),
             "user_confirm_password_reset" => Some(Self::UserConfirmPasswordReset),
             "user_confirm_email_change" => Some(Self::UserConfirmEmailChange),
@@ -1481,7 +1498,9 @@ impl AuditAction {
             | Self::WebdavAccountToggle
             | Self::TeamWebdavAccountCreate
             | Self::TeamWebdavAccountDelete
-            | Self::TeamWebdavAccountToggle => "webdav",
+            | Self::TeamWebdavAccountToggle
+            | Self::WebdavAccountAccessModeUpdate
+            | Self::TeamWebdavAccountAccessModeUpdate => "webdav",
             Self::UserChangePassword
             | Self::UserConfirmPasswordReset
             | Self::UserConfirmEmailChange

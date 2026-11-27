@@ -683,6 +683,14 @@ crate::services::workspace::activity::ActivitySource::Webdav,
                                 });
                             return Err(DavLockError::Conflict(Box::new(conflict)));
                         }
+                        // A read-only account ceiling is a policy decision, not a
+                        // backend failure: surface it as TokenMismatch so the LOCK
+                        // handler answers 403 instead of 500.
+                        if error.api_error_code()
+                            == crate::api::api_error_code::ApiErrorCode::WebdavAccessReadOnly
+                        {
+                            return Err(DavLockError::TokenMismatch);
+                        }
                         tracing::warn!(error = %error, path = %path_str, "failed to acquire WebDAV lock");
                         return Err(DavLockError::Backend);
                     }

@@ -185,6 +185,7 @@ pub(crate) async fn create_in_scope(
     parent_id: Option<i64>,
     lock_credentials: crate::services::files::lock::LockMutationCredentials,
     source: crate::services::workspace::activity::ActivitySource,
+    access_constraints: &crate::services::workspace::scope::WorkspaceAccessConstraints,
 ) -> Result<folder::Model> {
     tracing::debug!(
         scope = ?scope,
@@ -204,7 +205,7 @@ pub(crate) async fn create_in_scope(
                 actor_user_id,
             },
             crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
-            &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+            access_constraints,
         )
         .await?;
     }
@@ -222,7 +223,7 @@ pub(crate) async fn create_in_scope(
             txn,
             scope,
             crate::services::workspace::scope::WorkspaceOperation::CreateFolder,
-            &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+            access_constraints,
         )
         .await?;
         access
@@ -309,6 +310,7 @@ pub async fn create(
         parent_id,
         crate::services::files::lock::LockMutationCredentials::None,
         crate::services::workspace::activity::ActivitySource::Rest,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
     )
     .await
     .map(Into::into)
@@ -320,6 +322,7 @@ pub(crate) async fn delete_in_scope(
     folder_id: i64,
     traversal_limits: Option<super::FolderTreeTraversalLimits>,
     source: crate::services::workspace::activity::ActivitySource,
+    access_constraints: &crate::services::workspace::scope::WorkspaceAccessConstraints,
 ) -> Result<()> {
     tracing::debug!(scope = ?scope, folder_id, "soft deleting folder tree");
     let now = Utc::now();
@@ -327,16 +330,16 @@ pub(crate) async fn delete_in_scope(
     // 删除整棵树时先锁目录树，再确认树结构没有变化；否则并发移动/创建子目录
     // 可能导致只删除到遍历时看到的一部分节点。
     let outcome = transaction::with_transaction(state.writer_db(), async |txn| {
-        delete_tree_in_scope_on(
+        let locked = lock_tree_for_deletion_on(
             txn,
             scope,
             folder_id,
             traversal_limits,
-            now,
             &crate::services::files::lock::SubmittedLockCredentials::none(),
-            source,
+            access_constraints,
         )
-        .await
+        .await?;
+        apply_locked_tree_deletion_on(txn, locked, now, source).await
     })
     .await?;
     let FolderTreeDeletion {
@@ -388,13 +391,14 @@ pub(crate) async fn lock_tree_for_deletion_on<C: ConnectionTrait>(
     folder_id: i64,
     traversal_limits: Option<super::FolderTreeTraversalLimits>,
     credentials: &crate::services::files::lock::SubmittedLockCredentials<'_>,
+    access_constraints: &crate::services::workspace::scope::WorkspaceAccessConstraints,
 ) -> Result<LockedFolderTreeDeletion> {
     crate::services::files::trash::coordination::admit_mutation_on(db, scope).await?;
     let access = crate::services::workspace::scope::authorize_workspace_on(
         db,
         scope,
         crate::services::workspace::scope::WorkspaceOperation::Delete,
-        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+        access_constraints,
     )
     .await?;
     let snapshot = folder_repo::find_by_id(db, folder_id).await?;
@@ -468,20 +472,6 @@ pub(crate) async fn apply_locked_tree_deletion_on<C: ConnectionTrait>(
 ///
 /// Submitted credentials are validated against current canonical lock roots in
 /// the same transaction. Ordinary product flows use the authoritative lock evaluator.
-pub(crate) async fn delete_tree_in_scope_on<C: ConnectionTrait>(
-    db: &C,
-    scope: WorkspaceStorageScope,
-    folder_id: i64,
-    traversal_limits: Option<super::FolderTreeTraversalLimits>,
-    now: chrono::DateTime<Utc>,
-    credentials: &crate::services::files::lock::SubmittedLockCredentials<'_>,
-    source: crate::services::workspace::activity::ActivitySource,
-) -> Result<FolderTreeDeletion> {
-    let locked =
-        lock_tree_for_deletion_on(db, scope, folder_id, traversal_limits, credentials).await?;
-    apply_locked_tree_deletion_on(db, locked, now, source).await
-}
-
 /// 删除文件夹（软删除 → 回收站，递归标记子项）
 pub async fn delete(state: &impl StorageChangeRuntimeState, id: i64, user_id: i64) -> Result<()> {
     delete_in_scope(
@@ -490,6 +480,7 @@ pub async fn delete(state: &impl StorageChangeRuntimeState, id: i64, user_id: i6
         id,
         None,
         crate::services::workspace::activity::ActivitySource::Rest,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
     )
     .await
 }

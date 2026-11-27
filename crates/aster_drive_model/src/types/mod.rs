@@ -47,5 +47,7 @@ pub mod upload_session;
 pub mod user;
 /// 用户邀请状态。
 pub mod user_invitation;
+/// WebDAV account access mode.
+pub mod webdav;
 
 pub use facade::*;

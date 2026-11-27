@@ -86,6 +86,7 @@ pub(crate) async fn create_in_scope_with_audit(
     parent_id: Option<i64>,
     lock_credentials: crate::services::files::lock::LockMutationCredentials,
     audit_ctx: &AuditContext,
+    access_constraints: &crate::services::workspace::scope::WorkspaceAccessConstraints,
 ) -> Result<FolderInfo> {
     let folder = create_in_scope(
         state,
@@ -94,6 +95,7 @@ pub(crate) async fn create_in_scope_with_audit(
         parent_id,
         lock_credentials,
         crate::services::workspace::activity::ActivitySource::Rest,
+        access_constraints,
     )
     .await?;
     if audit::should_record(state, audit::AuditAction::FolderCreate) {
@@ -117,6 +119,7 @@ pub(crate) async fn delete_in_scope_with_audit(
     scope: WorkspaceStorageScope,
     folder_id: i64,
     audit_ctx: &AuditContext,
+    access_constraints: &crate::services::workspace::scope::WorkspaceAccessConstraints,
 ) -> Result<FolderTreeMutationDispatch> {
     let audit_folder = if audit::should_record(state, audit::AuditAction::FolderDelete) {
         Some(storage::verify_folder_access_for_read(state, scope, folder_id).await?)
@@ -135,6 +138,7 @@ pub(crate) async fn delete_in_scope_with_audit(
         folder_id,
         Some(REST_FOLDER_TREE_LIMITS),
         crate::services::workspace::activity::ActivitySource::Rest,
+        access_constraints,
     )
     .await
     {

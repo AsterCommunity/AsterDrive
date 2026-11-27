@@ -234,6 +234,10 @@ fn audit_action_strings_match_existing_contract() {
         (AuditAction::WebdavAccountDelete, "webdav_account_delete"),
         (AuditAction::WebdavAccountToggle, "webdav_account_toggle"),
         (
+            AuditAction::WebdavAccountAccessModeUpdate,
+            "webdav_account_access_mode_update",
+        ),
+        (
             AuditAction::TeamWebdavAccountCreate,
             "team_webdav_account_create",
         ),
@@ -244,6 +248,10 @@ fn audit_action_strings_match_existing_contract() {
         (
             AuditAction::TeamWebdavAccountToggle,
             "team_webdav_account_toggle",
+        ),
+        (
+            AuditAction::TeamWebdavAccountAccessModeUpdate,
+            "team_webdav_account_access_mode_update",
         ),
         (AuditAction::UserChangePassword, "user_change_password"),
         (

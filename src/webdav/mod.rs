@@ -363,7 +363,8 @@ pub async fn webdav_handler(
                 .await
             }
             DavMethod::Unlock => {
-                handlers::locks::handle_unlock(&req, &request_head, lock_system.as_ref()).await
+                handlers::locks::handle_unlock(&req, &request_head, &dav_fs, lock_system.as_ref())
+                    .await
             }
             DavMethod::VersionControl => {
                 deltav::handle_version_control(

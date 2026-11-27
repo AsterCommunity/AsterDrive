@@ -758,6 +758,7 @@ fn map_store_error(error: crate::errors::AsterError) -> DavBackendError {
             DavBackendErrorKind::InsufficientStorage
         }
         crate::errors::AsterError::ResourceLocked(_) => DavBackendErrorKind::Locked,
+        crate::errors::AsterError::AuthForbidden(_) => DavBackendErrorKind::Forbidden,
         _ if file_repo::is_any_duplicate_name_error(&error) => DavBackendErrorKind::AlreadyExists,
         _ => DavBackendErrorKind::Internal,
     };

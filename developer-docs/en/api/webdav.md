@@ -16,6 +16,7 @@ The following paths are relative to `/api/v1` and require authentication.
 | `POST` | `/webdav-accounts` | Create a WebDAV account |
 | `DELETE` | `/webdav-accounts/{id}` | Delete a WebDAV account |
 | `POST` | `/webdav-accounts/{id}/toggle` | Enable or disable an account |
+| `POST` | `/webdav-accounts/{id}/access-mode` | Set the read-only / read-write access mode |
 | `GET` | `/webdav-accounts/settings` | Read the active mount prefix and client endpoint |
 | `POST` | `/webdav-accounts/test` | Test a set of WebDAV credentials |
 
@@ -27,6 +28,7 @@ The following paths are relative to `/api/v1` and require authentication.
 | `POST` | `/teams/{team_id}/webdav-accounts` | Create a team WebDAV account |
 | `DELETE` | `/teams/{team_id}/webdav-accounts/{account_id}` | Delete a team WebDAV account |
 | `POST` | `/teams/{team_id}/webdav-accounts/{account_id}/toggle` | Enable or disable a team WebDAV account |
+| `POST` | `/teams/{team_id}/webdav-accounts/{account_id}/access-mode` | Set the read-only / read-write access mode for a team account |
 
 Common details:
 
@@ -35,6 +37,8 @@ Common details:
 - for personal accounts, `root_folder_id = null` means the account can access the whole user space; for team accounts, it means the account can access the whole team space
 - when `root_folder_id` is provided, the server verifies that the folder belongs to the personal or team workspace for that account
 - `/toggle` has no request body; each call switches enabled / disabled state
+- `access_mode` at creation accepts `read_write` (default) or `read_only`; `/access-mode` with body `{"access_mode": "read_only"}` switches it at any time
+- for `read_only` accounts, `PUT` / `MKCOL` / `DELETE` / `COPY` / `MOVE` / `PROPPATCH` / `LOCK` / `UNLOCK` always return `403` with no side effects; `PROPFIND` / `GET` / `HEAD` / `OPTIONS` keep working; the read-only policy does not additionally forbid `REPORT`, but its response depends on the report type and resource capabilities (supported reports execute their query, unknown reports answer `422`, and known but unavailable reports answer `409`). Effective permission is always the intersection of the owner's live product permissions and the account access mode; mode changes take effect immediately and stale auth caches never preserve old permissions
 - `/settings` returns:
   - `prefix`: the active server mount prefix
   - `endpoint`: a client-usable URL; if `public_site_url` is configured, this is absolute, otherwise it is relative. With multiple public origins, the server matches the current request origin exactly and falls back to the first configured origin when no match is found.
@@ -50,9 +54,12 @@ Create request:
 {
   "username": "dav-demo",
   "password": null,
-  "root_folder_id": 12
+  "root_folder_id": 12,
+  "access_mode": "read_write"
 }
 ```
+
+Read-only accounts fit clients that only consume content: backup pulls, mounted browsing, and monitoring/sync. Mount-style clients (Finder / Windows WebClient) that fail `LOCK` degrade to lock-free read-only access; this is expected.
 
 ## Mount URL
 
@@ -89,7 +96,7 @@ Common WebDAV methods are supported:
 
 Limits:
 
-- AsterDrive uses immutable `file_revision_histories` / `file_revisions` as the shared product history for REST, WebDAV writes, and WOPI writeback. Every successful create or overwrite appends a revision, and restore appends a new head without truncating history. This is still not the RFC 3253 wire model: the current capability snapshot does not advertise `version-control`, and `REPORT` / `VERSION-CONTROL` return resource-aware `405 Method Not Allowed`. Issue #448 owns the DeltaV methods, properties, URLs, and XML projection on top of this ledger.
+- AsterDrive uses immutable `file_revision_histories` / `file_revisions` as the shared product history for REST, WebDAV writes, and WOPI writeback. Every successful create or overwrite appends a revision, and restore appends a new head without truncating history. This is still not the RFC 3253 wire model: the current capability snapshot does not advertise `version-control`, and `VERSION-CONTROL` returns resource-aware `405 Method Not Allowed`. `REPORT` is not answered with `405` — supported reports (such as version-tree / expand-property) execute their query when the resource capabilities allow it, unknown reports answer `422`, and known but currently unavailable reports answer `409`. Issue #448 owns the DeltaV methods, properties, URLs, and XML projection on top of this ledger.
 - the `/webdav/` mount root is a virtual entry point, not a persisted folder entity. `PROPFIND /webdav/` may list contents and read live DAV properties, but `PROPPATCH /webdav/` explicitly returns `403 Forbidden`; custom dead properties are supported only on concrete files or folders.
 - missing `Depth` on `PROPFIND` is parsed as `infinity`; when the target is a collection, the server returns `403` with `DAV:propfind-finite-depth` instead of doing unbounded recursion.
 - `COPY` accepts `Depth: 0` or missing / `infinity`, and rejects `Depth: 1`; `COPY Depth: 0` copies only the collection itself and its dead properties, not children.

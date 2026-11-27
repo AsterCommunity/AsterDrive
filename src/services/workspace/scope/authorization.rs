@@ -60,6 +60,11 @@ struct WopiSessionBinding {
 struct WebdavCredentialBinding {
     account_id: i64,
     verifier_fingerprint: String,
+    /// Account-level access-mode ceiling: when `true`, every mutating
+    /// operation is rejected regardless of the owner's live product
+    /// permissions. The account row is the single source of truth; the auth
+    /// cache never carries this value.
+    read_only: bool,
 }
 
 impl std::fmt::Debug for WorkspaceAccessConstraints {
@@ -69,6 +74,10 @@ impl std::fmt::Debug for WorkspaceAccessConstraints {
             .field(
                 "webdav_account_id",
                 &self.webdav_credential.as_ref().map(|c| c.account_id),
+            )
+            .field(
+                "webdav_read_only",
+                &self.webdav_credential.as_ref().map(|c| c.read_only),
             )
             .field(
                 "wopi_session_id",
@@ -83,12 +92,14 @@ impl WorkspaceAccessConstraints {
         account_id: i64,
         verifier_fingerprint: String,
         root_folder_id: Option<i64>,
+        read_only: bool,
     ) -> Self {
         Self {
             root_folder_id,
             webdav_credential: Some(WebdavCredentialBinding {
                 account_id,
                 verifier_fingerprint,
+                read_only,
             }),
             wopi_session: None,
         }
@@ -397,6 +408,20 @@ pub(crate) async fn authorize_workspace_on<'db, C: ConnectionTrait>(
     constraints: &WorkspaceAccessConstraints,
 ) -> Result<AuthorizedWorkspaceAccess<'db, C>> {
     let mutates = operation.mutates();
+    // The WebDAV account access mode is an account-level ceiling: a read-only
+    // credential fails closed on every mutating operation, before any
+    // workspace write lock, membership recheck, or side effect is taken.
+    if mutates
+        && constraints
+            .webdav_credential
+            .as_ref()
+            .is_some_and(|credential| credential.read_only)
+    {
+        return Err(auth_forbidden_with_code(
+            ApiErrorCode::WebdavAccessReadOnly,
+            "WebDAV account is restricted to read-only access",
+        ));
+    }
     // Cancellation records task intent while a worker may hold the namespace.
     // Keep current actor/member locking; queued folder cleanup locks its namespace
     // in the cancellation service before acquiring these authority rows.
@@ -510,6 +535,15 @@ pub(crate) async fn authorize_workspace_on<'db, C: ConnectionTrait>(
             {
                 true => {}
                 false => return Err(scope_denied("WebDAV credential changed or revoked")),
+            }
+            // The account row is the live authority for the access-mode
+            // ceiling: even if a stale constraint snapshot claimed read_write,
+            // a concurrent flip to read_only must reject new mutations here.
+            if mutates && !account.access_mode.allows_mutation() {
+                return Err(auth_forbidden_with_code(
+                    ApiErrorCode::WebdavAccessReadOnly,
+                    "WebDAV account is restricted to read-only access",
+                ));
             }
         }
     }

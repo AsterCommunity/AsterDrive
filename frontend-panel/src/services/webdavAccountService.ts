@@ -3,6 +3,7 @@ import type {
 	CreateWebdavAccountRequest,
 	TeamWebdavAccountListQuery,
 	TestWebdavConnectionRequest,
+	WebdavAccessMode,
 	WebdavAccountCreated,
 	WebdavAccountInfo,
 	WebdavAccountListQuery,
@@ -39,6 +40,21 @@ export const webdavAccountService = {
 	toggleForTeam: (teamId: number, id: number) =>
 		api.post<WebdavAccountInfo>(
 			`/teams/${teamId}/webdav-accounts/${id}/toggle`,
+		),
+
+	setAccessMode: (id: number, accessMode: WebdavAccessMode) =>
+		api.post<WebdavAccountInfo>(`/webdav-accounts/${id}/access-mode`, {
+			access_mode: accessMode,
+		}),
+
+	setAccessModeForTeam: (
+		teamId: number,
+		id: number,
+		accessMode: WebdavAccessMode,
+	) =>
+		api.post<WebdavAccountInfo>(
+			`/teams/${teamId}/webdav-accounts/${id}/access-mode`,
+			{ access_mode: accessMode },
 		),
 
 	test: (data: TestWebdavConnectionRequest) =>

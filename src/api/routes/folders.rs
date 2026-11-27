@@ -770,6 +770,7 @@ pub(crate) async fn create_folder_response(
         body.parent_id,
         crate::services::files::lock::LockMutationCredentials::None,
         &ctx,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
     )
     .await?;
     Ok(HttpResponse::Created().json(crate::api::response::success(folder)))
@@ -812,7 +813,15 @@ pub(crate) async fn delete_folder_response(
     folder_id: i64,
 ) -> Result<HttpResponse> {
     let ctx = AuditContext::from_request(req, claims);
-    match folder::delete_in_scope_with_audit(state, scope, folder_id, &ctx).await? {
+    match folder::delete_in_scope_with_audit(
+        state,
+        scope,
+        folder_id,
+        &ctx,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?
+    {
         folder::FolderTreeMutationDispatch::Completed => {
             Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
         }

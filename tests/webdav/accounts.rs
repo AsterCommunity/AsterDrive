@@ -137,6 +137,7 @@ async fn test_legacy_webdav_password_rehashes_and_stale_cas_cannot_overwrite_it(
         "legacy-webdav-account",
         Some("legacy-webdav-password"),
         None,
+        aster_drive_model::types::WebdavAccessMode::ReadWrite,
     )
     .await
     .unwrap();
@@ -1318,4 +1319,313 @@ async fn test_webdav_account_enforces_minimum_client_provided_password_length() 
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201, "8-character password must be accepted");
+}
+
+#[actix_web::test]
+async fn test_webdav_account_access_mode_lifecycle_and_boundaries() {
+    let state = common::setup().await;
+    let account_state = state.clone();
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    // Creation without access_mode defaults to read_write.
+    let req = test::TestRequest::post()
+        .uri("/api/v1/webdav-accounts")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "username": "mode-lifecycle",
+            "password": webdav_test_password("MODE_LIFECYCLE")
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["access_mode"], "read_write");
+    let account_id = body["data"]["id"].as_i64().unwrap();
+
+    // An explicit read_only creation is honored.
+    let req = test::TestRequest::post()
+        .uri("/api/v1/webdav-accounts")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "username": "mode-readonly-birth",
+            "password": webdav_test_password("MODE_READONLY"),
+            "access_mode": "read_only"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["access_mode"], "read_only");
+
+    // Flipping to read_only succeeds and is audited.
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/webdav-accounts/{account_id}/access-mode"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "access_mode": "read_only" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["access_mode"], "read_only");
+    assert_eq!(
+        webdav_audit_action_count(&account_state, AuditAction::WebdavAccountAccessModeUpdate).await,
+        1
+    );
+
+    // An unknown mode is a stable validation error, not a silent default.
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/webdav-accounts/{account_id}/access-mode"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "access_mode": "admin" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        400,
+        "an unknown access mode must be rejected as a validation error"
+    );
+
+    // Flipping back to read_write works and re-arms the account.
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/webdav-accounts/{account_id}/access-mode"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "access_mode": "read_write" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["access_mode"], "read_write");
+
+    // A missing account 404s.
+    let req = test::TestRequest::post()
+        .uri("/api/v1/webdav-accounts/999999/access-mode")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "access_mode": "read_only" }))
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 404);
+}
+
+#[actix_web::test]
+async fn test_webdav_account_access_mode_rejects_foreign_and_team_mismatches() {
+    let state = common::setup().await;
+    let account_state = state.clone();
+    let app = create_test_app!(state);
+    let (owner_token, _) = register_and_login!(app);
+
+    let me_req = test::TestRequest::get()
+        .uri("/api/v1/auth/me")
+        .insert_header(("Cookie", common::access_cookie_header(&owner_token)))
+        .insert_header(common::csrf_header_for(&owner_token))
+        .to_request();
+    let me_resp = test::call_service(&app, me_req).await;
+    let me_body: Value = test::read_body_json(me_resp).await;
+    let owner_id = me_body["data"]["id"].as_i64().unwrap();
+    let team_id = seed_team_for_webdav_account_test(&account_state, owner_id).await;
+
+    let _foreign =
+        seed_active_user_for_webdav_account_test(&account_state, "mode-boundary-foreign").await;
+    let (foreign_token, _) = login_user!(app, "mode-boundary-foreign", "password123");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/webdav-accounts")
+        .insert_header(("Cookie", common::access_cookie_header(&owner_token)))
+        .insert_header(common::csrf_header_for(&owner_token))
+        .set_json(serde_json::json!({
+            "username": "mode-owner-personal",
+            "password": webdav_test_password("MODE_OWNER")
+        }))
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 201);
+    let personal =
+        webdav_account_repo::find_by_username(account_state.writer_db(), "mode-owner-personal")
+            .await
+            .unwrap()
+            .unwrap();
+
+    // A foreign user must not flip someone else's personal account.
+    let req = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/webdav-accounts/{}/access-mode",
+            personal.id
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&foreign_token)))
+        .insert_header(common::csrf_header_for(&foreign_token))
+        .set_json(serde_json::json!({ "access_mode": "read_only" }))
+        .to_request();
+    assert_eq!(
+        test::call_service(&app, req).await.status(),
+        403,
+        "a foreign user must not change another user's account access mode"
+    );
+
+    // A personal account must not be managed through the team endpoint.
+    let req = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/teams/{team_id}/webdav-accounts/{}/access-mode",
+            personal.id
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&owner_token)))
+        .insert_header(common::csrf_header_for(&owner_token))
+        .set_json(serde_json::json!({ "access_mode": "read_only" }))
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 404);
+
+    // Team account: owner flips it through the team endpoint.
+    let team_password = webdav_test_password("MODE_TEAM");
+    let team_account = webdav_account::ActiveModel {
+        user_id: Set(owner_id),
+        team_id: Set(Some(team_id)),
+        username: Set("mode-team-account".to_string()),
+        password_hash: Set(aster_forge_crypto::hash_password(&team_password)
+            .expect("team mode password should hash")),
+        root_folder_id: Set(None),
+        access_mode: Set(aster_drive_model::types::WebdavAccessMode::ReadWrite),
+        is_active: Set(true),
+        created_at: Set(Utc::now()),
+        updated_at: Set(Utc::now()),
+        ..Default::default()
+    }
+    .insert(account_state.writer_db())
+    .await
+    .expect("team mode account should be inserted");
+
+    let req = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/teams/{team_id}/webdav-accounts/{}/access-mode",
+            team_account.id
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&owner_token)))
+        .insert_header(common::csrf_header_for(&owner_token))
+        .set_json(serde_json::json!({ "access_mode": "read_only" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["access_mode"], "read_only");
+    assert_eq!(
+        webdav_audit_action_count(
+            &account_state,
+            AuditAction::TeamWebdavAccountAccessModeUpdate
+        )
+        .await,
+        1
+    );
+
+    // The team account must not be reachable through the personal endpoint.
+    let req = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/webdav-accounts/{}/access-mode",
+            team_account.id
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&owner_token)))
+        .insert_header(common::csrf_header_for(&owner_token))
+        .set_json(serde_json::json!({ "access_mode": "read_write" }))
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 403);
+}
+
+/// The full product chain: a read_only account is denied protocol mutations
+/// with 403 while reads keep working on the real WebDAV surface.
+#[actix_web::test]
+async fn test_webdav_account_access_mode_read_only_protocol_enforcement() {
+    use crate::client_e2e::start_real_webdav_server;
+
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/webdav-accounts")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "username": "protocol-readonly",
+            "password": webdav_test_password("PROTOCOL_READONLY")
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let account_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/webdav-accounts/{account_id}/access-mode"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "access_mode": "read_only" }))
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 200);
+
+    let account = webdav_account_repo::find_by_id(state.writer_db(), account_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        account.access_mode,
+        aster_drive_model::types::WebdavAccessMode::ReadOnly
+    );
+
+    let server = start_real_webdav_server(state.clone()).await;
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
+    use base64::Engine;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(format!(
+        "protocol-readonly:{}",
+        webdav_test_password("PROTOCOL_READONLY")
+    ));
+    let basic = format!("Basic {encoded}");
+
+    let response = client
+        .put(format!("{}/webdav/protocol.txt", server.base_url))
+        .header(reqwest::header::AUTHORIZATION, &basic)
+        .body("blocked content")
+        .send()
+        .await
+        .expect("protocol PUT request should complete");
+    assert_eq!(
+        response.status(),
+        reqwest::StatusCode::FORBIDDEN,
+        "a read-only account must receive 403 on PUT"
+    );
+
+    let response = client
+        .request(
+            reqwest::Method::from_bytes(b"MKCOL").expect("MKCOL method should be valid"),
+            format!("{}/webdav/blocked-collection/", server.base_url),
+        )
+        .header(reqwest::header::AUTHORIZATION, &basic)
+        .send()
+        .await
+        .expect("protocol MKCOL request should complete");
+    assert_eq!(
+        response.status(),
+        reqwest::StatusCode::FORBIDDEN,
+        "a read-only account must receive 403 on MKCOL"
+    );
+
+    let response = client
+        .request(
+            reqwest::Method::from_bytes(b"PROPFIND").expect("PROPFIND method should be valid"),
+            format!("{}/webdav/", server.base_url),
+        )
+        .header(reqwest::header::AUTHORIZATION, &basic)
+        .header("Depth", "0")
+        .body(r#"<d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/></d:prop></d:propfind>"#)
+        .send()
+        .await
+        .expect("protocol PROPFIND request should complete");
+    assert_eq!(
+        response.status(),
+        reqwest::StatusCode::MULTI_STATUS,
+        "reads must keep working for a read-only account"
+    );
+
+    server.stop().await;
 }
