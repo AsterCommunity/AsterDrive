@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { checkLinks, root, registryPath, validate } from './storage-provider-evidence.mjs'
+import { checkLinks, render, root, registryPath, validate } from './storage-provider-evidence.mjs'
 
 const registry = JSON.parse(readFileSync(resolve(root, registryPath), 'utf8'))
 const now = new Date()
@@ -15,6 +15,26 @@ function rejects(change, message) {
 
 test('current provider inventory and actual source contracts validate', () => {
   assert.ok(Array.isArray(validate(registry, { now })))
+})
+
+test('wire guards accept CRLF evidence against normalized source files', () => {
+  const data = structuredClone(registry)
+  const guard = data.providers[0].guards[0]
+  const source = readFileSync(resolve(root, guard.path), 'utf8').replaceAll('\r\n', '\n')
+  const lines = source.trimEnd().split('\n')
+  assert.ok(lines.length > 1)
+  guard.contains.push(lines.slice(0, 2).join('\r\n'))
+  assert.doesNotThrow(() => validate(data, { now }))
+})
+
+test('rendered evidence normalizes CRLF notes before drift comparison', () => {
+  const data = structuredClone(registry)
+  data.providers[0].sources[0].note = 'First line\r\nSecond line'
+  const expected = structuredClone(data)
+  expected.providers[0].sources[0].note = 'First line\nSecond line'
+  for (const locale of ['zh-CN', 'en']) {
+    assert.equal(render(data, locale).replaceAll('\r\n', '\n'), render(expected, locale))
+  }
 })
 test('new or removed connector cannot lose its evidence', () => {
   rejects((data) => data.providers.pop(), /inventory/)

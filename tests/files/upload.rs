@@ -4169,6 +4169,198 @@ async fn test_stale_offset_assembly_requires_released_inode_lock_and_retries_onc
 }
 
 #[actix_web::test]
+async fn test_offset_candidate_cleanup_after_abandoned_finalization() {
+    use aster_drive::db::repository::upload_session_repo;
+    use aster_drive::services::files::upload;
+    use aster_drive_model::{entities::upload_session, types::UploadSessionStatus};
+    use sea_orm::{ActiveModelTrait, Set};
+
+    for dedup in [false, true] {
+        for action in ["cancel", "expire", "force", "tracked", "delete-failure"] {
+            let state = common::setup().await;
+            set_default_local_content_dedup(&state, dedup).await;
+            let owner = common::create_test_account(
+                &state,
+                "abandonedcandidate",
+                "abandoned-candidate@example.com",
+                "password123",
+            )
+            .await
+            .unwrap();
+            let upload_id = new_test_upload_id();
+            create_upload_session(
+                &state,
+                owner.id,
+                UploadSessionSpec::new(
+                    &upload_id,
+                    if action == "delete-failure" {
+                        UploadSessionStatus::Failed
+                    } else {
+                        UploadSessionStatus::Assembling
+                    },
+                    chrono::Utc::now() + chrono::Duration::hours(1),
+                    UploadSessionKind::OffsetStaging,
+                )
+                .chunks(2, 2),
+            )
+            .await;
+            let path = create_sparse_staging_file(&state, &upload_id, 10, b"0123456789").await;
+            let session = upload_session_repo::find_by_id(state.writer_db(), &upload_id)
+                .await
+                .unwrap();
+            let policy = policy_repo::find_by_id(state.writer_db(), session.policy_id)
+                .await
+                .unwrap();
+            let driver = state.driver_registry.get_driver(&policy).unwrap();
+            let key = aster_forge_validation::filename::storage_path_from_blob_key(&format!(
+                "upload-{upload_id}"
+            ))
+            .unwrap();
+            let target = driver
+                .extensions()
+                .local_path
+                .unwrap()
+                .resolve_local_path(&key)
+                .unwrap();
+            tokio::fs::create_dir_all(target.parent().unwrap())
+                .await
+                .unwrap();
+            if action == "delete-failure" {
+                // A directory cannot be removed by the driver's object delete.
+                tokio::fs::create_dir(&target).await.unwrap();
+            } else {
+                tokio::fs::hard_link(&path, &target).await.unwrap();
+            }
+
+            if action == "tracked" {
+                // A committed zero-reference row has already transferred this
+                // object's ownership to blob GC, even without a live file.
+                aster_drive::db::repository::file_repo::create_blob(
+                    state.writer_db(),
+                    aster_drive_model::entities::file_blob::ActiveModel {
+                        hash: Set(format!("upload-{upload_id}")),
+                        size: Set(10),
+                        policy_id: Set(policy.id),
+                        storage_path: Set(Some(key.clone())),
+                        ref_count: Set(0),
+                        created_at: Set(chrono::Utc::now()),
+                        updated_at: Set(chrono::Utc::now()),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .unwrap();
+            }
+
+            // The process died after linking the candidate, before creating any blob row.
+            if action == "cancel" {
+                upload::cancel_upload(&state, &upload_id, owner.id)
+                    .await
+                    .unwrap();
+            }
+            if action == "force" {
+                upload::cleanup_before_forced_policy_delete(&state, policy.id)
+                    .await
+                    .unwrap();
+            } else {
+                let session = upload_session_repo::find_by_id(state.writer_db(), &upload_id)
+                    .await
+                    .unwrap();
+                let mut expired: upload_session::ActiveModel = session.into();
+                expired.updated_at = Set(chrono::Utc::now() - chrono::Duration::minutes(5));
+                expired.expires_at = Set(chrono::Utc::now() - chrono::Duration::minutes(1));
+                expired.update(state.writer_db()).await.unwrap();
+                if action == "delete-failure" {
+                    assert_eq!(upload::cleanup_expired(&state).await.unwrap(), 0);
+                    assert!(
+                        std::path::Path::new(&path).exists(),
+                        "failed delete must preserve the retry source"
+                    );
+                    assert!(
+                        upload_session_repo::find_by_id(state.writer_db(), &upload_id)
+                            .await
+                            .is_ok()
+                    );
+                    tokio::fs::remove_dir(&target).await.unwrap();
+                }
+                assert_eq!(upload::cleanup_expired(&state).await.unwrap(), 1);
+            }
+            assert_eq!(
+                target.exists(),
+                action == "tracked",
+                "{action}, dedup={dedup}: candidate ownership"
+            );
+            assert!(
+                !std::path::Path::new(&path).exists(),
+                "{action}: staging must be released"
+            );
+            assert!(
+                upload_session_repo::find_by_id(state.writer_db(), &upload_id)
+                    .await
+                    .is_err()
+            );
+        }
+    }
+}
+
+#[actix_web::test]
+async fn test_offset_candidate_cleanup_waits_for_assembly_inode_lock() {
+    use aster_drive::db::repository::upload_session_repo;
+    use aster_drive::services::files::upload;
+    use aster_drive_model::{entities::upload_session, types::UploadSessionStatus};
+    use sea_orm::{ActiveModelTrait, Set};
+
+    let state = common::setup().await;
+    let owner = common::create_test_account(
+        &state,
+        "candidateowner",
+        "candidate-owner@example.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let upload_id = new_test_upload_id();
+    create_upload_session(
+        &state,
+        owner.id,
+        UploadSessionSpec::new(
+            &upload_id,
+            UploadSessionStatus::Assembling,
+            chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::OffsetStaging,
+        )
+        .chunks(2, 2),
+    )
+    .await;
+    let path = create_sparse_staging_file(&state, &upload_id, 10, b"0123456789").await;
+    let live_owner = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&path)
+        .unwrap();
+    aster_fs::FileExt::try_lock(&live_owner).unwrap();
+    upload::cancel_upload(&state, &upload_id, owner.id)
+        .await
+        .unwrap();
+    assert!(
+        std::path::Path::new(&path).exists(),
+        "cancel must preserve the inode that fences a live publisher"
+    );
+    let session = upload_session_repo::find_by_id(state.writer_db(), &upload_id)
+        .await
+        .unwrap();
+    let mut expired: upload_session::ActiveModel = session.into();
+    expired.updated_at = Set(chrono::Utc::now() - chrono::Duration::minutes(5));
+    expired.expires_at = Set(chrono::Utc::now() - chrono::Duration::minutes(1));
+    expired.update(state.writer_db()).await.unwrap();
+    assert_eq!(upload::cleanup_expired(&state).await.unwrap(), 0);
+    assert!(std::path::Path::new(&path).exists());
+    drop(live_owner);
+    assert_eq!(upload::cleanup_expired(&state).await.unwrap(), 1);
+    assert!(!std::path::Path::new(&path).exists());
+}
+
+#[actix_web::test]
 async fn test_concurrent_distinct_chunks_write_to_their_staging_offsets() {
     use aster_drive::services::files::upload;
 

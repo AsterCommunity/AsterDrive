@@ -3,6 +3,7 @@
 #[cfg(unix)]
 use std::sync::OnceLock;
 
+/// Stable persistence boundaries supported by the process-level recovery fixture.
 pub const CHECKPOINTS: &[&str] = &[
     "upload.after_staging_sync_before_receipt_transaction",
     "upload.after_blob_persist_before_finalize_transaction",
@@ -75,9 +76,11 @@ pub async fn checkpoint(name: &'static str) {
 }
 
 #[cfg(not(unix))]
+/// Rejects fixture installation on platforms without Unix sockets and signals.
 pub fn install_fixture_from_env() -> std::io::Result<()> {
     Err(std::io::Error::other("reliability fixture requires Unix"))
 }
 
 #[cfg(not(unix))]
+/// Leaves production operations unchanged on unsupported fixture platforms.
 pub async fn checkpoint(_name: &'static str) {}

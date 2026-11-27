@@ -181,6 +181,7 @@ undocumented_unsafe_blocks = "deny"
 
 [package]
 name = "aster_drive"
+default-run = "aster_drive"
 version.workspace = true
 description = "A self-hosted cloud storage solution."
 authors.workspace = true

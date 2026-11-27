@@ -54,7 +54,7 @@ export function validate(data, { base = root, now = new Date() } = {}) {
     requireThat(p.guards.length > 0, `${label}: missing wire guards`)
     for (const g of p.guards) {
       const source = safePath(g.path)
-      requireThat(g.contains.length > 0 && g.contains.every((s) => nonempty(s) && source.includes(s)), `${label}: protocol/limit drift in ${g.path}`)
+      requireThat(g.contains.length > 0 && g.contains.every((s) => nonempty(s) && source.includes(s.replaceAll('\r\n', '\n'))), `${label}: protocol/limit drift in ${g.path}`)
     }
     for (const path of p.code) {
       requireThat(safePath(path).includes(`Provider evidence: ${pagePath('zh-CN')}#${p.id}`), `${label}: missing source evidence reference in ${path}`)
@@ -110,7 +110,7 @@ export function render(data, locale) {
     `Schema: ${data.schema_version}; ${zh ? '复核周期' : 'refresh interval'}: ${data.refresh_days} days.`, '']
   const labels = zh ? ['对象读写', '分片/续传', '签名/预签名', 'CORS', 'Range/ETag', '错误', '权限', '源站/上传/CDN/自定义域'] : ['Object I/O', 'Multipart/resumable', 'Signing/presigned', 'CORS', 'Range/ETag', 'Errors', 'Permissions', 'Origin/upload/CDN/custom domain']
   const codeLink = (path) => `[${path}](https://github.com/AsterCommunity/AsterDrive/blob/master/${path})`
-  const cell = (s) => s.replaceAll('|', '\\|').replaceAll('\n', ' ')
+  const cell = (s) => s.replaceAll('\r\n', '\n').replaceAll('|', '\\|').replaceAll('\n', ' ')
   for (const p of data.providers) {
     lines.push(`<a id="${p.id}"></a>`, '', `## ${p.id}`, '', `Connector: \`${p.connector_id}\`; owner: ${p.owner}; API: ${p.api_version}.`, '',
       `SDK/transport: ${p.dependencies.map((d) => `\`${d.name}@${d.version}\``).join(', ')}.`, '',
@@ -192,7 +192,7 @@ async function main() {
   const unresolved = validate(data)
   for (const locale of ['zh-CN', 'en']) {
     const path = resolve(root, pagePath(locale))
-    const expected = render(data, locale)
+    const expected = render(data, locale).replaceAll('\r\n', '\n')
     if (args.includes('--write')) { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, expected) }
     else requireThat(read(root, pagePath(locale)) === expected, `${pagePath(locale)} drift; run node docs/scripts/storage-provider-evidence.mjs --write`)
   }

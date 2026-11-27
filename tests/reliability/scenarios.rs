@@ -108,6 +108,7 @@ impl DurableState {
         for (key, value) in [
             ("background_task_dispatch_interval_secs", "1"),
             ("background_task_dispatch_idle_max_interval_secs", "1"),
+            ("maintenance_cleanup_interval_secs", "1"),
             ("archive_compress_enabled", "true"),
         ] {
             config_repo::upsert_with_actor(&db, key, value, None)
@@ -459,180 +460,258 @@ async fn crash_recovery() {
         "MinIO applies to archive checkpoints; offset staging requires local storage"
     );
     for checkpoint in &selection.checkpoints {
-        let evidence = Evidence::new(&selection, checkpoint);
-        let state = DurableState::create().await;
-        let mut controller = CheckpointController::bind(&state.dir.join("ipc-1"), "1", checkpoint);
-        let client = client();
-        let mut server = Server::spawn(&state, &evidence, 1, Some(checkpoint));
-        server.ready(&client).await;
-        let token = login(&client, &server).await;
-        let mut minio = if object_storage == "minio" {
-            Some(super::minio::Minio::start().await)
-        } else {
-            None
-        };
-        let payload = selection.payload();
-        let upload = init(&client, &server, &token, &payload).await;
-        let request = if checkpoint.ends_with("after_staging_sync_before_receipt_transaction") {
-            chunk(&client, &server, &token, &upload, 0, &payload[..2048])
-        } else {
-            upload_chunks(&client, &server, &token, &upload, &payload).await;
-            complete(&client, &server, &token, &upload)
-        };
-        let mut task_id = None;
-        let pending = if checkpoint.starts_with("task.") {
-            let source = data(request).await;
-            if let Some(minio) = &mut minio {
-                minio.route_archives(&client, &server, &token).await;
-            }
-            let task = data(client.post(format!("{}/api/v1/batch/archive-compress", server.url)).bearer_auth(&token)
+        let outcomes: &[&str] =
+            if *checkpoint == "upload.after_blob_persist_before_finalize_transaction" {
+                &["complete", "cancel", "expire"]
+            } else {
+                &["complete"]
+            };
+        for outcome in outcomes {
+            let evidence = Evidence::new(&selection, checkpoint);
+            evidence.write("outcome.json", &json!({"outcome":outcome}));
+            let state = DurableState::create().await;
+            let mut controller =
+                CheckpointController::bind(&state.dir.join("ipc-1"), "1", checkpoint);
+            let client = client();
+            let mut server = Server::spawn(&state, &evidence, 1, Some(checkpoint));
+            server.ready(&client).await;
+            let token = login(&client, &server).await;
+            let mut minio = if object_storage == "minio" {
+                Some(super::minio::Minio::start().await)
+            } else {
+                None
+            };
+            let payload = selection.payload();
+            let upload = init(&client, &server, &token, &payload).await;
+            let request = if checkpoint.ends_with("after_staging_sync_before_receipt_transaction") {
+                chunk(&client, &server, &token, &upload, 0, &payload[..2048])
+            } else {
+                upload_chunks(&client, &server, &token, &upload, &payload).await;
+                complete(&client, &server, &token, &upload)
+            };
+            let mut task_id = None;
+            let pending = if checkpoint.starts_with("task.") {
+                let source = data(request).await;
+                if let Some(minio) = &mut minio {
+                    minio.route_archives(&client, &server, &token).await;
+                }
+                let task = data(client.post(format!("{}/api/v1/batch/archive-compress", server.url)).bearer_auth(&token)
                 .json(&json!({"file_ids":[source["id"]],"folder_ids":[],"archive_name":"durable.zip"}))).await;
-            task_id = Some(task["id"].as_i64().unwrap());
-            None
-        } else {
-            Some(tokio::spawn(async move { request.send().await }))
-        };
-        let reached = controller.wait(TIMEOUT).await;
-        evidence.write("checkpoint.json", &json!({"generation":1,"checkpoint":checkpoint,"reached":reached.is_ok(),"error":reached.as_ref().err()}));
-        assert!(
-            reached.is_ok(),
-            "checkpoint evidence missing; see redacted artifacts"
-        );
-        let before = evidence.inspect("before-kill.json", &state, &token).await;
-        before.assert_valid();
-        // TestProcess::terminate is Child::kill (SIGKILL on Unix), followed by wait.
-        server.process.terminate();
-        evidence.write(
-            "killed.json",
-            &json!({"generation":1,"signal":"SIGKILL","checkpoint_confirmed":true}),
-        );
-        controller.assert_no_duplicate().await;
-        if let Some(pending) = pending {
-            let _connection_closed = pending.await.unwrap();
-        }
-        let claimed = if let Some(id) = task_id {
-            Some(
-                background_task::Entity::find_by_id(id)
-                    .one(&state.db)
-                    .await
-                    .unwrap()
-                    .unwrap(),
-            )
-        } else {
-            None
-        };
-        drop(server);
-        if let Some(claimed) = &claimed {
-            assert_eq!(claimed.status, BackgroundTaskStatus::Processing);
-            // Probe the actual persisted lease with a controlled time before its
-            // expiry, while no dispatcher can reclaim or change the token.
-            let lease_expires_at = claimed.lease_expires_at.expect("claimed task lease");
-            let now = lease_expires_at - chrono::Duration::seconds(1);
+                task_id = Some(task["id"].as_i64().unwrap());
+                None
+            } else {
+                Some(tokio::spawn(async move { request.send().await }))
+            };
+            let reached = controller.wait(TIMEOUT).await;
+            evidence.write("checkpoint.json", &json!({"generation":1,"checkpoint":checkpoint,"reached":reached.is_ok(),"error":reached.as_ref().err()}));
             assert!(
-                !background_task_repo::try_claim(
-                    &state.db,
-                    claimed.id,
-                    claimed.processing_token,
-                    now,
-                    now - chrono::Duration::seconds(60),
-                    claimed.processing_token + 1,
-                    lease_expires_at,
-                )
-                .await
-                .unwrap(),
-                "unexpired lease must reject a competing claim"
+                reached.is_ok(),
+                "checkpoint evidence missing; see redacted artifacts"
             );
-        }
-        let mut recovery_controller = task_id.map(|_| {
-            CheckpointController::bind(
-                &state.dir.join("ipc-2"),
-                "2",
-                "task.after_claim_before_handler",
-            )
-        });
-        let mut restarted = Server::spawn(
-            &state,
-            &evidence,
-            2,
-            task_id.map(|_| "task.after_claim_before_handler"),
-        );
-        restarted.ready(&client).await;
-        if let Some(claimed) = claimed {
-            recover_task(
-                RecoveryContext {
-                    state: &state,
-                    client: &client,
-                    restarted: &restarted,
-                    token: &token,
-                    payload: &payload,
-                    evidence: &evidence,
-                },
-                &claimed,
-                recovery_controller.as_mut().unwrap(),
-            )
-            .await;
-        } else {
-            if checkpoint.ends_with("after_staging_sync_before_receipt_transaction") {
-                let session = upload_session::Entity::find_by_id(upload.clone())
-                    .one(&state.db)
+            let before = evidence.inspect("before-kill.json", &state, &token).await;
+            before.assert_valid();
+            // TestProcess::terminate is Child::kill (SIGKILL on Unix), followed by wait.
+            server.process.terminate();
+            evidence.write(
+                "killed.json",
+                &json!({"generation":1,"signal":"SIGKILL","checkpoint_confirmed":true}),
+            );
+            controller.assert_no_duplicate().await;
+            if let Some(pending) = pending {
+                let _connection_closed = pending.await.unwrap();
+            }
+            let claimed = if let Some(id) = task_id {
+                Some(
+                    background_task::Entity::find_by_id(id)
+                        .one(&state.db)
+                        .await
+                        .unwrap()
+                        .unwrap(),
+                )
+            } else {
+                None
+            };
+            drop(server);
+            if let Some(claimed) = &claimed {
+                assert_eq!(claimed.status, BackgroundTaskStatus::Processing);
+                // Probe the actual persisted lease with a controlled time before its
+                // expiry, while no dispatcher can reclaim or change the token.
+                let lease_expires_at = claimed.lease_expires_at.expect("claimed task lease");
+                let now = lease_expires_at - chrono::Duration::seconds(1);
+                assert!(
+                    !background_task_repo::try_claim(
+                        &state.db,
+                        claimed.id,
+                        claimed.processing_token,
+                        now,
+                        now - chrono::Duration::seconds(60),
+                        claimed.processing_token + 1,
+                        lease_expires_at,
+                    )
                     .await
-                    .unwrap()
-                    .unwrap();
-                assert_eq!(session.received_count, 0, "synced bytes are not a receipt");
-                upload_chunks(&client, &restarted, &token, &upload, &payload).await;
-                upload_chunks(&client, &restarted, &token, &upload, &payload).await;
-                let session = upload_session::Entity::find_by_id(upload.clone())
-                    .one(&state.db)
-                    .await
-                    .unwrap()
-                    .unwrap();
-                assert_eq!(
-                    session.received_count, 2,
-                    "range retries cannot double-count receipts"
+                    .unwrap(),
+                    "unexpired lease must reject a competing claim"
                 );
             }
-            let file = retry_completion(&client, &restarted, &token, &upload).await;
-            let repeated = data(complete(&client, &restarted, &token, &upload)).await;
-            assert_eq!(
-                file["id"], repeated["id"],
-                "completed-session retry must reuse product result"
+            let mut recovery_controller = task_id.map(|_| {
+                CheckpointController::bind(
+                    &state.dir.join("ipc-2"),
+                    "2",
+                    "task.after_claim_before_handler",
+                )
+            });
+            let mut restarted = Server::spawn(
+                &state,
+                &evidence,
+                2,
+                task_id.map(|_| "task.after_claim_before_handler"),
             );
-            assert_eq!(
-                download(&client, &restarted, &token, file["id"].as_i64().unwrap()).await,
-                payload
-            );
-            let after = evidence
-                .inspect("after-recovery.json", &state, &token)
+            restarted.ready(&client).await;
+            if let Some(claimed) = claimed {
+                recover_task(
+                    RecoveryContext {
+                        state: &state,
+                        client: &client,
+                        restarted: &restarted,
+                        token: &token,
+                        payload: &payload,
+                        evidence: &evidence,
+                    },
+                    &claimed,
+                    recovery_controller.as_mut().unwrap(),
+                )
                 .await;
-            after.assert_valid();
-            assert_eq!(after.files, 1);
-            assert_eq!(after.quota_used, i64::try_from(payload.len()).unwrap());
-            assert_local_objects_tracked(&state).await;
-            assert!(
-                !state.dir.join("uploads").join(&upload).exists(),
-                "completed upload retry must clean staging state"
+            } else {
+                if *outcome != "complete" {
+                    recover_abandoned_upload(&state, &client, &restarted, &token, &upload, outcome)
+                        .await;
+                    evidence
+                        .inspect("after-cleanup.json", &state, &token)
+                        .await
+                        .assert_valid();
+                    restarted.ready(&client).await;
+                    evidence.write("complete.json", &json!({"checkpoint":checkpoint,"seed":selection.seed,"outcome":outcome,"recovered":true}));
+                    drop(restarted);
+                    state.db.close().await.unwrap();
+                    if let Some(database) = state._database {
+                        database.cleanup().await;
+                    }
+                    continue;
+                }
+                if checkpoint.ends_with("after_staging_sync_before_receipt_transaction") {
+                    let session = upload_session::Entity::find_by_id(upload.clone())
+                        .one(&state.db)
+                        .await
+                        .unwrap()
+                        .unwrap();
+                    assert_eq!(session.received_count, 0, "synced bytes are not a receipt");
+                    upload_chunks(&client, &restarted, &token, &upload, &payload).await;
+                    upload_chunks(&client, &restarted, &token, &upload, &payload).await;
+                    let session = upload_session::Entity::find_by_id(upload.clone())
+                        .one(&state.db)
+                        .await
+                        .unwrap()
+                        .unwrap();
+                    assert_eq!(
+                        session.received_count, 2,
+                        "range retries cannot double-count receipts"
+                    );
+                }
+                let file = retry_completion(&client, &restarted, &token, &upload).await;
+                let repeated = data(complete(&client, &restarted, &token, &upload)).await;
+                assert_eq!(
+                    file["id"], repeated["id"],
+                    "completed-session retry must reuse product result"
+                );
+                assert_eq!(
+                    download(&client, &restarted, &token, file["id"].as_i64().unwrap()).await,
+                    payload
+                );
+                let after = evidence
+                    .inspect("after-recovery.json", &state, &token)
+                    .await;
+                after.assert_valid();
+                assert_eq!(after.files, 1);
+                assert_eq!(after.quota_used, i64::try_from(payload.len()).unwrap());
+                assert_local_objects_tracked(&state).await;
+                assert!(
+                    !state.dir.join("uploads").join(&upload).exists(),
+                    "completed upload retry must clean staging state"
+                );
+            }
+            restarted.ready(&client).await;
+            if let Some(minio) = &minio {
+                minio.assert_objects_tracked(&state.db).await;
+            }
+            data(
+                client
+                    .get(format!("{}/api/v1/folders", restarted.url))
+                    .bearer_auth(&token),
+            )
+            .await;
+            evidence.write(
+                "complete.json",
+                &json!({"checkpoint":checkpoint,"seed":selection.seed,"recovered":true}),
             );
-        }
-        restarted.ready(&client).await;
-        if let Some(minio) = &minio {
-            minio.assert_objects_tracked(&state.db).await;
-        }
-        data(
-            client
-                .get(format!("{}/api/v1/folders", restarted.url))
-                .bearer_auth(&token),
-        )
-        .await;
-        evidence.write(
-            "complete.json",
-            &json!({"checkpoint":checkpoint,"seed":selection.seed,"recovered":true}),
-        );
-        drop(restarted);
-        state.db.close().await.unwrap();
-        if let Some(database) = state._database {
-            database.cleanup().await;
+            drop(restarted);
+            state.db.close().await.unwrap();
+            if let Some(database) = state._database {
+                database.cleanup().await;
+            }
         }
     }
+}
+
+async fn recover_abandoned_upload(
+    state: &DurableState,
+    client: &aster_forge_http::HttpClient,
+    server: &Server,
+    token: &str,
+    upload: &str,
+    outcome: &str,
+) {
+    use sea_orm::ActiveModelTrait;
+
+    if outcome == "cancel" {
+        data(
+            client
+                .delete(format!("{}/api/v1/files/upload/{upload}", server.url))
+                .bearer_auth(token),
+        )
+        .await;
+    }
+    let session = upload_session::Entity::find_by_id(upload.to_owned())
+        .one(&state.db)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut expired: upload_session::ActiveModel = session.into();
+    expired.expires_at = Set(Utc::now() - chrono::Duration::minutes(1));
+    expired.updated_at = Set(Utc::now() - chrono::Duration::minutes(5));
+    expired.update(&state.db).await.unwrap();
+    // The restarted server runs the ordinary periodic cleanup. Time is used
+    // only as a bounded liveness check, never as evidence of the crash point.
+    tokio::time::timeout(TIMEOUT, async {
+        loop {
+            if upload_session::Entity::find_by_id(upload.to_owned())
+                .one(&state.db)
+                .await
+                .unwrap()
+                .is_none()
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("abandoned upload cleanup did not finish");
+    assert!(!state.dir.join("uploads").join(upload).exists());
+    assert_local_objects_tracked(state).await;
+    let snapshot = invariants::inspect(&state.db, &[SECRET, PASSWORD, token]).await;
+    snapshot.assert_valid();
+    assert_eq!(snapshot.files, 0);
+    assert_eq!(snapshot.quota_used, 0);
 }
 
 async fn assert_local_objects_tracked(state: &DurableState) {

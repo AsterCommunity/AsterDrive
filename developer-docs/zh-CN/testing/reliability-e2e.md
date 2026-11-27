@@ -12,11 +12,11 @@ ASTER_RELIABILITY_STORAGE=minio make reliability-e2e BACKEND=postgres SCENARIO=a
 
 `SCENARIO` 支持 `all`、`upload` 和 `archive-task`。默认 SQLite + 本地文件；每个场景创建隔离数据库及临时目录。设置 `ASTER_TEST_DATABASE_BACKEND=postgres` 时使用真实 PostgreSQL 和 Redis。`SEED` 通过固定 SplitMix64 映射到输入字节，失败产物的 `replay.json` 记录 seed、checkpoint 和构建 revision。
 
-六个稳定检查点位于上传 staging sync、blob 持久化、上传最终提交后清理，以及 archive task claim、结果副作用、终态更新边界。上传恢复测试检查成功下载内容、session 重试幂等、文件/blob 引用计数、用户 quota、审计和本地对象归属。后台任务在租约到期后检查 token fencing、唯一 archive 结果和独立请求可用性。
+六个稳定检查点位于上传 staging sync、blob 持久化、上传最终提交后清理，以及 archive task claim、结果副作用、终态更新边界。上传恢复测试检查成功下载内容、session 重试幂等、文件/blob 引用计数、用户 quota、审计和本地对象归属。blob 持久化检查点还分别验证重启后的取消和过期回收：候选对象、staging 和 session 一起清理，不创建文件或计费；`outcome.json` 记录本次恢复分支。后台任务在租约到期后检查 token fencing、唯一 archive 结果和独立请求可用性。
 
 失败时 `target/reliability/<seed>-<checkpoint>-<run>/` 保存启动代次、检查点确认、SIGKILL 和前后结构化快照。子进程日志在落盘前移除 URL、凭据和标记为敏感的行。缺失、重复、超时或旧代次通知都会使测试失败；重放时使用相同 `SCENARIO`、`CHECKPOINT`、`SEED`。
 
-offset-staging 在组装租约过期后，还必须取得 staging inode 的独占文件锁，才能用观察到的 `updated_at` 做 CAS 恢复。blob 发布保留 staging；非去重模式使用 session 专属稳定 key，禁止覆盖已有对象。最终事务已提交的 retry 只返回原文件并清理 staging，不重复计费。数据库提交结果不明确时，继续沿现有错误模型保留可恢复状态。
+offset-staging 在组装租约过期后，还必须取得 staging inode 的独占文件锁，才能用观察到的 `updated_at` 做 CAS 恢复。blob 发布保留 staging，使用 session 专属稳定 key，禁止覆盖已有对象。取消、过期和普通强制策略清理同样取得 inode 锁后回收尚未被 blob 记录接管的候选对象；锁未释放或删除失败时保留 session 和 staging 供重试。最终事务已提交的 retry 只返回原文件并清理 staging，不重复计费。数据库提交结果不明确时，继续沿现有错误模型保留可恢复状态。
 
 MinIO 模式把 archive 输出路由到 S3，源文件仍使用本地 offset-staging。它只接受三个 `task.*` 检查点；三个 `upload.*` 检查点专门验证本地格式，选择不适用的组合会失败。任务的非去重输出和去重私有候选均在外部写入前登记零引用 blob，发布事务原子移交候选对象所有权；崩溃遗留的对象必须有 `cleanup_pending_since`，由现有 blob GC 清理。恢复后只允许一个有产品引用的 archive 对象。MySQL 真实进程矩阵属于后续范围。
 
