@@ -825,6 +825,7 @@ impl DavFileSystem for AsterDavFs {
                     credentials.submitted_lock_tokens,
                 ),
                 crate::services::workspace::activity::ActivitySource::Webdav,
+                &self.access_constraints,
             )
             .await
             .map_err(to_fs_error)?;
@@ -870,6 +871,7 @@ impl DavFileSystem for AsterDavFs {
                 folder.id,
                 Some(MUTATION_FOLDER_TREE_LIMITS),
                 crate::services::workspace::activity::ActivitySource::Webdav,
+                &self.access_constraints,
             )
             .await
             .map_err(to_fs_error)?;
@@ -942,6 +944,7 @@ impl DavFileSystem for AsterDavFs {
                 &dest_name,
                 &self.audit_ctx,
                 Some(MUTATION_FOLDER_TREE_LIMITS),
+                &self.access_constraints,
             )
             .await?;
 
@@ -1004,6 +1007,7 @@ impl DavFileSystem for AsterDavFs {
                 &dest_name,
                 &self.audit_ctx,
                 Some(MUTATION_FOLDER_TREE_LIMITS),
+                &self.access_constraints,
             )
             .await?;
 
@@ -1754,6 +1758,7 @@ async fn delete_existing_destination_for_overwrite(
     name: &str,
     audit_ctx: &AuditContext,
     traversal_limits: Option<folder::FolderTreeTraversalLimits>,
+    access_constraints: &crate::services::workspace::scope::WorkspaceAccessConstraints,
 ) -> Result<(), FsError> {
     if let Some(existing) = find_file_by_name_in_scope(state, scope, parent_id, name).await? {
         let details = if audit::should_record(state, audit::AuditAction::FileDelete) {
@@ -1810,6 +1815,7 @@ async fn delete_existing_destination_for_overwrite(
             existing.id,
             traversal_limits,
             crate::services::workspace::activity::ActivitySource::Webdav,
+            access_constraints,
         )
         .await
         .map_err(to_fs_error)?;

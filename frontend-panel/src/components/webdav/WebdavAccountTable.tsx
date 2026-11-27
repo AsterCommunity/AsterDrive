@@ -97,7 +97,11 @@ export function WebdavAccountTable({
 			renderRow={(account) => {
 				const deleting = deletingAccountId === account.id;
 				const toggling = togglingAccountId === account.id;
-				const settingAccessMode = setAccessModeAccountId === account.id;
+				// A single pending slot gates every mode switch; other rows must
+				// disable while it is in flight, or their clicks would be
+				// silently dropped by the pending-id hook.
+				const settingAccessMode = setAccessModeAccountId != null;
+				const settingAccessModeHere = setAccessModeAccountId === account.id;
 				const canMutate = canManageTeam || account.user_id === currentUserId;
 				const confirmingDelete = activePendingDeleteId === account.id;
 				const deleteLabel = deleting ? labels.deleting : labels.delete;
@@ -124,6 +128,7 @@ export function WebdavAccountTable({
 						readOnlyLabel={labels.readOnly}
 						readWriteLabel={labels.readWrite}
 						setAccessModePending={settingAccessMode}
+						setAccessModePendingHere={settingAccessModeHere}
 						setReadOnlyLabel={labels.setReadOnly}
 						setReadWriteLabel={labels.setReadWrite}
 						onCancelDelete={() => setPendingDeleteId(null)}

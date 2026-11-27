@@ -20,6 +20,7 @@ interface WebdavAccountRowProps {
 	readOnlyLabel: string;
 	readWriteLabel: string;
 	setAccessModePending: boolean;
+	setAccessModePendingHere: boolean;
 	setReadOnlyLabel: string;
 	setReadWriteLabel: string;
 	toggling: boolean;
@@ -45,6 +46,7 @@ export function WebdavAccountRow({
 	readOnlyLabel,
 	readWriteLabel,
 	setAccessModePending,
+	setAccessModePendingHere,
 	setReadOnlyLabel,
 	setReadWriteLabel,
 	toggling,
@@ -133,8 +135,8 @@ export function WebdavAccountRow({
 						}
 					>
 						<Icon
-							name={setAccessModePending ? "Spinner" : "Eye"}
-							className={`size-3.5 ${setAccessModePending ? "animate-spin" : ""}`}
+							name={setAccessModePendingHere ? "Spinner" : "Eye"}
+							className={`size-3.5 ${setAccessModePendingHere ? "animate-spin" : ""}`}
 						/>
 					</Button>
 					<Button

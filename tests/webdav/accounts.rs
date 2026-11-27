@@ -1429,7 +1429,7 @@ async fn test_webdav_account_access_mode_rejects_foreign_and_team_mismatches() {
     let owner_id = me_body["data"]["id"].as_i64().unwrap();
     let team_id = seed_team_for_webdav_account_test(&account_state, owner_id).await;
 
-    let foreign =
+    let _foreign =
         seed_active_user_for_webdav_account_test(&account_state, "mode-boundary-foreign").await;
     let (foreign_token, _) = login_user!(app, "mode-boundary-foreign", "password123");
 

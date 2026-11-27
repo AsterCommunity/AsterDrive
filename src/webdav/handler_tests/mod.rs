@@ -1369,6 +1369,7 @@ async fn bounded_delete_and_copy_fail_before_any_tree_write() {
         root.id,
         one_resource,
         crate::services::workspace::activity::ActivitySource::Webdav,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
     )
     .await
     .expect_err("bounded delete should reject tree before soft-delete writes");
@@ -2536,7 +2537,8 @@ async fn read_only_webdav_account_rejects_write_methods_without_side_effects() {
     .await;
     assert_eq!(response.status(), StatusCode::FORBIDDEN, "LOCK must 403");
 
-    // UNLOCK is refused through the same ceiling even without a held lock.
+    // UNLOCK with an invented token must fail for any account; the ceiling is
+    // proven below with a lock the account really holds.
     let req = actix_web::test::TestRequest::default()
         .method(actix_web::http::Method::from_bytes(b"UNLOCK").expect("valid method"))
         .uri("/webdav/guarded.txt")
@@ -2588,6 +2590,152 @@ async fn read_only_webdav_account_rejects_write_methods_without_side_effects() {
             .expect("guarded file lookup should succeed")
             .expect("the guarded file must survive every rejected mutation");
     assert_eq!(guarded.size, 3, "the guarded file content must be intact");
+
+    drop(lock_system);
+    drop(dav_fs);
+    drop(state);
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+/// A lock the account really acquired before the access-mode flip must survive
+/// the rejected UNLOCK: the ceiling answers the request without destroying the
+/// lock, so the owner can still recover by restoring read_write.
+#[actix_web::test]
+async fn read_only_webdav_account_cannot_unlock_a_lock_it_holds() {
+    use crate::services::ops::audit::AuditContext;
+    use crate::webdav::auth::{WebdavAuthProtection, authenticate_webdav};
+    use crate::webdav::backend::lock::DbLockSystem;
+    use crate::webdav::handlers::locks::handle_unlock;
+    use aster_drive_model::entities::webdav_account;
+    use aster_drive_model::types::WebdavAccessMode;
+    use base64::Engine;
+    use sea_orm::IntoActiveModel;
+
+    let driver = CountingDirectUploadDriver::default();
+    let (state, user, policy, temp_root) =
+        build_webdav_test_state(None, Arc::new(driver.clone())).await;
+    let now = Utc::now();
+    let password = "read-cvnt-krpszwom";
+    let account = webdav_account::ActiveModel {
+        user_id: Set(user.id),
+        username: Set("read-only-lock-holder".to_string()),
+        password_hash: Set(state
+            .runtime_config
+            .password_hash_runtime()
+            .hash_password(password)
+            .await
+            .expect("read-only lock holder password hash should work")),
+        root_folder_id: Set(None),
+        access_mode: Set(WebdavAccessMode::ReadWrite),
+        team_id: Set(None),
+        is_active: Set(true),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .expect("read-only lock holder account should insert");
+
+    create_root_file(
+        &state,
+        user.id,
+        policy.id,
+        "guarded.txt",
+        3,
+        "files/guarded.txt",
+    )
+    .await;
+    driver
+        .put("files/guarded.txt", b"abc")
+        .await
+        .expect("mock storage object should be seeded");
+
+    let encoded = base64::engine::general_purpose::STANDARD
+        .encode(format!("read-only-lock-holder:{password}"));
+    let auth_request = actix_web::test::TestRequest::default()
+        .insert_header((header::AUTHORIZATION, format!("Basic {encoded}")))
+        .app_data(web::Data::new(WebdavAuthProtection::new(
+            true,
+            &crate::config::RateLimitTier::default(),
+            &[],
+        )))
+        .to_http_request();
+    let auth = authenticate_webdav(&auth_request, &state)
+        .await
+        .expect("the account must authenticate while read_write");
+
+    let audit_ctx = AuditContext {
+        user_id: user.id,
+        ip_address: None,
+        user_agent: None,
+    };
+    let payload_limit = state.config.webdav.payload_limit;
+    let dav_fs = AsterDavFs::new_with_audit(
+        state.clone(),
+        Some(account.id),
+        auth.scope,
+        auth.root_folder_id,
+        audit_ctx.clone(),
+        payload_limit,
+    )
+    .with_access_constraints(auth.access_constraints.clone());
+    let lock_system =
+        DbLockSystem::new_with_audit(state.clone(), auth.scope, auth.root_folder_id, audit_ctx)
+            .with_access_constraints(auth.access_constraints);
+
+    let path = DavPath::new("/guarded.txt").unwrap();
+    let acquired = lock_system
+        .lock(DavLockAcquireRequest {
+            path: &path,
+            principal: Some("read-only-lock-holder"),
+            owner: None,
+            timeout: Some(std::time::Duration::from_secs(120)),
+            shared: false,
+            deep: false,
+            credentials: DavMutationCredentials::default(),
+        })
+        .await
+        .expect("the read_write account must acquire the lock");
+    let token = acquired.lock.token;
+
+    // Flip the row to read_only without touching the lock or rebuilding the
+    // constraint snapshot: the in-transaction database recheck must deny the
+    // unlock on the account row alone.
+    let account =
+        crate::db::repository::webdav_account_repo::find_by_id(state.writer_db(), account.id)
+            .await
+            .expect("account lookup should succeed");
+    let mut active = account.into_active_model();
+    active.access_mode = Set(WebdavAccessMode::ReadOnly);
+    active.updated_at = Set(Utc::now());
+    active
+        .update(state.writer_db())
+        .await
+        .expect("access mode flip should update");
+
+    let req = actix_web::test::TestRequest::default()
+        .method(actix_web::http::Method::from_bytes(b"UNLOCK").expect("valid method"))
+        .uri("/webdav/guarded.txt")
+        .insert_header((
+            header::HeaderName::from_static("lock-token"),
+            format!("<{token}>"),
+        ))
+        .to_http_request();
+    let request_head = parsed_request_head(&req);
+    let response = handle_unlock(&req, &request_head, lock_system.as_ref()).await;
+    assert!(
+        !response.status().is_success(),
+        "UNLOCK must fail for a read-only account even with the real token"
+    );
+
+    let held = crate::db::repository::lock_repo::find_by_token(state.writer_db(), &token)
+        .await
+        .expect("lock lookup should succeed");
+    assert!(
+        held.is_some(),
+        "the rejected UNLOCK must leave the held lock intact"
+    );
 
     drop(lock_system);
     drop(dav_fs);

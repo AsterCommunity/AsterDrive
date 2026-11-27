@@ -38,7 +38,7 @@ WebDAV 相关内容可以分成三块：账号、挂载入口、协议能力。
 - 创建账号时如果传了 `root_folder_id`，服务端会校验该文件夹确实属于账号所在的个人或团队工作空间
 - `/toggle` 没有请求体，每调用一次就在启用 / 停用之间切换
 - 创建账号时的 `access_mode` 可选 `read_write`（默认）或 `read_only`；`/access-mode` 请求体 `{"access_mode": "read_only"}` 随时切换
-- `read_only` 账户的 `PUT` / `MKCOL` / `DELETE` / `COPY` / `MOVE` / `PROPPATCH` / `LOCK` / `UNLOCK` 一律返回 `403` 且不产生任何副作用；`PROPFIND` / `GET` / `HEAD` / `OPTIONS` / `REPORT` 正常。有效权限始终是所有者当前产品权限与账户访问模式的交集，模式变更立即生效，不因认证缓存保留旧权限
+- `read_only` 账户的 `PUT` / `MKCOL` / `DELETE` / `COPY` / `MOVE` / `PROPPATCH` / `LOCK` / `UNLOCK` 一律返回 `403` 且不产生任何副作用；`PROPFIND` / `GET` / `HEAD` / `OPTIONS` 正常；只读策略不会额外禁止 `REPORT`，但 `REPORT` 的响应取决于报告类型与资源能力（已支持的报告执行查询，未知报告返回 `422`，已知但不可用的报告返回 `409`）。有效权限始终是所有者当前产品权限与账户访问模式的交集，模式变更立即生效，不因认证缓存保留旧权限
 - `/settings` 会返回两个字段：
   - `prefix`：服务端当前实际启用的挂载前缀
   - `endpoint`：面向客户端的可访问地址；如果配置了 `public_site_url`，这里会是绝对 URL，否则返回相对路径。多来源配置下，服务端会用当前请求 Origin（scheme + host[:port]）精确匹配 `public_site_url` 列表。命中时返回对应来源下的 WebDAV 地址，未命中时回退第一项。

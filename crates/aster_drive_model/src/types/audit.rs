@@ -115,11 +115,9 @@ macro_rules! define_audit_action_list {
             WebdavAccountCreate,
             WebdavAccountDelete,
             WebdavAccountToggle,
-            WebdavAccountAccessModeUpdate,
             TeamWebdavAccountCreate,
             TeamWebdavAccountDelete,
             TeamWebdavAccountToggle,
-            TeamWebdavAccountAccessModeUpdate,
             UserChangePassword,
             UserConfirmPasswordReset,
             UserConfirmEmailChange,
@@ -177,6 +175,8 @@ macro_rules! define_audit_action_list {
             AdminFileDownload,
             AdminRevisionDownload,
             TaskCancelRequested,
+            WebdavAccountAccessModeUpdate,
+            TeamWebdavAccountAccessModeUpdate,
         }
     };
 }

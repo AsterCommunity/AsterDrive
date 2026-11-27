@@ -14,7 +14,8 @@ use utoipa::ToSchema;
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(16))")]
 #[serde(rename_all = "snake_case")]
 pub enum WebdavAccessMode {
-    /// Read operations only (PROPFIND / GET / HEAD / OPTIONS / REPORT).
+    /// Read operations only (PROPFIND / GET / HEAD / OPTIONS / REPORT;
+    /// REPORT availability still follows the DeltaV capability model).
     #[sea_orm(string_value = "read_only")]
     ReadOnly,
     /// Read plus all write operations (PUT / MKCOL / DELETE / COPY / MOVE /

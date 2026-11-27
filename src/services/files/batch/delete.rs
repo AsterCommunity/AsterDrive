@@ -137,6 +137,7 @@ pub(crate) async fn batch_delete_in_scope(
                 *folder_id,
                 None,
                 &crate::services::files::lock::SubmittedLockCredentials::none(),
+                &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
             )
             .await?;
             file_ids_to_delete.extend(locked.file_ids);
