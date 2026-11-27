@@ -39,6 +39,8 @@ describe("webdavAccountService", () => {
 		webdavAccountService.deleteForTeam(3, 8);
 		webdavAccountService.toggle(7);
 		webdavAccountService.toggleForTeam(3, 8);
+		webdavAccountService.setAccessMode(7, "read_only");
+		webdavAccountService.setAccessModeForTeam(3, 8, "read_write");
 		webdavAccountService.test({ username: "alice", password: "secret" });
 
 		expect(mockState.get).toHaveBeenCalledWith(
@@ -71,7 +73,17 @@ describe("webdavAccountService", () => {
 			4,
 			"/teams/3/webdav-accounts/8/toggle",
 		);
-		expect(mockState.post).toHaveBeenNthCalledWith(5, "/webdav-accounts/test", {
+		expect(mockState.post).toHaveBeenNthCalledWith(
+			5,
+			"/webdav-accounts/7/access-mode",
+			{ access_mode: "read_only" },
+		);
+		expect(mockState.post).toHaveBeenNthCalledWith(
+			6,
+			"/teams/3/webdav-accounts/8/access-mode",
+			{ access_mode: "read_write" },
+		);
+		expect(mockState.post).toHaveBeenNthCalledWith(7, "/webdav-accounts/test", {
 			username: "alice",
 			password: "secret",
 		});

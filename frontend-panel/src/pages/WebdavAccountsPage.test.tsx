@@ -9,6 +9,7 @@ const mockState = vi.hoisted(() => ({
 	handleApiError: vi.fn(),
 	getSettings: vi.fn(),
 	reload: vi.fn(),
+	setAccessMode: vi.fn(),
 	testConnection: vi.fn(),
 	toastError: vi.fn(),
 	toastSuccess: vi.fn(),
@@ -173,8 +174,26 @@ vi.mock("@/components/ui/label", () => ({
 }));
 
 vi.mock("@/components/ui/select", () => ({
-	Select: ({ children }: { children: React.ReactNode }) => (
-		<div>{children}</div>
+	Select: ({
+		children,
+		items,
+		onValueChange,
+		value,
+	}: {
+		children: React.ReactNode;
+		items?: ReadonlyArray<{ label: string; value: string }>;
+		onValueChange?: (value: string) => void;
+		value?: string;
+	}) => (
+		<div>
+			<button
+				type="button"
+				onClick={() => onValueChange?.(items?.[1]?.value ?? "")}
+			>
+				{`select-change:${value ?? "none"}`}
+			</button>
+			{children}
+		</div>
 	),
 	SelectContent: ({ children }: { children: React.ReactNode }) => (
 		<div>{children}</div>
@@ -241,6 +260,7 @@ vi.mock("@/services/webdavAccountService", () => ({
 		create: (...args: unknown[]) => mockState.create(...args),
 		delete: vi.fn(),
 		list: vi.fn(),
+		setAccessMode: (...args: unknown[]) => mockState.setAccessMode(...args),
 		settings: (...args: unknown[]) => mockState.getSettings(...args),
 		test: (...args: unknown[]) => mockState.testConnection(...args),
 		toggle: (...args: unknown[]) => mockState.toggle(...args),
@@ -249,6 +269,7 @@ vi.mock("@/services/webdavAccountService", () => ({
 
 function createAccount(overrides: Record<string, unknown> = {}) {
 	return {
+		access_mode: "read_only",
 		created_at: "2026-03-28T00:00:00Z",
 		id: 11,
 		is_active: true,
@@ -269,6 +290,7 @@ describe("WebdavAccountsPage", () => {
 		mockState.testConnection.mockReset();
 		mockState.toastError.mockReset();
 		mockState.toastSuccess.mockReset();
+		mockState.setAccessMode.mockReset();
 		mockState.toggle.mockReset();
 		mockState.useApiList.mockReset();
 		mockState.writeText.mockReset();
@@ -288,6 +310,7 @@ describe("WebdavAccountsPage", () => {
 			password: "generated-pass",
 			username: "dav-user",
 		});
+		mockState.setAccessMode.mockResolvedValue(undefined);
 		mockState.testConnection.mockResolvedValue(undefined);
 		mockState.toggle.mockResolvedValue(undefined);
 		mockState.writeText.mockResolvedValue(undefined);
@@ -384,10 +407,13 @@ describe("WebdavAccountsPage", () => {
 		fireEvent.change(screen.getByLabelText("password"), {
 			target: { value: "secret" },
 		});
+		fireEvent.click(screen.getByText("select-change:read_write"));
+
 		fireEvent.click(screen.getByRole("button", { name: "create" }));
 
 		await waitFor(() => {
 			expect(mockState.create).toHaveBeenCalledWith({
+				access_mode: "read_only",
 				password: "secret",
 				root_folder_id: null,
 				username: "dav-user",
@@ -416,6 +442,38 @@ describe("WebdavAccountsPage", () => {
 			"admin:connection_success",
 		);
 		expect(screen.getByText("admin:connection_success")).toBeInTheDocument();
+	});
+
+	it("switches the account access mode from the table row", async () => {
+		render(<WebdavAccountsPage />);
+		await screen.findByText("dav-user");
+
+		fireEvent.click(screen.getByTitle("webdav:access_mode_set_read_write"));
+
+		await waitFor(() => {
+			expect(mockState.setAccessMode).toHaveBeenCalledWith(11, "read_write");
+		});
+		expect(mockState.toastSuccess).toHaveBeenCalledWith(
+			"webdav:access_mode_updated",
+		);
+		expect(mockState.reload).toHaveBeenCalledTimes(1);
+		expect(mockState.handleApiError).not.toHaveBeenCalled();
+	});
+
+	it("reports access mode switch failures through the api error handler", async () => {
+		mockState.setAccessMode.mockRejectedValue(new Error("denied"));
+
+		render(<WebdavAccountsPage />);
+		await screen.findByText("dav-user");
+
+		fireEvent.click(screen.getByTitle("webdav:access_mode_set_read_write"));
+
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledTimes(1);
+		});
+		expect(mockState.toastSuccess).not.toHaveBeenCalledWith(
+			"webdav:access_mode_updated",
+		);
 	});
 
 	it("reports folder loading failures through handleApiError", async () => {

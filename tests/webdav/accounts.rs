@@ -1572,7 +1572,9 @@ async fn test_webdav_account_access_mode_read_only_protocol_enforcement() {
     );
 
     let server = start_real_webdav_server(state.clone()).await;
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     use base64::Engine;
     let encoded = base64::engine::general_purpose::STANDARD.encode(format!(
         "protocol-readonly:{}",
