@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
 use aster_drive::api::api_error_code::ApiErrorCode;
+use aster_drive::config::preview_apps::PREVIEW_APPS_CONFIG_KEY;
 use aster_drive::config::{RuntimeConfig, site_url::PUBLIC_SITE_URL_KEY};
 use aster_drive::db::repository::{
     file_repo, lock_namespace_repo, lock_repo, user_repo, wopi_session_repo,
@@ -17,8 +18,8 @@ use aster_drive::db::repository::{
 use aster_drive::services::files::file::StoreFromTempRequest;
 use aster_drive::services::ops::audit::AuditRequestInfo;
 use aster_drive::services::preview::apps::{
-    PREVIEW_APPS_CONFIG_KEY, PreviewAppProvider, PreviewOpenMode, PublicPreviewAppConfig,
-    PublicPreviewAppDefinition, default_public_preview_apps,
+    PreviewAppProvider, PreviewOpenMode, PublicPreviewAppConfig, PublicPreviewAppDefinition,
+    default_public_preview_apps,
 };
 use aster_drive::services::preview::wopi::{
     WopiPutRelativeRequest, WopiRequestSource, put_relative_file,

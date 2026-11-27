@@ -253,9 +253,11 @@ where
         normalize_existing_cors_allowed_origins_config_value,
     )
     .await?;
-    normalize_existing_product_config(db, apps::PREVIEW_APPS_CONFIG_KEY, |active| {
-        normalize_existing_preview_apps_config_value(active)
-    })
+    normalize_existing_product_config(
+        db,
+        crate::config::preview_apps::PREVIEW_APPS_CONFIG_KEY,
+        normalize_existing_preview_apps_config_value,
+    )
     .await?;
 
     Ok(inserted + usize::from(media_inserted))
@@ -333,7 +335,7 @@ fn normalize_existing_preview_apps_config_value(active: &mut system_config::Acti
             Err(error) => {
                 tracing::warn!(
                     error = %error,
-                    key = apps::PREVIEW_APPS_CONFIG_KEY,
+                    key = crate::config::preview_apps::PREVIEW_APPS_CONFIG_KEY,
                     "failed to normalize existing preview app registry during default config sync"
                 );
             }
@@ -341,7 +343,7 @@ fn normalize_existing_preview_apps_config_value(active: &mut system_config::Acti
         Err(error) => {
             tracing::warn!(
                 error = %error,
-                key = apps::PREVIEW_APPS_CONFIG_KEY,
+                key = crate::config::preview_apps::PREVIEW_APPS_CONFIG_KEY,
                 "failed to normalize existing preview app registry during default config sync"
             );
         }
@@ -352,8 +354,8 @@ fn normalize_existing_preview_apps_config_value(active: &mut system_config::Acti
 mod tests {
     use super::*;
     use crate::config::DatabaseConfig;
+    use crate::config::preview_apps::PREVIEW_APPS_CONFIG_KEY;
     use crate::db;
-    use crate::services::preview::apps::PREVIEW_APPS_CONFIG_KEY;
     use aster_drive_migration::Migrator;
 
     async fn setup_db() -> sea_orm::DatabaseConnection {

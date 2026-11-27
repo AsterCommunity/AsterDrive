@@ -6752,6 +6752,136 @@ async fn test_passkey_delete_prevents_future_login() {
 }
 
 #[actix_web::test]
+async fn test_passkey_rename_and_delete_enforce_ownership_and_not_found() {
+    let state = common::setup_with_memory_cache().await;
+    configure_passkey_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    // setup 用户即管理员：用同一账号同时充当属主与 admin_token 来源
+    let (access, _) = register_and_login!(app);
+    let admin_token = access.clone();
+
+    let (_, passkey) = register_test_passkey(&app, &access, "Laptop").await;
+    let passkey_id = passkey["id"].as_i64().unwrap();
+
+    // 重命名成功，返回更新后的凭据
+    let req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/auth/passkeys/{passkey_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .set_json(serde_json::json!({ "name": "Work Laptop" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["name"], "Work Laptop");
+
+    // 重命名审计明细携带改名前的名称
+    aster_drive::services::ops::audit::flush(&state)
+        .await
+        .unwrap();
+    let (renames, _) = audit_log_repo::find_with_filters(
+        state.reader_db(),
+        audit_log_repo::AuditLogQuery {
+            user_id: None,
+            action: Some(AuditAction::UserPasskeyRename.as_str()),
+            entity_type: None,
+            entity_id: None,
+            after: None,
+            before: None,
+            limit: 10,
+            offset: 0,
+            sort_by: AdminAuditLogSortBy::CreatedAt,
+            sort_order: SortOrder::Desc,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        renames.iter().any(|entry| entry
+            .details
+            .as_deref()
+            .is_some_and(|details| details.contains("\"previous_name\":\"Laptop\""))),
+        "passkey rename audit details should include previous_name"
+    );
+
+    // 空/空白名称回退默认名
+    let req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/auth/passkeys/{passkey_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .set_json(serde_json::json!({ "name": "   " }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["name"], "Passkey");
+
+    // 超长名称 → 校验失败
+    let req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/auth/passkeys/{passkey_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .set_json(serde_json::json!({ "name": "x".repeat(129) }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+
+    // 重命名不存在的 passkey → 404
+    let req = test::TestRequest::patch()
+        .uri("/api/v1/auth/passkeys/999999")
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .set_json(serde_json::json!({ "name": "Ghost" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404);
+
+    // 第二个用户对他人 passkey 的 rename/delete → 404（属主边界）
+    admin_create_user!(
+        app,
+        admin_token,
+        "seconduser",
+        "seconduser@example.com",
+        "password123"
+    );
+    let (other_access, _) = login_user!(app, "seconduser", "password123");
+
+    let req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/auth/passkeys/{passkey_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&other_access)))
+        .insert_header(common::csrf_header_for(&other_access))
+        .set_json(serde_json::json!({ "name": "Hijack" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404);
+
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/auth/passkeys/{passkey_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&other_access)))
+        .insert_header(common::csrf_header_for(&other_access))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404);
+
+    // 属主删除成功后重复删除 → 404
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/auth/passkeys/{passkey_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/auth/passkeys/{passkey_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404);
+}
+
+#[actix_web::test]
 async fn test_passkey_disabled_user_cannot_login() {
     use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
 

@@ -392,8 +392,12 @@ async fn build_account_infos(
     Ok(result)
 }
 
-/// 删除 WebDAV 账号（需要验证归属）
-pub async fn delete(state: &impl SharedRuntimeState, id: i64, user_id: i64) -> Result<()> {
+/// 删除 WebDAV 账号（需要验证归属），返回被删除账号供审计明细使用。
+pub async fn delete(
+    state: &impl SharedRuntimeState,
+    id: i64,
+    user_id: i64,
+) -> Result<WebdavAccount> {
     let account = webdav_account_repo::find_by_id(state.writer_db(), id).await?;
     if account.team_id.is_some() {
         return Err(AsterError::auth_forbidden(
@@ -409,16 +413,16 @@ pub async fn delete(state: &impl SharedRuntimeState, id: i64, user_id: i64) -> R
         username = %account.username,
         "deleted WebDAV account"
     );
-    Ok(())
+    Ok(WebdavAccount::from(account))
 }
 
-/// 删除团队 WebDAV 账号；仅账号属主或团队管理者可操作。
+/// 删除团队 WebDAV 账号；仅账号属主或团队管理者可操作。返回被删除账号供审计明细使用。
 pub async fn delete_for_team(
     state: &impl SharedRuntimeState,
     id: i64,
     actor_user_id: i64,
     team_id: i64,
-) -> Result<()> {
+) -> Result<WebdavAccount> {
     let role =
         crate::services::workspace::storage::load_team_member_role(state, team_id, actor_user_id)
             .await?;
@@ -442,7 +446,7 @@ pub async fn delete_for_team(
         username = %account.username,
         "deleted team WebDAV account"
     );
-    Ok(())
+    Ok(WebdavAccount::from(account))
 }
 
 /// 切换启用/禁用

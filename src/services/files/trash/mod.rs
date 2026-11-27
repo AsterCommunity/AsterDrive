@@ -10,6 +10,7 @@ mod restore;
 
 pub use cleanup::cleanup_expired;
 pub use common::load_retention_days;
+pub(crate) use common::trash_item_audit_details;
 pub(crate) use listing::list_authorized_trash;
 pub use listing::{expires_cursor_to_deleted_cursor, list_team_trash, list_trash};
 pub use models::{TrashContents, TrashFileCursor, TrashFileItem, TrashFolderItem};

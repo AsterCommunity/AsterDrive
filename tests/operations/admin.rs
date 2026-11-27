@@ -5058,6 +5058,15 @@ async fn test_admin_shares() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+
+    // 重复删除同一分享 → 404
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/admin/shares/{share_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404);
 }
 
 #[actix_web::test]

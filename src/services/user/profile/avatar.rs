@@ -7,8 +7,8 @@ use chrono::Utc;
 use sea_orm::Set;
 use std::time::{Duration, Instant};
 
-use crate::api::constants::YEAR_SECS;
 use crate::config::{avatar, operations};
+use crate::constants::YEAR_SECS;
 use crate::db::repository::{user_profile_repo, user_repo};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};

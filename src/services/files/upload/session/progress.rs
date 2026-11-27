@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::api::constants::HOUR_SECS;
+use crate::constants::HOUR_SECS;
 use crate::db::repository::{upload_session_part_repo, upload_session_repo};
 use crate::errors::{
     Result, chunk_upload_error_with_code, upload_assembly_error_with_code,

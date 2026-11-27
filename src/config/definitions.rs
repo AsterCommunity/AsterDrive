@@ -2669,11 +2669,11 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         ..aster_forge_config::ConfigDefinition::private_system()
     },
     ConfigDef {
-        key: crate::services::preview::apps::PREVIEW_APPS_CONFIG_KEY,
+        key: crate::config::preview_apps::PREVIEW_APPS_CONFIG_KEY,
         label_i18n_key: "settings_item_frontend_preview_apps_json_label",
         description_i18n_key: "settings_item_frontend_preview_apps_json_desc",
         value_type: ConfigValueType::Multiline,
-        default_fn: crate::services::preview::apps::default_public_preview_apps_json,
+        default_fn: || crate::config::preview_apps::DEFAULT_PUBLIC_PREVIEW_APPS_JSON.to_string(),
         requires_restart: false,
         is_sensitive: false,
         category: CONFIG_CATEGORY_SITE_PREVIEW,

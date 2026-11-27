@@ -7,12 +7,10 @@ use crate::api::pagination::TrashListQuery;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
-use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::Result;
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::{
-    auth::local::Claims, files::file, files::folder, files::trash, ops::audit, task,
-    workspace::storage::WorkspaceStorageScope,
+    auth::local::Claims, files::trash, ops::audit, task, workspace::storage::WorkspaceStorageScope,
 };
 use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};
@@ -109,7 +107,7 @@ pub async fn restore(
         user_id: claims.user_id,
     };
     let (entity_name, details) =
-        trash_item_audit_details(state.get_ref(), scope, path.entity_type, path.id).await?;
+        trash::trash_item_audit_details(state.get_ref(), scope, path.entity_type, path.id).await?;
     let folder_outcome = match path.entity_type {
         EntityType::File => {
             trash::restore_file(state.get_ref(), path.id, claims.user_id).await?;
@@ -172,7 +170,7 @@ pub async fn purge_one(
         user_id: claims.user_id,
     };
     let (entity_name, details) =
-        trash_item_audit_details(state.get_ref(), scope, path.entity_type, path.id).await?;
+        trash::trash_item_audit_details(state.get_ref(), scope, path.entity_type, path.id).await?;
     match path.entity_type {
         EntityType::File => trash::purge_file(state.get_ref(), path.id, claims.user_id).await?,
         EntityType::Folder => trash::purge_folder(state.get_ref(), path.id, claims.user_id).await?,
@@ -309,7 +307,7 @@ pub(crate) async fn team_restore(
         actor_user_id: claims.user_id,
     };
     let (entity_name, details) =
-        trash_item_audit_details(state.get_ref(), scope, entity_type, id).await?;
+        trash::trash_item_audit_details(state.get_ref(), scope, entity_type, id).await?;
     let folder_outcome = match entity_type {
         EntityType::File => {
             trash::restore_team_file(state.get_ref(), team_id, id, claims.user_id).await?;
@@ -376,7 +374,7 @@ pub(crate) async fn team_purge_one(
         actor_user_id: claims.user_id,
     };
     let (entity_name, details) =
-        trash_item_audit_details(state.get_ref(), scope, entity_type, id).await?;
+        trash::trash_item_audit_details(state.get_ref(), scope, entity_type, id).await?;
     match entity_type {
         EntityType::File => {
             trash::purge_team_file(state.get_ref(), team_id, id, claims.user_id).await?
@@ -446,26 +444,4 @@ pub(crate) async fn team_purge_all(
     )
     .await;
     Ok(HttpResponse::Ok().json(crate::api::response::success(task)))
-}
-
-async fn trash_item_audit_details(
-    state: &PrimaryAppState,
-    scope: WorkspaceStorageScope,
-    entity_type: EntityType,
-    id: i64,
-) -> Result<(Option<String>, Option<serde_json::Value>)> {
-    match entity_type {
-        EntityType::File => {
-            let file = file_repo::find_by_id(state.reader_db(), id).await?;
-            let name = file.name.clone();
-            let details = file::audit_location_details_for_model(state, scope, &file).await;
-            Ok((Some(name), details))
-        }
-        EntityType::Folder => {
-            let folder = folder_repo::find_by_id(state.reader_db(), id).await?;
-            let name = folder.name.clone();
-            let details = folder::audit_location_details_for_model(state, scope, &folder).await;
-            Ok((Some(name), details))
-        }
-    }
 }

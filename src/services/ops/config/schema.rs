@@ -14,7 +14,7 @@ use crate::config::operations::{
     FRONTEND_IMAGE_PREVIEW_PREFERENCE_KEY, OFFLINE_DOWNLOAD_ENGINE_KEY,
     OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY, OfflineDownloadEngine,
 };
-use crate::services::preview::apps::PREVIEW_APPS_CONFIG_KEY;
+use crate::config::preview_apps::PREVIEW_APPS_CONFIG_KEY;
 use aster_drive_model::types::AuditAction;
 use aster_forge_config::ConfigValueType;
 use serde::Serialize;

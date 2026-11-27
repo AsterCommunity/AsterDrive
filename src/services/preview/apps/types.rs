@@ -6,9 +6,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-/// Runtime config key that stores the serialized preview apps JSON.
-pub const PREVIEW_APPS_CONFIG_KEY: &str = "frontend_preview_apps_json";
-
 /// Public preview apps configuration persisted as JSON in the runtime config.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

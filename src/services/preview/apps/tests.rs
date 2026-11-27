@@ -3,10 +3,11 @@
 use serde_json::{Value, json};
 
 use super::{
-    PREVIEW_APPS_CONFIG_KEY, PreviewAppProvider, PreviewOpenMode, PublicPreviewAppConfig,
-    PublicPreviewAppDefinition, default_public_preview_apps,
+    PreviewAppProvider, PreviewOpenMode, PublicPreviewAppConfig, PublicPreviewAppDefinition,
+    default_public_preview_apps, defaults::default_public_preview_apps_json,
     normalize::parse_public_preview_apps_config, normalize_public_preview_apps_config_value,
 };
+use crate::config::preview_apps::{DEFAULT_PUBLIC_PREVIEW_APPS_JSON, PREVIEW_APPS_CONFIG_KEY};
 
 fn minimum_builtin_apps_json() -> Vec<Value> {
     vec![
@@ -272,6 +273,14 @@ fn preview_apps_reject_legacy_label_i18n_key_field() {
 #[test]
 fn preview_apps_constant_key_matches_expected_name() {
     assert_eq!(PREVIEW_APPS_CONFIG_KEY, "frontend_preview_apps_json");
+}
+
+#[test]
+fn config_seed_document_matches_builtin_preview_apps() {
+    assert_eq!(
+        default_public_preview_apps_json(),
+        DEFAULT_PUBLIC_PREVIEW_APPS_JSON
+    );
 }
 
 #[test]
