@@ -1,3 +1,6 @@
+//! Micro-benchmarks for the filename validation and blob-path helpers on the
+//! upload, copy, and WebDAV hot paths.
+
 use std::path::Path;
 
 use aster_forge_utils::paths;
