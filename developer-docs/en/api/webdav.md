@@ -16,6 +16,7 @@ The following paths are relative to `/api/v1` and require authentication.
 | `POST` | `/webdav-accounts` | Create a WebDAV account |
 | `DELETE` | `/webdav-accounts/{id}` | Delete a WebDAV account |
 | `POST` | `/webdav-accounts/{id}/toggle` | Enable or disable an account |
+| `POST` | `/webdav-accounts/{id}/access-mode` | Set the read-only / read-write access mode |
 | `GET` | `/webdav-accounts/settings` | Read the active mount prefix and client endpoint |
 | `POST` | `/webdav-accounts/test` | Test a set of WebDAV credentials |
 
@@ -27,6 +28,7 @@ The following paths are relative to `/api/v1` and require authentication.
 | `POST` | `/teams/{team_id}/webdav-accounts` | Create a team WebDAV account |
 | `DELETE` | `/teams/{team_id}/webdav-accounts/{account_id}` | Delete a team WebDAV account |
 | `POST` | `/teams/{team_id}/webdav-accounts/{account_id}/toggle` | Enable or disable a team WebDAV account |
+| `POST` | `/teams/{team_id}/webdav-accounts/{account_id}/access-mode` | Set the read-only / read-write access mode for a team account |
 
 Common details:
 
@@ -35,6 +37,8 @@ Common details:
 - for personal accounts, `root_folder_id = null` means the account can access the whole user space; for team accounts, it means the account can access the whole team space
 - when `root_folder_id` is provided, the server verifies that the folder belongs to the personal or team workspace for that account
 - `/toggle` has no request body; each call switches enabled / disabled state
+- `access_mode` at creation accepts `read_write` (default) or `read_only`; `/access-mode` with body `{"access_mode": "read_only"}` switches it at any time
+- for `read_only` accounts, `PUT` / `MKCOL` / `DELETE` / `COPY` / `MOVE` / `PROPPATCH` / `LOCK` / `UNLOCK` always return `403` with no side effects; `PROPFIND` / `GET` / `HEAD` / `OPTIONS` / `REPORT` keep working. Effective permission is always the intersection of the owner's live product permissions and the account access mode; mode changes take effect immediately and stale auth caches never preserve old permissions
 - `/settings` returns:
   - `prefix`: the active server mount prefix
   - `endpoint`: a client-usable URL; if `public_site_url` is configured, this is absolute, otherwise it is relative. With multiple public origins, the server matches the current request origin exactly and falls back to the first configured origin when no match is found.
@@ -50,9 +54,12 @@ Create request:
 {
   "username": "dav-demo",
   "password": null,
-  "root_folder_id": 12
+  "root_folder_id": 12,
+  "access_mode": "read_write"
 }
 ```
+
+Read-only accounts fit clients that only consume content: backup pulls, mounted browsing, and monitoring/sync. Mount-style clients (Finder / Windows WebClient) that fail `LOCK` degrade to lock-free read-only access; this is expected.
 
 ## Mount URL
 

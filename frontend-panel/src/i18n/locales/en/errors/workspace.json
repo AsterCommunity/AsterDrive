@@ -24,5 +24,6 @@
 	"share_password_required": "Enter the share password to continue",
 	"share_download_limit_reached": "This share link has reached its download limit",
 	"archive_download_user_disabled": "Archive downloads for signed-in users are disabled by the administrator",
-	"archive_download_share_disabled": "Archive downloads for public shares are disabled by the administrator"
+	"archive_download_share_disabled": "Archive downloads for public shares are disabled by the administrator",
+	"webdav_access_read_only": "This WebDAV account is read-only; write operations are denied"
 }

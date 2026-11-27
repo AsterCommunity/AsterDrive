@@ -27,5 +27,11 @@
 	"webdav_test_hint": "Test the connection right after creating the account to confirm the client can sign in.",
 	"webdav_username_placeholder": "For example: team-design or macbook-pro",
 	"webdav_refresh": "Refresh List",
-	"webdav_created_for": "Generated fresh credentials for {{username}}"
+	"webdav_created_for": "Generated fresh credentials for {{username}}",
+	"access_mode": "Access mode",
+	"access_mode_read_write": "Read & write",
+	"access_mode_read_only": "Read-only",
+	"access_mode_set_read_only": "Switch to read-only",
+	"access_mode_set_read_write": "Switch to read & write",
+	"access_mode_updated": "Access mode updated"
 }

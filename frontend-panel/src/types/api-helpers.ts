@@ -272,6 +272,7 @@ export const ApiErrorCode = {
 	UploadAssemblyIoFailed: "upload.assembly_io_failed",
 	UploadAssemblySizeOverflow: "upload.assembly_size_overflow",
 	WebdavUsernameExists: "webdav.username_exists",
+	WebdavAccessReadOnly: "webdav.access_read_only",
 	WopiMaxExpectedSizeExceeded: "wopi.max_expected_size_exceeded",
 	ValidationRequestOriginInvalid: "validation.request_origin_invalid",
 	ValidationRequestRefererInvalid: "validation.request_referer_invalid",

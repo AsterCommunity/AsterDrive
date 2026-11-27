@@ -620,6 +620,10 @@ fn detail_message(
             copy_param(details, &mut params, "is_active");
             Some(message("webdav_account_status_changed", params))
         }
+        AuditAction::WebdavAccountAccessModeUpdate => {
+            copy_string_param(Some(details), &mut params, "access_mode");
+            Some(message("webdav_account_access_mode_changed", params))
+        }
         AuditAction::WebdavAccountCreate | AuditAction::WebdavAccountDelete => {
             copy_params(
                 details,
@@ -631,6 +635,11 @@ fn detail_message(
         AuditAction::TeamWebdavAccountToggle => {
             copy_params(details, &mut params, &["team_id", "is_active"]);
             Some(message("team_webdav_account_status_changed", params))
+        }
+        AuditAction::TeamWebdavAccountAccessModeUpdate => {
+            copy_params(details, &mut params, &["team_id"]);
+            copy_string_param(Some(details), &mut params, "access_mode");
+            Some(message("team_webdav_account_access_mode_changed", params))
         }
         AuditAction::TeamWebdavAccountCreate | AuditAction::TeamWebdavAccountDelete => {
             copy_params(

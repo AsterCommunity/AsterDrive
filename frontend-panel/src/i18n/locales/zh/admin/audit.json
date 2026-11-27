@@ -280,5 +280,7 @@
 	"audit_action_admin_revision_download": "管理员访问文件版本",
 	"audit_presentation_admin_content_access": "原因 {{reason}} · 结果 {{result}}",
 	"audit_action_task_cancel_requested": "请求取消任务",
-	"audit_presentation_task_cancel_requested": "已请求停止后续工作，已完成的变更保留"
+	"audit_presentation_task_cancel_requested": "已请求停止后续工作，已完成的变更保留",
+	"audit_presentation_webdav_account_access_mode_changed": "访问模式 {{access_mode}}",
+	"audit_presentation_team_webdav_account_access_mode_changed": "访问模式 {{access_mode}}，团队 {{team_id}}"
 }

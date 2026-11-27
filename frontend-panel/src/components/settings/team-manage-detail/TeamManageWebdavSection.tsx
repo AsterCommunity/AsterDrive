@@ -18,7 +18,7 @@ import { absoluteAppUrl } from "@/lib/publicSiteUrl";
 import { webdavEndpointPath } from "@/lib/webdav";
 import { createFileService } from "@/services/fileService";
 import { webdavAccountService } from "@/services/webdavAccountService";
-import type { FolderListItem } from "@/types/api";
+import type { FolderListItem, WebdavAccessMode } from "@/types/api";
 
 interface TeamManageWebdavSectionProps {
 	canManageTeam: boolean;
@@ -62,6 +62,10 @@ export function TeamManageWebdavSection({
 		pendingId: togglingAccountId,
 		runWithPending: runWithTogglingAccount,
 	} = usePendingId<number>();
+	const {
+		pendingId: settingAccessModeAccountId,
+		runWithPending: runWithSettingAccessMode,
+	} = usePendingId<number>();
 	const recentCredentials = dialogState.showPassword;
 
 	const fetchFolders = useCallback(async () => {
@@ -91,6 +95,16 @@ export function TeamManageWebdavSection({
 			value: String(folder.id),
 		})),
 	];
+	const accessModeOptions = [
+		{
+			label: t("webdav:access_mode_read_write"),
+			value: "read_write",
+		},
+		{
+			label: t("webdav:access_mode_read_only"),
+			value: "read_only",
+		},
+	] as const;
 	const sortedAccounts = useMemo(
 		() =>
 			accounts.toSorted(
@@ -134,6 +148,7 @@ export function TeamManageWebdavSection({
 				username: dialogState.newUsername.trim(),
 				password: dialogState.newPassword.trim() || undefined,
 				root_folder_id: dialogState.selectedFolderId ?? null,
+				access_mode: dialogState.accessMode,
 			});
 			if (isOwnerCurrent()) {
 				dialogState.showCreatedCredentials(
@@ -169,6 +184,21 @@ export function TeamManageWebdavSection({
 		await runWithTogglingAccount(id, async () => {
 			try {
 				await webdavAccountService.toggleForTeam(teamId, id);
+				void reload();
+			} catch (err) {
+				handleApiError(err);
+			}
+		});
+	};
+
+	const handleSetAccessMode = async (
+		id: number,
+		accessMode: WebdavAccessMode,
+	) => {
+		await runWithSettingAccessMode(id, async () => {
+			try {
+				await webdavAccountService.setAccessModeForTeam(teamId, id, accessMode);
+				toast.success(t("webdav:access_mode_updated"));
 				void reload();
 			} catch (err) {
 				handleApiError(err);
@@ -243,9 +273,14 @@ export function TeamManageWebdavSection({
 				currentUserId={currentUserId}
 				deletingAccountId={deletingAccountId}
 				togglingAccountId={togglingAccountId}
+				setAccessModeAccountId={settingAccessModeAccountId}
 				onDelete={(accountId) => void handleDelete(accountId)}
 				onToggle={(accountId) => void handleToggle(accountId)}
+				onSetAccessMode={(accountId, accessMode) =>
+					void handleSetAccessMode(accountId, accessMode)
+				}
 				labels={{
+					accessMode: t("webdav:access_mode"),
 					accessScope: t("webdav:access_scope"),
 					actions: t("core:actions"),
 					active: t("core:active"),
@@ -258,6 +293,10 @@ export function TeamManageWebdavSection({
 					emptyDescription: t("settings:settings_team_webdav_empty_desc"),
 					emptyTitle: t("webdav:no_webdav_accounts"),
 					owner: t("settings:settings_team_webdav_owner"),
+					readOnly: t("webdav:access_mode_read_only"),
+					readWrite: t("webdav:access_mode_read_write"),
+					setReadOnly: t("webdav:access_mode_set_read_only"),
+					setReadWrite: t("webdav:access_mode_set_read_write"),
 					status: t("core:status"),
 					toggleUpdating: t("admin:webdav_account_updating"),
 					username: t("core:username"),
@@ -271,6 +310,10 @@ export function TeamManageWebdavSection({
 				onOpenChange={dialogState.setCreateDialogOpen}
 				createTitle={t("webdav:create_webdav_account")}
 				description={t("settings:settings_team_webdav_create_desc")}
+				accessMode={dialogState.accessMode}
+				accessModeLabel={t("webdav:access_mode")}
+				accessModeOptions={accessModeOptions}
+				onAccessModeChange={dialogState.setAccessMode}
 				usernameLabel={t("core:username")}
 				usernamePlaceholder={t("webdav:webdav_username_placeholder")}
 				passwordLabel={t("core:password")}

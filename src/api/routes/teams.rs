@@ -61,6 +61,10 @@ pub fn routes(
             "/{team_id}/webdav-accounts/{account_id}/toggle",
             web::post().to(webdav_accounts::toggle_team_account),
         )
+        .route(
+            "/{team_id}/webdav-accounts/{account_id}/access-mode",
+            web::post().to(webdav_accounts::set_team_account_access_mode),
+        )
         .route("/{id}/members", web::get().to(list_members))
         .route("/{id}/members", web::post().to(add_member))
         .route(

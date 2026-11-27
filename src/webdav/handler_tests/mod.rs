@@ -2247,3 +2247,350 @@ async fn put_transfer_outcome_waits_for_writer_finalization_and_keeps_exact_byte
         std::fs::remove_dir_all(temp_root).unwrap();
     }
 }
+
+/// A read-only WebDAV account walks the real authentication path; every
+/// mutating protocol method then fails with 403 and leaves no side effects,
+/// while PROPFIND and GET keep working.
+#[actix_web::test]
+async fn read_only_webdav_account_rejects_write_methods_without_side_effects() {
+    use crate::services::ops::audit::AuditContext;
+    use crate::webdav::auth::{WebdavAuthProtection, authenticate_webdav};
+    use crate::webdav::backend::lock::DbLockSystem;
+    use crate::webdav::handlers::locks::{handle_lock, handle_unlock};
+    use crate::webdav::handlers::properties::handle_proppatch;
+    use crate::webdav::handlers::resources::{handle_copy_move, handle_delete, handle_mkcol};
+    use aster_drive_model::entities::webdav_account;
+    use aster_drive_model::types::WebdavAccessMode;
+    use base64::Engine;
+
+    let driver = CountingDirectUploadDriver::default();
+    let (state, user, policy, temp_root) =
+        build_webdav_test_state(None, Arc::new(driver.clone())).await;
+    let now = Utc::now();
+    let password = "read-only-password";
+    let account = webdav_account::ActiveModel {
+        user_id: Set(user.id),
+        username: Set("read-only-handler".to_string()),
+        password_hash: Set(state
+            .runtime_config
+            .password_hash_runtime()
+            .hash_password(password)
+            .await
+            .expect("read-only handler password hash should work")),
+        root_folder_id: Set(None),
+        access_mode: Set(WebdavAccessMode::ReadOnly),
+        team_id: Set(None),
+        is_active: Set(true),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .expect("read-only handler account should insert");
+
+    create_root_file(
+        &state,
+        user.id,
+        policy.id,
+        "guarded.txt",
+        3,
+        "files/guarded.txt",
+    )
+    .await;
+    driver
+        .put("files/guarded.txt", b"abc")
+        .await
+        .expect("mock storage object should be seeded");
+
+    let encoded =
+        base64::engine::general_purpose::STANDARD.encode(format!("read-only-handler:{password}"));
+    let auth_request = actix_web::test::TestRequest::default()
+        .insert_header((header::AUTHORIZATION, format!("Basic {encoded}")))
+        .app_data(web::Data::new(WebdavAuthProtection::new(
+            true,
+            &crate::config::RateLimitTier::default(),
+            &[],
+        )))
+        .to_http_request();
+    let auth = authenticate_webdav(&auth_request, &state)
+        .await
+        .expect("a read-only account must authenticate");
+
+    let audit_ctx = AuditContext {
+        user_id: user.id,
+        ip_address: None,
+        user_agent: None,
+    };
+    let payload_limit = state.config.webdav.payload_limit;
+    let dav_fs = AsterDavFs::new_with_audit(
+        state.clone(),
+        Some(account.id),
+        auth.scope,
+        auth.root_folder_id,
+        audit_ctx.clone(),
+        payload_limit,
+    )
+    .with_access_constraints(auth.access_constraints.clone());
+    let lock_system =
+        DbLockSystem::new_with_audit(state.clone(), auth.scope, auth.root_folder_id, audit_ctx)
+            .with_access_constraints(auth.access_constraints);
+    let system_file_policy = crate::webdav::system_file::SystemFileBlockPolicy::from_runtime_config(
+        &state.runtime_config,
+    );
+    let headers = http::HeaderMap::new();
+
+    // Reads keep working.
+    let req = actix_web::test::TestRequest::get()
+        .uri("/webdav/guarded.txt")
+        .to_http_request();
+    let request_head = parsed_request_head(&req);
+    let capabilities = capability_snapshot(aster_forge_webdav::DavResourceState::File);
+    let response = handle_get_head(
+        &req,
+        &request_head,
+        &dav_fs,
+        lock_system.as_ref(),
+        "/webdav",
+        false,
+        &capabilities,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK, "GET must still work");
+    let body = to_bytes(response.into_body()).await.expect("GET body");
+    assert_eq!(body.as_ref(), b"abc");
+
+    let req = actix_web::test::TestRequest::default()
+        .method(actix_web::http::Method::from_bytes(b"PROPFIND").expect("valid method"))
+        .uri("/webdav/guarded.txt")
+        .insert_header((header::HeaderName::from_static("depth"), "0"))
+        .to_http_request();
+    let request_head = parsed_request_head(&req);
+    let response = handle_propfind(
+        &request_head,
+        &dav_fs,
+        lock_system.as_ref(),
+        "/webdav",
+        &[],
+        &capabilities,
+        crate::webdav::handlers::properties::PROPFIND_MAXIMUM_DURATION,
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        StatusCode::from_u16(207).expect("valid status"),
+        "PROPFIND must still work"
+    );
+
+    // PUT
+    let (req, mut dev_payload) = actix_web::test::TestRequest::put()
+        .uri("/webdav/new-upload.txt")
+        .insert_header((header::CONTENT_LENGTH, "3"))
+        .set_payload("abc")
+        .to_http_parts();
+    let mut payload = web::Payload::from_request(&req, &mut dev_payload)
+        .await
+        .expect("webdav test payload should extract");
+    let request_head = parsed_request_head(&req);
+    let capabilities = capability_snapshot(aster_forge_webdav::DavResourceState::Unmapped);
+    let response = handle_put(
+        &req,
+        &request_head,
+        &dav_fs,
+        lock_system.as_ref(),
+        "/webdav",
+        &system_file_policy,
+        &mut payload,
+        &capabilities,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN, "PUT must 403");
+
+    // MKCOL
+    let req = actix_web::test::TestRequest::default()
+        .method(actix_web::http::Method::from_bytes(b"MKCOL").expect("valid method"))
+        .uri("/webdav/new-collection/")
+        .to_http_request();
+    let request_head = parsed_request_head(&req);
+    let response = handle_mkcol(
+        &request_head,
+        &dav_fs,
+        lock_system.as_ref(),
+        "/webdav",
+        &system_file_policy,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN, "MKCOL must 403");
+
+    // DELETE
+    let req = actix_web::test::TestRequest::delete()
+        .uri("/webdav/guarded.txt")
+        .insert_header((header::HeaderName::from_static("depth"), "infinity"))
+        .to_http_request();
+    let request_head = parsed_request_head(&req);
+    let response = handle_delete(
+        &req,
+        &request_head,
+        &headers,
+        &dav_fs,
+        lock_system.as_ref(),
+        "/webdav",
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN, "DELETE must 403");
+
+    // COPY
+    let req = actix_web::test::TestRequest::default()
+        .method(actix_web::http::Method::from_bytes(b"COPY").expect("valid method"))
+        .uri("/webdav/guarded.txt")
+        .insert_header((
+            header::HeaderName::from_static("destination"),
+            "/webdav/copy-of-guarded.txt",
+        ))
+        .insert_header((header::HeaderName::from_static("depth"), "infinity"))
+        .to_http_request();
+    let request_head = parsed_request_head(&req);
+    let response = handle_copy_move(
+        &req,
+        &request_head,
+        &headers,
+        &dav_fs,
+        lock_system.as_ref(),
+        "/webdav",
+        &system_file_policy,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN, "COPY must 403");
+
+    // MOVE
+    let req = actix_web::test::TestRequest::default()
+        .method(actix_web::http::Method::from_bytes(b"MOVE").expect("valid method"))
+        .uri("/webdav/guarded.txt")
+        .insert_header((
+            header::HeaderName::from_static("destination"),
+            "/webdav/moved-guarded.txt",
+        ))
+        .insert_header((header::HeaderName::from_static("depth"), "infinity"))
+        .to_http_request();
+    let request_head = parsed_request_head(&req);
+    let response = handle_copy_move(
+        &req,
+        &request_head,
+        &headers,
+        &dav_fs,
+        lock_system.as_ref(),
+        "/webdav",
+        &system_file_policy,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN, "MOVE must 403");
+
+    // PROPPATCH
+    let req = actix_web::test::TestRequest::default()
+        .method(actix_web::http::Method::from_bytes(b"PROPPATCH").expect("valid method"))
+        .uri("/webdav/guarded.txt")
+        .to_http_request();
+    let request_head = parsed_request_head(&req);
+    // A dead property must be used: protected live properties are rejected by
+    // the protocol planner inside a 207 body before authorization runs.
+    let proppatch_body = br#"<?xml version="1.0"?>
+<d:propertyupdate xmlns:d="DAV:" xmlns:z="http://example.com/ns#">
+  <d:set><d:prop><z:review-status>approved</z:review-status></d:prop></d:set>
+</d:propertyupdate>"#;
+    let response = handle_proppatch(
+        &request_head,
+        &dav_fs,
+        lock_system.as_ref(),
+        "/webdav",
+        proppatch_body,
+        &headers,
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "PROPPATCH must 403"
+    );
+
+    // LOCK
+    let req = actix_web::test::TestRequest::default()
+        .method(actix_web::http::Method::from_bytes(b"LOCK").expect("valid method"))
+        .uri("/webdav/guarded.txt")
+        .insert_header((header::HeaderName::from_static("timeout"), "Second-600"))
+        .to_http_request();
+    let request_head = parsed_request_head(&req);
+    let lock_body = br#"<?xml version="1.0"?>
+<d:lockinfo xmlns:d="DAV:">
+  <d:lockscope><d:exclusive/></d:lockscope>
+  <d:locktype><d:write/></d:locktype>
+  <d:owner>read-only-test</d:owner>
+</d:lockinfo>"#;
+    let response = handle_lock(
+        &req,
+        &request_head,
+        &dav_fs,
+        lock_system.as_ref(),
+        "/webdav",
+        lock_body,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN, "LOCK must 403");
+
+    // UNLOCK is refused through the same ceiling even without a held lock.
+    let req = actix_web::test::TestRequest::default()
+        .method(actix_web::http::Method::from_bytes(b"UNLOCK").expect("valid method"))
+        .uri("/webdav/guarded.txt")
+        .insert_header((
+            header::HeaderName::from_static("lock-token"),
+            "<opaquelocktoken:00000000-0000-0000-0000-000000000000>",
+        ))
+        .to_http_request();
+    let request_head = parsed_request_head(&req);
+    let response = handle_unlock(&req, &request_head, lock_system.as_ref()).await;
+    assert_ne!(
+        response.status(),
+        StatusCode::OK,
+        "UNLOCK must not succeed for a read-only account"
+    );
+
+    // No side effects: nothing new appeared, nothing existing changed.
+    assert!(
+        file_repo::find_by_name_in_folder(state.writer_db(), user.id, None, "new-upload.txt")
+            .await
+            .expect("new upload lookup should succeed")
+            .is_none(),
+        "read-only PUT must not create files"
+    );
+    assert!(
+        folder_repo::find_by_name_in_parent(state.writer_db(), user.id, None, "new-collection")
+            .await
+            .expect("new collection lookup should succeed")
+            .is_none(),
+        "read-only MKCOL must not create folders"
+    );
+    assert!(
+        file_repo::find_by_name_in_folder(state.writer_db(), user.id, None, "copy-of-guarded.txt")
+            .await
+            .expect("copy lookup should succeed")
+            .is_none(),
+        "read-only COPY must not create copies"
+    );
+    assert!(
+        file_repo::find_by_name_in_folder(state.writer_db(), user.id, None, "moved-guarded.txt")
+            .await
+            .expect("move lookup should succeed")
+            .is_none(),
+        "read-only MOVE must not rename targets"
+    );
+    let guarded =
+        file_repo::find_by_name_in_folder(state.writer_db(), user.id, None, "guarded.txt")
+            .await
+            .expect("guarded file lookup should succeed")
+            .expect("the guarded file must survive every rejected mutation");
+    assert_eq!(guarded.size, 3, "the guarded file content must be intact");
+
+    drop(lock_system);
+    drop(dav_fs);
+    drop(state);
+    let _ = std::fs::remove_dir_all(temp_root);
+}

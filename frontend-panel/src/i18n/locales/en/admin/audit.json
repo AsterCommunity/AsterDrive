@@ -280,5 +280,7 @@
 	"audit_action_admin_revision_download": "Administrator accessed file revision",
 	"audit_presentation_admin_content_access": "Reason {{reason}} · Result {{result}}",
 	"audit_action_task_cancel_requested": "Requested task cancellation",
-	"audit_presentation_task_cancel_requested": "Requested cancellation; committed changes are retained"
+	"audit_presentation_task_cancel_requested": "Requested cancellation; committed changes are retained",
+	"audit_presentation_webdav_account_access_mode_changed": "Access mode {{access_mode}}",
+	"audit_presentation_team_webdav_account_access_mode_changed": "Access mode {{access_mode}}, team {{team_id}}"
 }

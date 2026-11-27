@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
 import { AdminTableList } from "@/components/common/AdminTableList";
 import { Icon } from "@/components/ui/icon";
-import type { WebdavAccountInfo } from "@/types/api";
+import type { WebdavAccessMode, WebdavAccountInfo } from "@/types/api";
 import { WebdavAccountHeaderRow } from "./WebdavAccountHeaderRow";
 import { WebdavAccountRow } from "./WebdavAccountRow";
 
 interface WebdavAccountTableLabels {
+	accessMode: string;
 	accessScope: string;
 	actions: string;
 	active: string;
@@ -18,6 +19,10 @@ interface WebdavAccountTableLabels {
 	emptyDescription: string;
 	emptyTitle: string;
 	owner?: string;
+	readOnly: string;
+	readWrite: string;
+	setReadOnly: string;
+	setReadWrite: string;
 	status: string;
 	toggleUpdating: string;
 	username: string;
@@ -33,7 +38,9 @@ interface WebdavAccountTableProps {
 	labels: WebdavAccountTableLabels;
 	loading: boolean;
 	onDelete: (id: number) => void;
+	onSetAccessMode: (id: number, accessMode: WebdavAccessMode) => void;
 	onToggle: (id: number) => void;
+	setAccessModeAccountId: number | null;
 	togglingAccountId: number | null;
 }
 
@@ -46,7 +53,9 @@ export function WebdavAccountTable({
 	labels,
 	loading,
 	onDelete,
+	onSetAccessMode,
 	onToggle,
+	setAccessModeAccountId,
 	togglingAccountId,
 }: WebdavAccountTableProps) {
 	const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
@@ -60,6 +69,7 @@ export function WebdavAccountTable({
 				usernameLabel={labels.username}
 				ownerLabel={canManageTeam ? labels.owner : undefined}
 				scopeLabel={labels.accessScope}
+				accessModeLabel={labels.accessMode}
 				statusLabel={labels.status}
 				createdAtLabel={labels.createdAt}
 				actionLabel={labels.actions}
@@ -77,7 +87,7 @@ export function WebdavAccountTable({
 		<AdminTableList
 			loading={loading}
 			items={accounts}
-			columns={canManageTeam ? 6 : 5}
+			columns={canManageTeam ? 7 : 6}
 			rows={5}
 			frameless={frameless}
 			emptyIcon={<Icon name="Globe" className="size-10" />}
@@ -87,6 +97,7 @@ export function WebdavAccountTable({
 			renderRow={(account) => {
 				const deleting = deletingAccountId === account.id;
 				const toggling = togglingAccountId === account.id;
+				const settingAccessMode = setAccessModeAccountId === account.id;
 				const canMutate = canManageTeam || account.user_id === currentUserId;
 				const confirmingDelete = activePendingDeleteId === account.id;
 				const deleteLabel = deleting ? labels.deleting : labels.delete;
@@ -110,12 +121,18 @@ export function WebdavAccountTable({
 						deleting={deleting}
 						confirmingDelete={confirmingDelete}
 						toggling={toggling}
+						readOnlyLabel={labels.readOnly}
+						readWriteLabel={labels.readWrite}
+						setAccessModePending={settingAccessMode}
+						setReadOnlyLabel={labels.setReadOnly}
+						setReadWriteLabel={labels.setReadWrite}
 						onCancelDelete={() => setPendingDeleteId(null)}
 						onConfirmDelete={() => {
 							setPendingDeleteId(null);
 							onDelete(account.id);
 						}}
 						onRequestDelete={() => setPendingDeleteId(account.id)}
+						onSetAccessMode={onSetAccessMode}
 						onToggle={onToggle}
 						toggleLabel={toggleLabel}
 					/>

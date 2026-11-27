@@ -27,5 +27,11 @@
 	"webdav_test_hint": "创建后建议先测试一次连接，确认客户端可以正常登录",
 	"webdav_username_placeholder": "例如 team-design 或 macbook-pro",
 	"webdav_refresh": "刷新列表",
-	"webdav_created_for": "已为 {{username}} 生成新凭据"
+	"webdav_created_for": "已为 {{username}} 生成新凭据",
+	"access_mode": "访问模式",
+	"access_mode_read_write": "读写",
+	"access_mode_read_only": "只读",
+	"access_mode_set_read_only": "切换为只读",
+	"access_mode_set_read_write": "切换为读写",
+	"access_mode_updated": "访问模式已更新"
 }

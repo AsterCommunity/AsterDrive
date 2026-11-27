@@ -287,10 +287,12 @@ use utoipa::{Modify, OpenApi};
         crate::api::routes::webdav_accounts::create_account,
         crate::api::routes::webdav_accounts::delete_account,
         crate::api::routes::webdav_accounts::toggle_account,
+        crate::api::routes::webdav_accounts::set_account_access_mode,
         crate::api::routes::webdav_accounts::list_team_accounts,
         crate::api::routes::webdav_accounts::create_team_account,
         crate::api::routes::webdav_accounts::delete_team_account,
         crate::api::routes::webdav_accounts::toggle_team_account,
+        crate::api::routes::webdav_accounts::set_team_account_access_mode,
         crate::api::routes::webdav_accounts::test_connection,
 
         // properties：实体级自定义属性的读取、写入与删除。
@@ -602,6 +604,7 @@ use utoipa::{Modify, OpenApi};
             aster_drive_model::types::UserRole,
             aster_drive_model::types::UserStatus,
             aster_drive_model::types::UserInvitationStatus,
+            aster_drive_model::types::WebdavAccessMode,
             aster_drive_model::types::AvatarSource,
             aster_drive_model::types::VerificationPurpose,
             aster_drive_model::types::ThemeMode,
@@ -779,6 +782,7 @@ use utoipa::{Modify, OpenApi};
             crate::api::dto::WopiAccessQuery,
             crate::api::dto::WebdavSettingsInfo,
             crate::api::dto::CreateWebdavAccountReq,
+            crate::api::dto::SetWebdavAccessModeReq,
             crate::api::dto::TestConnectionReq,
 
             // services::files::trash / api::routes::trash：回收站浏览、还原与清理模型。

@@ -48,6 +48,22 @@ pub(crate) async fn handle_lock(
         }
     };
 
+    // Lock lifecycle mutation is denied up front for read-only WebDAV accounts
+    // so the ceiling answers 403 instead of the lock token mismatch responses.
+    if let Err(error) = dav_fs
+        .authorize_workspace_operation(
+            crate::services::workspace::scope::WorkspaceOperation::ManageLock,
+        )
+        .await
+    {
+        if error.api_error_code() == crate::api::api_error_code::ApiErrorCode::WebdavAccessReadOnly
+        {
+            return responses::fs_error_response(aster_forge_webdav::FsError::Forbidden);
+        }
+        tracing::warn!(error = %error, "WebDAV lock authorization failed");
+        return responses::empty(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
     match plan {
         DavLockPlan::Refresh { token, timeout } => {
             if let Err(resp) = aster_forge_webdav::actix::enforce_if_header_with_backends(

@@ -24,5 +24,6 @@
 	"share_password_required": "请输入分享密码后继续",
 	"share_download_limit_reached": "该分享链接的下载次数已达上限",
 	"archive_download_user_disabled": "管理员已关闭登录用户的归档下载",
-	"archive_download_share_disabled": "管理员已关闭公开分享的归档下载"
+	"archive_download_share_disabled": "管理员已关闭公开分享的归档下载",
+	"webdav_access_read_only": "这个 WebDAV 账户是只读的，写操作已被拒绝"
 }

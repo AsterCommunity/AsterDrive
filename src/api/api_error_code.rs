@@ -349,6 +349,9 @@ define_api_error_codes! {
     // webdav account service: account uniqueness conflicts.
     WebdavUsernameExists => "webdav.username_exists",
 
+    // webdav authorization: account-level read-only ceiling rejected a mutation.
+    WebdavAccessReadOnly => "webdav.access_read_only",
+
     // wopi service: file size precondition.
     WopiMaxExpectedSizeExceeded => "wopi.max_expected_size_exceeded",
 

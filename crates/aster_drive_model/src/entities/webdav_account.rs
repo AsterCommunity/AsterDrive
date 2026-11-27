@@ -28,6 +28,10 @@ pub struct Model {
     /// Restricts the account to this folder subtree; `None` exposes the
     /// user's/team's whole file tree.
     pub root_folder_id: Option<i64>,
+    /// Account-level access-mode ceiling; `read_only` rejects every mutating
+    /// operation at the authorization layer, independent of the owner's live
+    /// product permissions.
+    pub access_mode: crate::types::WebdavAccessMode,
     /// Team workspace this account is scoped to; `None` for personal-scope
     /// accounts.
     pub team_id: Option<i64>,

@@ -19,6 +19,7 @@ use crate::services::{
     workspace::storage::WorkspaceStorageScope,
 };
 use aster_drive_model::entities::webdav_account;
+use aster_drive_model::types::WebdavAccessMode;
 use aster_forge_api::OffsetPage;
 
 /// WebDAV Basic auth 把 user-id 与 password 用冒号分隔（RFC 7617），
@@ -75,6 +76,8 @@ pub struct WebdavAccountCreated {
     pub username: String,
     /// 所属团队；个人账号为 `None`。
     pub team_id: Option<i64>,
+    /// Access mode assigned to the account.
+    pub access_mode: WebdavAccessMode,
     /// 明文密码，只返回一次
     pub password: String,
     /// 根目录完整路径；`None` 表示可访问整个存储空间。
@@ -99,6 +102,8 @@ pub struct WebdavAccountInfo {
     pub root_folder_id: Option<i64>,
     /// 文件夹路径，如 "/Documents/Photos"，None 表示全部访问
     pub root_folder_path: Option<String>,
+    /// Access mode assigned to the account.
+    pub access_mode: WebdavAccessMode,
     /// 是否启用；禁用后该账号认证直接失败。
     pub is_active: bool,
     /// 创建时间（UTC）。
@@ -123,6 +128,8 @@ pub struct WebdavAccount {
     pub username: String,
     /// 访问根目录的文件夹 ID；`None` 表示全部访问。
     pub root_folder_id: Option<i64>,
+    /// Access mode assigned to the account.
+    pub access_mode: WebdavAccessMode,
     /// 是否启用；禁用后该账号认证直接失败。
     pub is_active: bool,
     /// 创建时间（UTC）。
@@ -141,6 +148,7 @@ impl From<webdav_account::Model> for WebdavAccount {
             team_id: model.team_id,
             username: model.username,
             root_folder_id: model.root_folder_id,
+            access_mode: model.access_mode,
             is_active: model.is_active,
             created_at: model.created_at,
             updated_at: model.updated_at,
@@ -157,6 +165,7 @@ pub async fn create(
     username: &str,
     password: Option<&str>,
     root_folder_id: Option<i64>,
+    access_mode: WebdavAccessMode,
 ) -> Result<WebdavAccountCreated> {
     create_in_scope(
         state,
@@ -164,6 +173,7 @@ pub async fn create(
         username,
         password,
         root_folder_id,
+        access_mode,
     )
     .await
 }
@@ -176,6 +186,7 @@ pub async fn create_for_team(
     username: &str,
     password: Option<&str>,
     root_folder_id: Option<i64>,
+    access_mode: WebdavAccessMode,
 ) -> Result<WebdavAccountCreated> {
     crate::services::workspace::scope::authorize_workspace_on(
         state.writer_db(),
@@ -196,6 +207,7 @@ pub async fn create_for_team(
         username,
         password,
         root_folder_id,
+        access_mode,
     )
     .await
 }
@@ -206,6 +218,7 @@ async fn create_in_scope(
     username: &str,
     password: Option<&str>,
     root_folder_id: Option<i64>,
+    access_mode: WebdavAccessMode,
 ) -> Result<WebdavAccountCreated> {
     crate::services::workspace::scope::authorize_workspace_on(
         state.writer_db(),
@@ -263,6 +276,7 @@ async fn create_in_scope(
         username: Set(username.to_string()),
         password_hash: Set(password_hash),
         root_folder_id: Set(root_folder_id),
+        access_mode: Set(access_mode),
         is_active: Set(true),
         created_at: Set(now),
         updated_at: Set(now),
@@ -279,6 +293,7 @@ async fn create_in_scope(
         id: created.id,
         username: created.username,
         team_id: created.team_id,
+        access_mode: created.access_mode,
         password: plain_password,
         root_folder_path,
     })
@@ -383,6 +398,7 @@ async fn build_account_infos(
             team_id: acc.team_id,
             root_folder_id: acc.root_folder_id,
             root_folder_path,
+            access_mode: acc.access_mode,
             is_active: acc.is_active,
             created_at: acc.created_at,
             updated_at: acc.updated_at,
@@ -499,6 +515,67 @@ pub async fn toggle_team_active(
     let username = account.username.clone();
     let mut active: webdav_account::ActiveModel = account.into();
     active.is_active = Set(new_is_active);
+    active.updated_at = Set(Utc::now());
+    let updated = webdav_account_repo::update(state.writer_db(), active)
+        .await
+        .map(Into::into)?;
+    crate::webdav::auth::invalidate_webdav_auth_for_username(state, &username).await;
+    Ok(updated)
+}
+
+/// Updates an account's access mode. The change takes effect immediately
+/// (authorization rechecks the writer database on every request) and the
+/// account's auth cache is invalidated following the established convention.
+pub async fn set_access_mode(
+    state: &impl SharedRuntimeState,
+    id: i64,
+    user_id: i64,
+    access_mode: WebdavAccessMode,
+) -> Result<WebdavAccount> {
+    let account = webdav_account_repo::find_by_id(state.writer_db(), id).await?;
+    if account.team_id.is_some() {
+        return Err(AsterError::auth_forbidden(
+            "team WebDAV account must be managed from the team workspace",
+        ));
+    }
+    crate::ownership::verify_owner(account.user_id, user_id, "account")?;
+    apply_access_mode_update(state, account, access_mode).await
+}
+
+/// Updates a team account's access mode; only the owner or a team manager
+/// may do so.
+pub async fn set_team_access_mode(
+    state: &impl SharedRuntimeState,
+    id: i64,
+    actor_user_id: i64,
+    team_id: i64,
+    access_mode: WebdavAccessMode,
+) -> Result<WebdavAccount> {
+    let role =
+        crate::services::workspace::storage::load_team_member_role(state, team_id, actor_user_id)
+            .await?;
+    let account = webdav_account_repo::find_by_id(state.writer_db(), id).await?;
+    if account.team_id != Some(team_id) {
+        return Err(AsterError::record_not_found(format!(
+            "webdav_account #{id}"
+        )));
+    }
+    if account.user_id != actor_user_id && !role.can_manage_team() {
+        return Err(AsterError::auth_forbidden(
+            "team WebDAV account can only be managed by its owner or a team manager",
+        ));
+    }
+    apply_access_mode_update(state, account, access_mode).await
+}
+
+async fn apply_access_mode_update(
+    state: &impl SharedRuntimeState,
+    account: webdav_account::Model,
+    access_mode: WebdavAccessMode,
+) -> Result<WebdavAccount> {
+    let username = account.username.clone();
+    let mut active: webdav_account::ActiveModel = account.into();
+    active.access_mode = Set(access_mode);
     active.updated_at = Set(Utc::now());
     let updated = webdav_account_repo::update(state.writer_db(), active)
         .await

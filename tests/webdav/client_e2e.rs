@@ -22,14 +22,14 @@ use tokio::task::JoinHandle;
 
 const CLIENT_COMMAND_TIMEOUT: Duration = Duration::from_secs(45);
 
-struct RunningWebdavServer {
-    base_url: String,
+pub(crate) struct RunningWebdavServer {
+    pub(crate) base_url: String,
     handle: actix_web::dev::ServerHandle,
     task: JoinHandle<std::io::Result<()>>,
 }
 
 impl RunningWebdavServer {
-    async fn stop(self) {
+    pub(crate) async fn stop(self) {
         self.handle.stop(true).await;
         let _ = self.task.await;
     }
@@ -83,7 +83,7 @@ fn display_command(program: &str, args: &[String]) -> String {
         .join(" ")
 }
 
-async fn start_real_webdav_server(state: PrimaryAppState) -> RunningWebdavServer {
+pub(crate) async fn start_real_webdav_server(state: PrimaryAppState) -> RunningWebdavServer {
     let db = state.writer_db().clone();
     let webdav_config = WebDavConfig::default();
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0))

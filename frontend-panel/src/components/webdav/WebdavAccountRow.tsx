@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { formatDateShort } from "@/lib/format";
-import type { WebdavAccountInfo } from "@/types/api";
+import type { WebdavAccessMode, WebdavAccountInfo } from "@/types/api";
 
 interface WebdavAccountRowProps {
 	account: WebdavAccountInfo;
@@ -17,10 +17,16 @@ interface WebdavAccountRowProps {
 	deleteLabel: string;
 	disabledLabel: string;
 	deleting: boolean;
+	readOnlyLabel: string;
+	readWriteLabel: string;
+	setAccessModePending: boolean;
+	setReadOnlyLabel: string;
+	setReadWriteLabel: string;
 	toggling: boolean;
 	onCancelDelete: () => void;
 	onConfirmDelete: () => void;
 	onRequestDelete: () => void;
+	onSetAccessMode: (id: number, accessMode: WebdavAccessMode) => void;
 	onToggle: (id: number) => void;
 	toggleLabel: string;
 }
@@ -36,13 +42,22 @@ export function WebdavAccountRow({
 	deleteLabel,
 	disabledLabel,
 	deleting,
+	readOnlyLabel,
+	readWriteLabel,
+	setAccessModePending,
+	setReadOnlyLabel,
+	setReadWriteLabel,
 	toggling,
 	onCancelDelete,
 	onConfirmDelete,
 	onRequestDelete,
+	onSetAccessMode,
 	onToggle,
 	toggleLabel,
 }: WebdavAccountRowProps) {
+	const readOnly = account.access_mode === "read_only";
+	const setAccessModeLabel = readOnly ? setReadWriteLabel : setReadOnlyLabel;
+
 	return (
 		<TableRow key={account.id}>
 			<TableCell>
@@ -73,6 +88,22 @@ export function WebdavAccountRow({
 			</TableCell>
 			<TableCell>
 				<Badge
+					variant={readOnly ? "outline" : "secondary"}
+					className={
+						readOnly
+							? "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+							: undefined
+					}
+				>
+					<Icon
+						name={readOnly ? "Eye" : "PencilSimple"}
+						className="mr-1 size-3"
+					/>
+					{readOnly ? readOnlyLabel : readWriteLabel}
+				</Badge>
+			</TableCell>
+			<TableCell>
+				<Badge
 					variant={account.is_active ? "secondary" : "outline"}
 					className={
 						account.is_active
@@ -92,10 +123,30 @@ export function WebdavAccountRow({
 						type="button"
 						variant="outline"
 						size="icon-sm"
+						onClick={() =>
+							onSetAccessMode(account.id, readOnly ? "read_write" : "read_only")
+						}
+						title={setAccessModeLabel}
+						aria-label={setAccessModeLabel}
+						disabled={
+							!canMutate || setAccessModePending || deleting || toggling
+						}
+					>
+						<Icon
+							name={setAccessModePending ? "Spinner" : "Eye"}
+							className={`size-3.5 ${setAccessModePending ? "animate-spin" : ""}`}
+						/>
+					</Button>
+					<Button
+						type="button"
+						variant="outline"
+						size="icon-sm"
 						onClick={() => onToggle(account.id)}
 						title={toggleLabel}
 						aria-label={toggleLabel}
-						disabled={!canMutate || toggling || deleting}
+						disabled={
+							!canMutate || toggling || deleting || setAccessModePending
+						}
 					>
 						<Icon
 							name={toggling ? "Spinner" : "Power"}

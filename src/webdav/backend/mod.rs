@@ -190,6 +190,24 @@ impl AsterDavFs {
         self
     }
 
+    /// Runs the product authorization check for a workspace operation against
+    /// this filesystem's access constraints. Lock lifecycle handlers use it to
+    /// surface the account-level read-only ceiling as 403 Forbidden instead of
+    /// the lock-specific token-mismatch responses.
+    pub(crate) async fn authorize_workspace_operation(
+        &self,
+        operation: crate::services::workspace::scope::WorkspaceOperation,
+    ) -> Result<(), crate::errors::AsterError> {
+        crate::services::workspace::scope::authorize_workspace_on(
+            self.state.writer_db(),
+            self.scope,
+            operation,
+            &self.access_constraints,
+        )
+        .await
+        .map(|_| ())
+    }
+
     fn scope(&self) -> WorkspaceStorageScope {
         self.scope
     }
@@ -764,6 +782,18 @@ impl DavFileSystem for AsterDavFs {
         credentials: DavMutationCredentials,
     ) -> FsFuture<'a, ()> {
         Box::pin(async move {
+            // MKCOL reaches the folder service directly, whose own authorization
+            // carries no WebDAV constraints; the account-level read-only ceiling
+            // must be enforced here with this filesystem's credential binding.
+            crate::services::workspace::scope::authorize_workspace_on(
+                self.state.writer_db(),
+                self.scope,
+                crate::services::workspace::scope::WorkspaceOperation::CreateFolder,
+                &self.access_constraints,
+            )
+            .await
+            .map_err(to_fs_error)?;
+
             match path_resolver::resolve_path_cached_in_scope(
                 &self.state,
                 self.scope,
@@ -805,6 +835,17 @@ impl DavFileSystem for AsterDavFs {
 
     fn remove_dir<'a>(&'a self, path: &'a DavPath) -> FsFuture<'a, ()> {
         Box::pin(async move {
+            // Same rationale as create_dir: the folder service mutates without
+            // WebDAV credential constraints, so the account ceiling is checked
+            // here before any resolution or deletion.
+            crate::services::workspace::scope::authorize_workspace_on(
+                self.state.writer_db(),
+                self.scope,
+                crate::services::workspace::scope::WorkspaceOperation::Delete,
+                &self.access_constraints,
+            )
+            .await
+            .map_err(to_fs_error)?;
             let node = path_resolver::resolve_path_cached_in_scope(
                 &self.state,
                 self.scope,

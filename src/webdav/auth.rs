@@ -69,6 +69,7 @@ async fn authorize_account(
             account.id,
             aster_forge_crypto::sha256_hex(account.password_hash.as_bytes()),
             account.root_folder_id,
+            !account.access_mode.allows_mutation(),
         );
     crate::services::workspace::scope::authorize_workspace_on(
         state.writer_db(),
@@ -958,5 +959,91 @@ mod tests {
                 Err(WebdavAuthError::Rejected)
             ));
         }
+    }
+
+    /// A read-only account authenticates normally; the denial lives in the
+    /// authorization constraints, applies on the cached path, and follows a
+    /// later flip back to read_write without any invalidation notice.
+    #[actix_web::test]
+    async fn read_only_account_authenticates_and_carries_mutation_ceiling() {
+        use crate::api::api_error_code::ApiErrorCode;
+        use crate::services::workspace::scope::{
+            WorkspaceOperation, WorkspaceStorageScope, authorize_workspace_on,
+        };
+        use aster_drive_model::types::WebdavAccessMode;
+
+        let state = build_auth_test_state().await;
+        let (username, password, _, account_id, _) = seed_webdav_account(&state).await;
+        let account =
+            crate::db::repository::webdav_account_repo::find_by_id(state.writer_db(), account_id)
+                .await
+                .unwrap();
+        let mut active = account.into_active_model();
+        active.access_mode = Set(WebdavAccessMode::ReadOnly);
+        active.update(state.writer_db()).await.unwrap();
+
+        let result = authenticate_webdav(&basic_request(&username, &password), &state)
+            .await
+            .expect("a read-only account must still authenticate");
+        let scope = WorkspaceStorageScope::Personal {
+            user_id: result.scope.actor_user_id(),
+        };
+        authorize_workspace_on(
+            state.writer_db(),
+            scope,
+            WorkspaceOperation::ReadMetadata,
+            &result.access_constraints,
+        )
+        .await
+        .expect("read-only accounts keep read access");
+        let error = authorize_workspace_on(
+            state.writer_db(),
+            scope,
+            WorkspaceOperation::UpdateContent,
+            &result.access_constraints,
+        )
+        .await;
+        let error = match error {
+            Err(error) => error,
+            Ok(_) => panic!("read-only accounts must deny mutations"),
+        };
+        assert_eq!(error.api_error_code(), ApiErrorCode::WebdavAccessReadOnly);
+
+        let cached = authenticate_webdav(&basic_request(&username, &password), &state)
+            .await
+            .expect("second authentication exercises the auth cache");
+        assert!(
+            authorize_workspace_on(
+                state.writer_db(),
+                WorkspaceStorageScope::Personal {
+                    user_id: cached.scope.actor_user_id(),
+                },
+                WorkspaceOperation::UpdateMetadata,
+                &cached.access_constraints,
+            )
+            .await
+            .is_err()
+        );
+
+        let account =
+            crate::db::repository::webdav_account_repo::find_by_id(state.writer_db(), account_id)
+                .await
+                .unwrap();
+        let mut active = account.into_active_model();
+        active.access_mode = Set(WebdavAccessMode::ReadWrite);
+        active.update(state.writer_db()).await.unwrap();
+        let flipped = authenticate_webdav(&basic_request(&username, &password), &state)
+            .await
+            .expect("authentication after flipping back to read_write");
+        authorize_workspace_on(
+            state.writer_db(),
+            WorkspaceStorageScope::Personal {
+                user_id: flipped.scope.actor_user_id(),
+            },
+            WorkspaceOperation::UpdateMetadata,
+            &flipped.access_constraints,
+        )
+        .await
+        .expect("a flip back to read_write must take effect on the next request");
     }
 }
