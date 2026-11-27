@@ -460,6 +460,38 @@ describe("WebdavAccountsPage", () => {
 		expect(mockState.handleApiError).not.toHaveBeenCalled();
 	});
 
+	it("renders both access modes and switches a read_write account to read-only", async () => {
+		mockState.useApiList.mockReturnValue({
+			items: [
+				createAccount({ id: 11, username: "dav-readonly" }),
+				createAccount({
+					id: 12,
+					username: "dav-readwrite",
+					access_mode: "read_write",
+				}),
+			],
+			loading: false,
+			reload: mockState.reload,
+		});
+
+		render(<WebdavAccountsPage />);
+		await screen.findByText("dav-readonly");
+
+		expect(screen.getByText("webdav:access_mode_read_only")).toBeInTheDocument();
+		expect(
+			screen.getByText("webdav:access_mode_read_write"),
+		).toBeInTheDocument();
+
+		fireEvent.click(screen.getByTitle("webdav:access_mode_set_read_only"));
+
+		await waitFor(() => {
+			expect(mockState.setAccessMode).toHaveBeenCalledWith(12, "read_only");
+		});
+		expect(mockState.toastSuccess).toHaveBeenCalledWith(
+			"webdav:access_mode_updated",
+		);
+	});
+
 	it("reports access mode switch failures through the api error handler", async () => {
 		mockState.setAccessMode.mockRejectedValue(new Error("denied"));
 
