@@ -782,7 +782,7 @@ use utoipa::{Modify, OpenApi};
             crate::api::dto::WopiAccessQuery,
             crate::api::dto::WebdavSettingsInfo,
             crate::api::dto::CreateWebdavAccountReq,
-            crate::api::dto::SetWebdavAccessModeReq,
+            crate::api::dto::webdav::SetWebdavAccessModeReq,
             crate::api::dto::TestConnectionReq,
 
             // services::files::trash / api::routes::trash：回收站浏览、还原与清理模型。

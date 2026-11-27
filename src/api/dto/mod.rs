@@ -64,7 +64,5 @@ pub use teams::{
 };
 pub use trash::TrashItemPath;
 pub(crate) use validation::validate_request;
-pub use webdav::{
-    CreateWebdavAccountReq, SetWebdavAccessModeReq, TestConnectionReq, WebdavSettingsInfo,
-};
+pub use webdav::{CreateWebdavAccountReq, TestConnectionReq, WebdavSettingsInfo};
 pub use wopi::WopiAccessQuery;
