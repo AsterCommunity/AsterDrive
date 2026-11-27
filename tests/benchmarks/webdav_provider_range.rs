@@ -1,3 +1,6 @@
+//! Range-read benchmarks for the storage drivers (local, S3, SFTP, OneDrive,
+//! and remote followers), with artifact output and baseline regression gates.
+
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -1068,6 +1071,7 @@ impl StorageDriver for FallbackDriver {
 }
 
 #[cfg(test)]
+/// Contract: a multi-range read reports per-range and summed byte accounting.
 pub async fn contract_multi_range_accounting() {
     let root = std::env::temp_dir().join(format!(
         "asterdrive-webdav-provider-range-contract-{}",
@@ -1101,6 +1105,7 @@ pub async fn contract_multi_range_accounting() {
 }
 
 #[cfg(test)]
+/// Contract: range sizes that do not divide the payload evenly are still fully accounted.
 pub fn contract_odd_multi_range_accounting() {
     let config = BenchConfig {
         provider: "local".to_string(),
@@ -1130,6 +1135,7 @@ pub fn contract_odd_multi_range_accounting() {
 }
 
 #[cfg(test)]
+/// Contract: a failing benchmark run still removes its temporary fixture.
 pub async fn contract_failed_benchmark_cleans_fixture() {
     let root = std::env::temp_dir().join(format!(
         "asterdrive-webdav-provider-range-cleanup-contract-{}",
@@ -1157,6 +1163,7 @@ pub async fn contract_failed_benchmark_cleans_fixture() {
 }
 
 #[cfg(test)]
+/// Contract: pre-existing fixture directories are preserved instead of deleted.
 pub async fn contract_unowned_fixture_is_preserved() {
     let root = std::env::temp_dir().join(format!(
         "asterdrive-webdav-provider-range-preserve-contract-{}",
@@ -1181,12 +1188,14 @@ pub async fn contract_unowned_fixture_is_preserved() {
 }
 
 #[cfg(test)]
+/// Contract: unknown baseline scenarios fail loudly before any benchmark runs.
 pub fn contract_missing_baseline_scenario_is_rejected() {
     let error = ensure_baseline_scenarios(vec!["full".to_string()], &BTreeMap::new()).unwrap_err();
     assert!(error.to_string().contains("missing scenario 'full'"));
 }
 
 #[cfg(test)]
+/// Contract: fallback driver reads account consumed bytes per requested range.
 pub async fn contract_fallback_read_accounting() {
     let payload = Arc::<[u8]>::from(deterministic_payload(1024).unwrap());
     let driver = FallbackDriver::new(payload);

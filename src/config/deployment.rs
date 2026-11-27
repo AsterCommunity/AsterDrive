@@ -3,7 +3,6 @@
 use serde::{Deserialize, Serialize};
 
 use super::schema::Config;
-use crate::errors::{AsterError, Result};
 
 /// Static deployment topology chosen at startup and mirrored to runtime
 /// capability checks.
@@ -198,25 +197,11 @@ fn config_sync_endpoint_is_blank(endpoint: &aster_forge_config::ConfigSyncEndpoi
     }
 }
 
-/// Validates the static deployment topology against the configured profile,
-/// failing with a single aggregated error when any issue exists.
-pub fn validate_static(config: &Config) -> Result<()> {
-    let issues = static_issues(config, None);
-    if issues.is_empty() {
-        return Ok(());
-    }
-
-    Err(AsterError::config_error(format!(
-        "invalid deployment profile '{}': {}",
-        config.deployment.profile.as_str(),
-        issues.join("; ")
-    )))
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{DeploymentProfile, static_issues, validate_static};
+    use super::{DeploymentProfile, static_issues};
     use crate::config::Config;
+    use aster_forge_config::{ConfigSections, ValidatableConfig};
 
     #[test]
     fn profile_capabilities_are_mapped_in_one_place() {
@@ -231,28 +216,31 @@ mod tests {
         let config = Config::default();
 
         assert!(static_issues(&config, None).is_empty());
-        validate_static(&config).expect("single profile should accept default dependencies");
+        assert!(config.validate().is_ok());
+        assert!(config.validate_sections().is_ok());
     }
 
     #[test]
-    fn cluster_profile_requires_shared_dependencies() {
+    fn cluster_profile_requires_shared_dependencies_in_stable_order() {
         let mut config = Config::default();
         config.deployment.profile = DeploymentProfile::Cluster;
 
-        let issues = static_issues(&config, None);
-        assert_eq!(issues.len(), 3);
-        assert!(
-            issues
-                .iter()
-                .any(|issue| issue.contains("shared PostgreSQL"))
+        assert_eq!(
+            static_issues(&config, None),
+            vec![
+                "cluster profile requires a shared PostgreSQL or MySQL database".to_string(),
+                "cluster profile requires cache.backend = \"redis\"".to_string(),
+                "cluster profile requires config_sync.backend = \"redis\"".to_string(),
+            ]
         );
-        assert!(issues.iter().any(|issue| issue.contains("cache.backend")));
+        let error = config
+            .validate()
+            .expect_err("invalid cluster config should fail root validation");
         assert!(
-            issues
-                .iter()
-                .any(|issue| issue.contains("config_sync.backend"))
+            error
+                .to_string()
+                .contains("invalid deployment profile 'cluster'")
         );
-        assert!(validate_static(&config).is_err());
     }
 
     #[test]
@@ -265,7 +253,9 @@ mod tests {
         config.config_sync.backend = "redis".to_string();
         config.config_sync.endpoint = "redis://redis:6379/0".into();
 
-        validate_static(&config).expect("cluster profile should accept shared dependencies");
+        config
+            .validate()
+            .expect("cluster profile should accept shared dependencies");
     }
 
     #[test]
@@ -389,18 +379,6 @@ mod tests {
         assert_eq!(
             static_issues(&config, Some(" sqlite::memory:")),
             vec!["cluster profile requires a shared PostgreSQL or MySQL database"]
-        );
-    }
-
-    #[test]
-    fn validate_static_aggregates_all_cluster_issues_in_stable_order() {
-        let mut config = Config::default();
-        config.deployment.profile = DeploymentProfile::Cluster;
-
-        let error = validate_static(&config).expect_err("invalid cluster config should fail");
-        assert_eq!(
-            error.to_string(),
-            "Configuration Error: invalid deployment profile 'cluster': cluster profile requires a shared PostgreSQL or MySQL database; cluster profile requires cache.backend = \"redis\"; cluster profile requires config_sync.backend = \"redis\""
         );
     }
 }
