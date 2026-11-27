@@ -6,14 +6,14 @@ mod normalize;
 mod tests;
 mod types;
 
-pub use defaults::{default_public_preview_apps, default_public_preview_apps_json};
+pub use defaults::default_public_preview_apps;
 pub use normalize::{
     get_public_preview_apps, normalize_public_preview_apps_config_value,
     public_preview_apps_config_has_missing_required_builtins,
 };
 pub use types::{
-    PREVIEW_APPS_CONFIG_KEY, PreviewAppProvider, PreviewOpenMode, PublicPreviewAppConfig,
-    PublicPreviewAppDefinition, PublicPreviewAppsConfig,
+    PreviewAppProvider, PreviewOpenMode, PublicPreviewAppConfig, PublicPreviewAppDefinition,
+    PublicPreviewAppsConfig,
 };
 
 const PREVIEW_APPS_VERSION: i32 = 2;

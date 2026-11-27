@@ -109,7 +109,7 @@ pub async fn execute_action_with_audit(
         MAIL_CONFIG_ACTION_KEY => {
             execute_mail_action(state, action, actor_user_id, target_email, audit_ctx).await
         }
-        apps::PREVIEW_APPS_CONFIG_KEY => {
+        crate::config::preview_apps::PREVIEW_APPS_CONFIG_KEY => {
             execute_preview_app_action(state, action, actor_user_id, value, discovery_url).await
         }
         media_processing::MEDIA_PROCESSING_REGISTRY_JSON_KEY => {
@@ -374,8 +374,10 @@ async fn execute_preview_app_action(
             let raw_value = value.map(str::to_string).unwrap_or_else(|| {
                 state
                     .runtime_config()
-                    .get(apps::PREVIEW_APPS_CONFIG_KEY)
-                    .unwrap_or_else(apps::default_public_preview_apps_json)
+                    .get(crate::config::preview_apps::PREVIEW_APPS_CONFIG_KEY)
+                    .unwrap_or_else(|| {
+                        crate::config::preview_apps::DEFAULT_PUBLIC_PREVIEW_APPS_JSON.to_string()
+                    })
             });
             let normalized = apps::normalize_public_preview_apps_config_value(&raw_value)?;
             let mut config: apps::PublicPreviewAppsConfig = serde_json::from_str(&normalized)
@@ -399,7 +401,7 @@ async fn execute_preview_app_action(
             if value.is_none() {
                 set(
                     state,
-                    apps::PREVIEW_APPS_CONFIG_KEY,
+                    crate::config::preview_apps::PREVIEW_APPS_CONFIG_KEY,
                     &serialized,
                     actor_user_id,
                 )
@@ -417,7 +419,7 @@ async fn execute_preview_app_action(
         _ => Err(AsterError::validation_error(format!(
             "action '{}' is not supported for '{}'",
             action.as_str(),
-            apps::PREVIEW_APPS_CONFIG_KEY
+            crate::config::preview_apps::PREVIEW_APPS_CONFIG_KEY
         ))),
     }
 }

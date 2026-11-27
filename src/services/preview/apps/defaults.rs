@@ -121,21 +121,13 @@ pub fn default_public_preview_apps() -> PublicPreviewAppsConfig {
     }
 }
 
-/// Serializes [`default_public_preview_apps`] to pretty JSON for seeding the
-/// runtime config; on serialization failure falls back to a compact empty
-/// apps document.
-pub fn default_public_preview_apps_json() -> String {
-    serde_json::to_string_pretty(&default_public_preview_apps()).unwrap_or_else(|error| {
-        tracing::warn!(%error, "failed to serialize default preview apps config");
-        serde_json::to_string(&PublicPreviewAppsConfig {
-            version: PREVIEW_APPS_VERSION,
-            apps: Vec::new(),
-        })
-        .unwrap_or_else(|fallback_error| {
-            tracing::error!(%fallback_error, "failed to serialize fallback preview apps config");
-            "{}".to_string()
-        })
-    })
+/// Serializes [`default_public_preview_apps`] to pretty JSON, matching the
+/// seed document owned by `crate::config::preview_apps`. Test-only: the
+/// parity test pins the config-owned seed against the built-in app set.
+#[cfg(test)]
+pub(crate) fn default_public_preview_apps_json() -> String {
+    serde_json::to_string_pretty(&default_public_preview_apps())
+        .expect("built-in preview apps config should always serialize")
 }
 
 fn builtin_app(

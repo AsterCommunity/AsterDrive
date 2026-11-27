@@ -38,6 +38,31 @@ pub fn load_retention_days(state: &impl SharedRuntimeState) -> i64 {
         })
 }
 
+/// Builds the entity name and location audit details for a trash item
+/// (file or folder) identified by `entity_type` and `id`; reads from the
+/// reader database.
+pub(crate) async fn trash_item_audit_details(
+    state: &impl SharedRuntimeState,
+    scope: WorkspaceStorageScope,
+    entity_type: EntityType,
+    id: i64,
+) -> Result<(Option<String>, Option<serde_json::Value>)> {
+    match entity_type {
+        EntityType::File => {
+            let file = file_repo::find_by_id(state.reader_db(), id).await?;
+            let name = file.name.clone();
+            let details = file_ops::audit_location_details_for_model(state, scope, &file).await;
+            Ok((Some(name), details))
+        }
+        EntityType::Folder => {
+            let folder = folder_repo::find_by_id(state.reader_db(), id).await?;
+            let name = folder.name.clone();
+            let details = folder_ops::audit_location_details_for_model(state, scope, &folder).await;
+            Ok((Some(name), details))
+        }
+    }
+}
+
 pub(super) async fn build_trash_path_cache<C: ConnectionTrait>(
     db: &C,
     folders: &[folder::Model],

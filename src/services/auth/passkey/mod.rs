@@ -533,6 +533,15 @@ pub async fn finish_registration(
     Ok(model_to_info(created))
 }
 
+/// Renamed credential plus the name it carried before the rename, for audit
+/// trails.
+pub struct PasskeyRenameOutcome {
+    /// Display name before the rename was applied.
+    pub previous_name: String,
+    /// Refreshed credential after the rename.
+    pub passkey: PasskeyInfo,
+}
+
 /// Renames one of the account's passkeys after name validation; scoped to the owning user so
 /// a mismatching owner reports not-found.
 ///
@@ -543,24 +552,42 @@ pub async fn rename_passkey(
     user_id: i64,
     id: i64,
     name: &str,
-) -> Result<PasskeyInfo> {
+) -> Result<PasskeyRenameOutcome> {
     let name = normalize_passkey_name(Some(name))?;
+    let previous = passkey_repo::find_by_id_for_user(state.writer_db(), id, user_id)
+        .await?
+        .ok_or_else(|| AsterError::record_not_found(format!("passkey #{id}")))?;
     if !passkey_repo::update_name_for_user(state.writer_db(), id, user_id, &name).await? {
         return Err(AsterError::record_not_found(format!("passkey #{id}")));
     }
     let passkey = passkey_repo::find_by_id_for_user(state.writer_db(), id, user_id)
         .await?
         .ok_or_else(|| AsterError::record_not_found(format!("passkey #{id}")))?;
-    Ok(model_to_info(passkey))
+    Ok(PasskeyRenameOutcome {
+        previous_name: previous.name,
+        passkey: model_to_info(passkey),
+    })
 }
 
-/// Deletes one of the account's passkeys; `Ok(false)` means it was already gone.
+/// Deletes one of the account's passkeys and returns the removed credential
+/// for audit trails; scoped to the owning user so a mismatching owner reports
+/// not-found.
+///
+/// # Errors
+/// Returns not-found when the passkey does not exist for the user, including
+/// when it is deleted concurrently between the read and the delete.
 pub async fn delete_passkey(
     state: &impl SharedRuntimeState,
     user_id: i64,
     id: i64,
-) -> Result<bool> {
-    passkey_repo::delete_for_user(state.writer_db(), id, user_id).await
+) -> Result<PasskeyInfo> {
+    let passkey = passkey_repo::find_by_id_for_user(state.writer_db(), id, user_id)
+        .await?
+        .ok_or_else(|| AsterError::record_not_found(format!("passkey #{id}")))?;
+    if !passkey_repo::delete_for_user(state.writer_db(), id, user_id).await? {
+        return Err(AsterError::record_not_found(format!("passkey #{id}")));
+    }
+    Ok(model_to_info(passkey))
 }
 
 /// Starts a discoverable-credential (usernameless) passkey login.

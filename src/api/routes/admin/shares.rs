@@ -64,8 +64,7 @@ pub async fn admin_delete_share(
     req: HttpRequest,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let share = crate::db::repository::share_repo::find_by_id(state.writer_db(), *path).await?;
-    share::admin_delete_share(state.get_ref(), *path).await?;
+    let share = share::admin_delete_share(state.get_ref(), *path).await?;
     let target = match share::share_target_for_share(&share) {
         Ok(target) => Some(target),
         Err(error) => {

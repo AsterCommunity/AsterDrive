@@ -8,7 +8,6 @@ use crate::api::middleware::rate_limit;
 use crate::api::response::ApiResponse;
 use crate::config::site_url;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
-use crate::db::repository::webdav_account_repo;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{auth::local::Claims, ops::audit, webdav::account};
@@ -283,15 +282,14 @@ pub async fn delete_team_account(
     req: HttpRequest,
     path: web::Path<TeamWebdavAccountIdPath>,
 ) -> Result<HttpResponse> {
-    let account = webdav_account_repo::find_by_id(state.writer_db(), path.account_id).await?;
-    let details = webdav_account_audit_details(&account);
-    account::delete_for_team(
+    let account = account::delete_for_team(
         state.get_ref(),
         path.account_id,
         claims.user_id,
         path.team_id,
     )
     .await?;
+    let details = webdav_account_audit_details(&account);
     let ctx = audit::AuditContext::from_request(&req, &claims);
     audit::log_with_details(
         state.get_ref(),
@@ -377,9 +375,8 @@ pub async fn delete_account(
     req: HttpRequest,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let account = webdav_account_repo::find_by_id(state.writer_db(), *path).await?;
+    let account = account::delete(state.get_ref(), *path, claims.user_id).await?;
     let details = webdav_account_audit_details(&account);
-    account::delete(state.get_ref(), *path, claims.user_id).await?;
     let ctx = audit::AuditContext::from_request(&req, &claims);
     audit::log_with_details(
         state.get_ref(),
@@ -476,9 +473,7 @@ fn webdav_created_audit_details(
     })
 }
 
-fn webdav_account_audit_details(
-    account: &aster_drive_model::entities::webdav_account::Model,
-) -> serde_json::Value {
+fn webdav_account_audit_details(account: &account::WebdavAccount) -> serde_json::Value {
     json!({
         "username": &account.username,
         "team_id": account.team_id,

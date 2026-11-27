@@ -18,6 +18,7 @@ pub mod node_mode;
 pub mod offline_download;
 pub mod operations;
 pub(crate) mod paths;
+pub mod preview_apps;
 mod runtime_config;
 mod schema;
 pub mod site_url;

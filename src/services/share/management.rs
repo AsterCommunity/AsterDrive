@@ -565,12 +565,20 @@ pub async fn list_paginated(
 ///
 /// Admin-only entry point that bypasses personal/team scoping; invalidates
 /// the target and token caches so the public token stops working immediately.
-pub async fn admin_delete_share(state: &impl SharedRuntimeState, share_id: i64) -> Result<()> {
+/// Deletes a share as an administrator and returns the removed share for
+/// audit trails.
+///
+/// # Errors
+/// Propagates repository errors, including not-found when the share is gone.
+pub async fn admin_delete_share(
+    state: &impl SharedRuntimeState,
+    share_id: i64,
+) -> Result<share::Model> {
     let share = share_repo::find_by_id(state.writer_db(), share_id).await?;
     share_repo::delete(state.writer_db(), share_id).await?;
     invalidate_active_share_target_cache_for_share(state, &share).await;
     invalidate_share_token_record_cache_for_share(state, &share).await;
-    Ok(())
+    Ok(share)
 }
 
 async fn load_share_resources(

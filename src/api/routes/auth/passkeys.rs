@@ -7,8 +7,7 @@ use super::{
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::config::site_url;
-use crate::db::repository::passkey_repo;
-use crate::errors::{AsterError, Result};
+use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::ops::audit::{self, AuditContext, AuditRequestInfo};
 use crate::services::{auth::local::Claims, auth::passkey};
@@ -127,29 +126,26 @@ pub async fn rename_passkey(
     body: web::Json<PatchPasskeyReq>,
 ) -> Result<HttpResponse> {
     let id = path.into_inner();
-    let previous = passkey_repo::find_by_id_for_user(state.writer_db(), id, claims.user_id)
-        .await?
-        .ok_or_else(|| AsterError::record_not_found(format!("passkey #{id}")))?;
-    let passkey = passkey::rename_passkey(state.get_ref(), claims.user_id, id, &body.name).await?;
+    let outcome = passkey::rename_passkey(state.get_ref(), claims.user_id, id, &body.name).await?;
     let ctx = AuditContext::from_request(&req, &claims);
     let details = json!({
-        "passkey_id": passkey.id,
-        "previous_name": previous.name,
-        "next_name": &passkey.name,
-        "backup_eligible": passkey.backup_eligible,
-        "backed_up": passkey.backed_up,
+        "passkey_id": outcome.passkey.id,
+        "previous_name": &outcome.previous_name,
+        "next_name": &outcome.passkey.name,
+        "backup_eligible": outcome.passkey.backup_eligible,
+        "backed_up": outcome.passkey.backed_up,
     });
     audit::log_with_details(
         state.get_ref(),
         &ctx,
         audit::AuditAction::UserPasskeyRename,
         crate::services::ops::audit::AuditEntityType::Passkey,
-        Some(passkey.id),
-        Some(&passkey.name),
+        Some(outcome.passkey.id),
+        Some(&outcome.passkey.name),
         || Some(details.clone()),
     )
     .await;
-    Ok(HttpResponse::Ok().json(crate::api::response::success(passkey)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(outcome.passkey)))
 }
 
 /// Deletes a passkey owned by the current user and records the change in the audit log.
@@ -173,13 +169,8 @@ pub async fn delete_passkey(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let id = path.into_inner();
-    let passkey = passkey_repo::find_by_id_for_user(state.writer_db(), id, claims.user_id)
-        .await?
-        .ok_or_else(|| AsterError::record_not_found(format!("passkey #{id}")))?;
+    let passkey = passkey::delete_passkey(state.get_ref(), claims.user_id, id).await?;
     let passkey_name = passkey.name.clone();
-    if !passkey::delete_passkey(state.get_ref(), claims.user_id, id).await? {
-        return Err(AsterError::record_not_found(format!("passkey #{id}")));
-    }
     let ctx = AuditContext::from_request(&req, &claims);
     let details = json!({
         "passkey_id": passkey.id,

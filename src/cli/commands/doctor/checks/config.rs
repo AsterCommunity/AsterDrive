@@ -183,8 +183,10 @@ pub(in crate::cli::commands::doctor) fn doctor_preview_apps_check(
     runtime_config: &crate::config::RuntimeConfig,
 ) -> DoctorCheck {
     let raw = runtime_config
-        .get(crate::services::preview::apps::PREVIEW_APPS_CONFIG_KEY)
-        .unwrap_or_else(crate::services::preview::apps::default_public_preview_apps_json);
+        .get(crate::config::preview_apps::PREVIEW_APPS_CONFIG_KEY)
+        .unwrap_or_else(|| {
+            crate::config::preview_apps::DEFAULT_PUBLIC_PREVIEW_APPS_JSON.to_string()
+        });
 
     let normalized =
         match crate::services::preview::apps::normalize_public_preview_apps_config_value(&raw) {
