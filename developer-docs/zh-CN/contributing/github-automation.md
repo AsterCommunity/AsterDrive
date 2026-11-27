@@ -27,7 +27,7 @@ PR 使用 GitHub 原生 closing keyword（例如 `Fixes #123`）关联 Issue 后
 5. 新 commit 到达后只处理当前 HEAD，旧 SHA 结果不会覆盖新诊断。
 6. 所有必要检查恢复后，评论更新为 resolved。
 
-`PR Gate` 只汇总已有 CI，不重新执行测试。添加或修改 path-filtered workflow 时，必须同步更新 `.github/aster-automation.json` 的 `workflows` 路径规则；共享状态机和路径匹配测试由 `AsterCommunity/aster-automation` 持有，AsterDrive 的 `Repository Automation` 验证本仓配置和 workflow 静态契约。
+`PR Gate` 只汇总已有 CI，不重新执行测试。添加或修改 path-filtered workflow 时，必须同步更新 `.github/aster-automation.json` 的 `workflows` 路径规则；共享状态机和路径匹配测试由 `AsterCommunity/aster-automation` 持有，AsterDrive 的 `Repository Automation` 验证本仓配置和 workflow 静态契约。配置中 `labels.rules` 与 `workflows` 的每条路径都必须命中至少一个 tracked 文件，`validate-repository` 会对不命中的规则失败：重命名或删除目录时同步更新路径规则，防止标签和 CI 触发静默失效。
 
 独立的 `PR Readiness` Check 汇总 Gate 以外的合并事实：`codecov/patch`、draft、merge conflict、当前 HEAD 的人工 approval、仍有效且未解决的 review thread，以及 `Risk: High` 的人工批准要求。它不会 dismiss review、resolve thread 或执行合并。`CI: Failure`、`CI: Infrastructure`、`CI: Flaky` 只适用于故障 Issue；错误出现在 PR 上时 Readiness 只报告 applicability warning，不删除人工标签。
 
