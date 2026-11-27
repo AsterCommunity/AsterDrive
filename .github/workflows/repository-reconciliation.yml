@@ -34,14 +34,14 @@ jobs:
           permission-pull-requests: write
 
       - name: Reconcile open pull requests and CI incidents
-        uses: AsterCommunity/aster-automation@f12ece993b91aadc1fe91433581b808fc44a389b # v0.1.0 candidate
+        uses: AsterCommunity/aster-automation@aaec041f76c345e4486b91b5a7f2bee4f8f2baa8 # v0.1.0 candidate
         with:
           mode: reconcile-repository
           token: ${{ steps.app-token.outputs.token }}
           config-path: .github/aster-automation.json
 
       - name: Update release readiness dashboard
-        uses: AsterCommunity/aster-automation@f12ece993b91aadc1fe91433581b808fc44a389b # v0.1.0 candidate
+        uses: AsterCommunity/aster-automation@aaec041f76c345e4486b91b5a7f2bee4f8f2baa8 # v0.1.0 candidate
         with:
           mode: milestone-dashboard
           token: ${{ steps.app-token.outputs.token }}
