@@ -4181,7 +4181,7 @@ async fn test_offset_candidate_cleanup_after_abandoned_finalization() {
             set_default_local_content_dedup(&state, dedup).await;
             let owner = common::create_test_account(
                 &state,
-                "abandonedcandidate",
+                "abandonedblob",
                 "abandoned-candidate@example.com",
                 "password123",
             )

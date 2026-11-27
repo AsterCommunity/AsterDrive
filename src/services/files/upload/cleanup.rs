@@ -294,7 +294,6 @@ async fn cleanup_offset_staging_candidate(
     session: &upload_session::Model,
 ) -> Result<UploadRemoteCleanupOutcome> {
     use crate::services::files::upload::ingest::staging;
-    use sea_orm::EntityTrait;
 
     // The same inode fences completion and cleanup. Keep its directory until
     // cleanup succeeds, including after cancellation of an active assembler.
@@ -306,11 +305,12 @@ async fn cleanup_offset_staging_candidate(
     } else {
         None
     };
-    let Some(latest) = upload_session::Entity::find_by_id(session.id.clone())
-        .one(state.writer_db())
-        .await?
-    else {
-        return Ok(UploadRemoteCleanupOutcome::Complete);
+    let latest = match upload_session_repo::find_by_id(state.writer_db(), &session.id).await {
+        Ok(latest) => latest,
+        Err(AsterError::UploadSessionNotFound(_)) => {
+            return Ok(UploadRemoteCleanupOutcome::Complete);
+        }
+        Err(error) => return Err(error),
     };
     if latest.status == UploadSessionStatus::Completed {
         return Ok(UploadRemoteCleanupOutcome::Complete);

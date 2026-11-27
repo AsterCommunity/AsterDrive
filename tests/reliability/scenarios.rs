@@ -41,6 +41,8 @@ struct DurableState {
 impl DurableState {
     async fn create() -> Self {
         let dir = TestTempDir::new("reliability");
+        // A developer's dotenv file must never change the dedicated fixture role.
+        std::fs::write(dir.join(".env"), "ASTER__SERVER__START_MODE=follower\n").unwrap();
         let backend =
             std::env::var("ASTER_TEST_DATABASE_BACKEND").unwrap_or_else(|_| "sqlite".into());
         assert!(
@@ -140,6 +142,7 @@ pub(super) struct Server {
     process: TestProcess,
     pub(super) url: String,
     artifact: PathBuf,
+    access_token: Option<String>,
 }
 
 impl Server {
@@ -154,11 +157,15 @@ impl Server {
         for (key, _) in std::env::vars_os() {
             if key.to_string_lossy().starts_with("ASTER__")
                 || key.to_string_lossy().starts_with("ASTER_RELIABILITY_")
+                || key.to_string_lossy().starts_with("ASTER_CLI_")
             {
                 command.env_remove(key);
             }
         }
         command
+            .current_dir(state.dir.path())
+            .arg("--data-dir")
+            .arg(state.dir.join("data"))
             .args(["serve", "all"])
             .env("ASTER__DEPLOYMENT__PROFILE", "single")
             .env("ASTER__SERVER__HOST", "127.0.0.1")
@@ -207,6 +214,7 @@ impl Server {
             process: TestProcess::spawn(&format!("reliability-{generation}"), &mut command),
             url: format!("http://127.0.0.1:{port}"),
             artifact: evidence.root.join(format!("generation-{generation}.log")),
+            access_token: None,
         }
     }
 
@@ -237,7 +245,12 @@ impl Drop for Server {
         self.process.terminate();
         let logs = invariants::redact_logs(
             &self.process.diagnostics(),
-            &[SECRET, PASSWORD, super::minio::SECRET],
+            &[
+                SECRET,
+                PASSWORD,
+                super::minio::SECRET,
+                self.access_token.as_deref().unwrap_or_default(),
+            ],
         );
         if let Err(error) = std::fs::write(&self.artifact, logs) {
             eprintln!("cannot persist redacted process artifact: {error}");
@@ -305,7 +318,7 @@ pub(super) async fn data(request: aster_forge_http::HttpRequestBuilder) -> Value
         .clone()
 }
 
-async fn login(client: &aster_forge_http::HttpClient, server: &Server) -> String {
+async fn login(client: &aster_forge_http::HttpClient, server: &mut Server) -> String {
     data(
         client
             .post(format!("{}/api/v1/auth/setup", server.url))
@@ -321,7 +334,7 @@ async fn login(client: &aster_forge_http::HttpClient, server: &Server) -> String
         .await
         .unwrap();
     assert!(response.status().is_success(), "fixture login failed");
-    response
+    let token = response
         .headers()
         .get_all(reqwest::header::SET_COOKIE)
         .iter()
@@ -332,7 +345,9 @@ async fn login(client: &aster_forge_http::HttpClient, server: &Server) -> String
                 .and_then(|c| c.split(';').next())
                 .map(str::to_owned)
         })
-        .expect("fixture access cookie missing")
+        .expect("fixture access cookie missing");
+    server.access_token = Some(token.clone());
+    token
 }
 
 async fn init(
@@ -475,7 +490,7 @@ async fn crash_recovery() {
             let client = client();
             let mut server = Server::spawn(&state, &evidence, 1, Some(checkpoint));
             server.ready(&client).await;
-            let token = login(&client, &server).await;
+            let token = login(&client, &mut server).await;
             let mut minio = if object_storage == "minio" {
                 Some(super::minio::Minio::start().await)
             } else {
@@ -566,6 +581,7 @@ async fn crash_recovery() {
                 2,
                 task_id.map(|_| "task.after_claim_before_handler"),
             );
+            restarted.access_token = Some(token.clone());
             restarted.ready(&client).await;
             if let Some(claimed) = claimed {
                 recover_task(
@@ -685,10 +701,18 @@ async fn recover_abandoned_upload(
         .await
         .unwrap()
         .unwrap();
-    let mut expired: upload_session::ActiveModel = session.into();
-    expired.expires_at = Set(Utc::now() - chrono::Duration::minutes(1));
-    expired.updated_at = Set(Utc::now() - chrono::Duration::minutes(5));
-    expired.update(&state.db).await.unwrap();
+    if outcome == "cancel" {
+        assert_eq!(
+            session.status,
+            aster_drive_model::types::UploadSessionStatus::Failed
+        );
+        assert!(session.expires_at <= Utc::now() + chrono::Duration::seconds(61));
+    } else {
+        let mut expired: upload_session::ActiveModel = session.into();
+        expired.expires_at = Set(Utc::now() - chrono::Duration::minutes(1));
+        expired.updated_at = Set(Utc::now() - chrono::Duration::minutes(5));
+        expired.update(&state.db).await.unwrap();
+    }
     // The restarted server runs the ordinary periodic cleanup. Time is used
     // only as a bounded liveness check, never as evidence of the crash point.
     tokio::time::timeout(TIMEOUT, async {
