@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.7.3] - 2026-11-28
+
 ### Added
+
+- **WebDAV account access mode** — Each WebDAV account can be set to read-write or read-only when created or at any time afterwards, separately for personal and team accounts. Effective permission is always the intersection of the owner's live product permissions and the account access mode; read-only is enforced in the authorization layer and fails closed before any side effect. Write methods (`PUT`, `MKCOL`, `DELETE`, `COPY`, `MOVE`, `PROPPATCH`, `LOCK`, `UNLOCK`) return `403 Forbidden` without consuming request bodies or writing storage; reads continue unchanged and REST callers receive the stable `webdav.access_read_only` error code. Mode switches take effect immediately for subsequent requests without cache invalidation. Manage modes through the new `POST /api/v1/webdav-accounts/{id}/access-mode` and `POST /api/v1/teams/{team_id}/webdav-accounts/{account_id}/access-mode` endpoints or the updated panel; OpenAPI and the generated frontend SDK are regenerated, and changes are audited. Mounting clients that lose `LOCK` permission degrade to lock-free read-only access as expected, which suits backup pulls, mounted browsing and sync clients. The migration adds `webdav_accounts.access_mode` (default `read_write`) so existing accounts keep their behavior; run database migration when upgrading. (#753, #776)
 
 - **Upload diagnostics** — Debug logs explain the admitted policy group, rule evaluations, excluded targets, execution preference, transport candidates and size/capability limits. Interrupted follower PUT bodies return the retryable `upload.request_body_incomplete` code, log received versus declared bytes without credentials, and show a network/retry hint in the browser. (#756, #758)
 
@@ -17,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **HTTP rate limiting** — Replace `actix-governor` with the governor-backed Forge middleware without permitting GPL dependencies. Existing quota settings and HTTP 429 error envelopes remain unchanged; `Retry-After` and `X-RateLimit-After` report the same retry delay. (#766)
 
+- **Runtime config validation** — The runtime entry now runs the full validation pipeline in the loader's order (section validation, then cross-field validation) before serving. Configurations assembled programmatically that previously bypassed section rules now fail startup, such as a `worker.drain_timeout_secs` above 24 hours. Deployments loading configuration from files are unaffected. (#773)
+
+- **Dependency and worker-count updates** — HTTP worker auto-sizing uses `std::thread::available_parallelism()` instead of `num_cpus`; on Linux this respects cgroup CPU limits, so CPU-constrained containers may see lower default worker counts. Archive handling upgrades `zip` from 9.2.0 to 9.8.1 and JWT handling moves to `jsonwebtoken` v12 without token format or verification changes.
+
 ### Fixed
 
 - **MySQL blob publication** — Concurrent uploads and empty-file creation can adopt a blob committed after their transaction opened a snapshot. The losing upload releases its own unused object and preserves the shared blob.
@@ -24,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Passkey sign-in** — The verified passkey selects the account even when the login form contains a different username or email. The passkey challenge endpoint no longer takes `identifier`. (#754)
 
 - **Follower readiness** — An unconfigured follower returns `200 + needs_binding`. Enabled bindings require recent successful master control-plane communication; missing or expired evidence returns 503 and clears runtime readiness. `server.follower.master_readiness_timeout_secs` defaults to 90 seconds and must exceed the 60-second control-plane cycle; disabled bindings are intentionally offline. (#755)
+
+- **Trash lookups on reader databases** — Restore and purge validate the target entity against the writer database instead of the reader, so deployments with a separate lagging reader database no longer fail before any change is attempted. (#775)
+
+- **Hover preview background** — Transparent images in the file hover preview render on a theme-aware background and remain legible in light and dark themes.
 
 ## [v0.7.2] - 2026-11-08
 
@@ -6501,7 +6513,8 @@ No new migrations.
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.7.2...HEAD
+[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.7.3...HEAD
+[v0.7.3]: https://github.com/AsterCommunity/AsterDrive/compare/v0.7.2...v0.7.3
 [v0.7.2]: https://github.com/AsterCommunity/AsterDrive/compare/v0.7.1...v0.7.2
 [v0.7.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.7.0...v0.7.1
 [v0.7.0]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.3...v0.7.0

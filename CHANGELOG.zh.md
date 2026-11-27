@@ -7,9 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.7.3] - 2026-11-28
+
+### Added
+
+- **WebDAV 账号访问模式** — 每个 WebDAV 子账号可在创建时或之后任意时刻设置为 read-write 或 read-only，个人与团队账号分别管理。实际权限始终取所有者当前产品权限与账号访问模式的交集；read-only 在授权层强制执行，先于任何副作用 fail-closed。写方法（`PUT`、`MKCOL`、`DELETE`、`COPY`、`MOVE`、`PROPPATCH`、`LOCK`、`UNLOCK`）一律返回 `403 Forbidden`，不消费请求体也不写入存储；读操作保持不变，REST 调用方收到稳定错误码 `webdav.access_read_only`。模式切换对后续请求立即生效，无需缓存失效通知。通过新增的 `POST /api/v1/webdav-accounts/{id}/access-mode` 与 `POST /api/v1/teams/{team_id}/webdav-accounts/{account_id}/access-mode` 端点或更新后的面板管理；OpenAPI 与生成的前端 SDK 已重新生成，变更加入审计。挂载类客户端失去 `LOCK` 权限后按预期降级为无锁只读访问，适用于备份拉取、挂载浏览和同步类客户端。migration 新增 `webdav_accounts.access_mode` 列（默认 `read_write`），存量账号行为不变；升级时需执行数据库迁移。（#753、#776）
+
+- **上传诊断** — 调试日志说明准入的策略组、规则评估、被排除的目标、执行偏好、传输候选及大小/能力限制。中断的 follower PUT 请求体返回可重试的 `upload.request_body_incomplete` 错误码，在不泄露凭据的前提下记录已接收与声明的字节数，并在浏览器显示网络/重试提示。（#756、#758）
+
 ### Changed
 
 - **AsterForge 运行时与可观测性契约** — 升级已发布 Forge crate 批次，将配置校验和 metrics provider 组装迁移到 Forge，统一 `com.astercosm.drive` / `astercosm-metrics/v1` 指标身份并同步 Grafana／目录过滤；审计恢复继续只供人工核对，不自动重放。未编译的 exporter 视为省略，已编译的 exporter 仅在显式启用时运行。服务启动、`doctor` 和 `database-migrate` 在所选实例配置目录准备私有崩溃报告。`crash.log` 不可用时，服务启动和 CLI 的人类可读输出模式会告警。
+
+- **HTTP 限流** — 以 Forge 基于 governor 的中间件替换 `actix-governor`，不引入 GPL 依赖。现有配额设置和 HTTP 429 错误 envelope 保持不变；`Retry-After` 与 `X-RateLimit-After` 报告相同的重试延迟。（#766）
+
+- **运行时配置校验** — 运行时入口在提供服务前按加载器相同的顺序执行完整校验管线（先分节校验，再交叉校验）。此前绕过分节规则程序化组装的配置现在会在启动时失败并中止，例如 `worker.drain_timeout_secs` 超过 24 小时。从文件加载配置的部署不受影响。（#773）
+
+- **依赖与 worker 计数更新** — HTTP worker 自动计数改用 `std::thread::available_parallelism()` 替代 `num_cpus`；在 Linux 上该函数感知 cgroup CPU 限额，CPU 受限容器中的默认 worker 数可能因此下降。归档处理的 `zip` 从 9.2.0 升级到 9.8.1，JWT 处理迁移到 `jsonwebtoken` v12，token 格式与校验行为不变。
+
+### Fixed
+
+- **MySQL blob 发布** — 并发上传和空文件创建可以采纳在其事务打开快照之后才提交的 blob。落败的上传释放自身未使用的对象并保留共享的 blob。
+
+- **Passkey 登录** — 已验证的 passkey 决定登录账号，即使登录表单填写了不同的用户名或邮箱。Passkey challenge 端点不再接收 `identifier`。（#754）
+
+- **Follower 就绪状态** — 未配置的 follower 返回 `200 + needs_binding`。已启用的绑定要求近期存在成功的主控控制面通信；证据缺失或过期时返回 503 并清除运行时就绪状态。`server.follower.master_readiness_timeout_secs` 默认 90 秒，必须大于 60 秒的控制面周期；禁用的绑定属于有意离线。（#755）
+
+- **Reader 数据库上的回收站校验** — 恢复与彻底删除改为对照 writer 数据库校验目标实体，配置独立 reader 数据库的部署不再因读取滞后在任何变更发生前误报失败。（#775）
+
+- **悬停预览背景** — 文件悬停预览中的透明图片渲染在跟随主题的背景色上，在浅色与深色主题下都保持可读。
 
 ## [v0.7.2] - 2026-11-08
 
@@ -6486,7 +6512,8 @@ OneDrive 存储策略新增浏览器直连能力：上传可选 Microsoft Graph 
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.7.2...HEAD
+[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.7.3...HEAD
+[v0.7.3]: https://github.com/AsterCommunity/AsterDrive/compare/v0.7.2...v0.7.3
 [v0.7.2]: https://github.com/AsterCommunity/AsterDrive/compare/v0.7.1...v0.7.2
 [v0.7.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.7.0...v0.7.1
 [v0.7.0]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.3...v0.7.0
