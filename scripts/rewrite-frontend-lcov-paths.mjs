@@ -19,13 +19,20 @@ function usage() {
 const [, , lcovPath, panelDir] = process.argv;
 if (!lcovPath || !panelDir) usage();
 
-const panelPrefix = `${panelDir.replaceAll("\\", "/").replace(/\/+$/, "")}/`;
+const panelPrefix = `${panelDir
+	.replaceAll("\\", "/")
+	.replace(/^\.\//, "")
+	.replace(/\/+$/, "")}/`;
 const content = fs.readFileSync(lcovPath, "utf8");
 let rewrittenCount = 0;
 const rewritten = content.split(/\r?\n/).map((line) => {
 	if (!line.startsWith("SF:")) return line;
 	const file = line.slice(3).replaceAll("\\", "/").replace(/^\.\//, "");
-	if (file.startsWith("/") || file.startsWith(panelPrefix)) return line;
+	// Keep absolute paths (POSIX, UNC via leading //, and Windows drive
+	// letters after separator normalization) out of the rewrite.
+	if (/^(?:\/|[A-Za-z]:\/)/.test(file) || file.startsWith(panelPrefix)) {
+		return line;
+	}
 	rewrittenCount += 1;
 	return `SF:${panelPrefix}${file}`;
 });
