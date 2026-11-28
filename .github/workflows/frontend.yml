@@ -6,6 +6,7 @@ on:
       - '.nvmrc'
       - 'frontend-panel/**'
       - 'scripts/coverage-summary.mjs'
+      - 'scripts/rewrite-frontend-lcov-paths.mjs'
       - '.github/workflows/frontend.yml'
     branches: [master]
   pull_request:
@@ -13,6 +14,7 @@ on:
       - '.nvmrc'
       - 'frontend-panel/**'
       - 'scripts/coverage-summary.mjs'
+      - 'scripts/rewrite-frontend-lcov-paths.mjs'
       - '.github/workflows/frontend.yml'
     branches: [master, develop]
 
@@ -48,6 +50,10 @@ jobs:
       - name: Run tests with coverage
         working-directory: frontend-panel
         run: bun run test:coverage
+
+      - name: Rewrite lcov paths to repo-root relative
+        if: always() && hashFiles('frontend-panel/coverage/lcov.info') != ''
+        run: bun scripts/rewrite-frontend-lcov-paths.mjs frontend-panel/coverage/lcov.info frontend-panel
 
       - name: Publish coverage summary
         if: always() && hashFiles('frontend-panel/coverage/lcov.info') != ''

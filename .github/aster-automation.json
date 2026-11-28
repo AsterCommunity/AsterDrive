@@ -86,7 +86,7 @@
       "name": "Rust CI",
       "paths": [".nvmrc", "**/*.rs", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".config/nextest.toml", "frontend-panel/package.json", "frontend-panel/src/services/api.generated.ts", "scripts/coverage-summary.mjs", ".github/workflows/rust.yml"]
     },
-    { "name": "Frontend CI", "paths": [".nvmrc", "frontend-panel/**", "scripts/coverage-summary.mjs", ".github/workflows/frontend.yml"] },
+    { "name": "Frontend CI", "paths": [".nvmrc", "frontend-panel/**", "scripts/coverage-summary.mjs", "scripts/rewrite-frontend-lcov-paths.mjs", ".github/workflows/frontend.yml"] },
     { "name": "E2E", "paths": [".nvmrc", "frontend-panel/**", "src/**", "crates/**", "Cargo.toml", "Cargo.lock", ".github/workflows/frontend-e2e.yml"] },
     { "name": "Security Audit", "paths": [".nvmrc", "**/Cargo.toml", "**/Cargo.lock", ".github/workflows/audit.yml"] },
     {
