@@ -35,6 +35,34 @@ pub(crate) fn file_path_in_upload_temp_dir(upload_temp_dir: &str, upload_id: &st
     paths::temp_file_path(&session_temp_dir, OFFSET_STAGING_FILE_NAME)
 }
 
+pub(crate) async fn lock_offset_assembly_for_complete(path: String) -> Result<std::fs::File> {
+    tokio::task::spawn_blocking(move || {
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)
+            .map_aster_err_ctx(
+                "open staging reservation file (staging reservation file is missing or inaccessible)",
+                |message| crate::errors::upload_assembly_error_with_code(
+                    ApiErrorCode::UploadAssemblyIoFailed, message,
+                ),
+            )?;
+        match aster_fs::FileExt::try_lock(&file) {
+            Ok(()) => Ok(file),
+            Err(aster_fs::TryLockError::WouldBlock) => Err(AsterError::upload_assembling(
+                "upload assembly still owns its staging file",
+            )),
+            Err(error) => Err(AsterError::storage_driver_error(format!(
+                "lock offset assembly: {error}"
+            ))),
+        }
+    })
+    .await
+    .map_err(|error| {
+        AsterError::storage_driver_error(format!("offset assembly lock task: {error}"))
+    })?
+}
+
 pub(crate) async fn prepare(
     state: &crate::runtime::PrimaryAppState,
     _admission: &mut crate::storage::staging_capacity::StagingCapacityState,

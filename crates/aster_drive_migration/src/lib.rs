@@ -885,4 +885,58 @@ mod tests {
             "migration finalization should preserve an initially disabled state"
         );
     }
+
+    #[tokio::test]
+    async fn qiniu_online_upgrade_requires_both_connector_columns() {
+        async fn schema(policy_column: bool, target_column: bool) -> DatabaseConnection {
+            let db = sea_orm_migration::sea_orm::Database::connect("sqlite::memory:")
+                .await
+                .expect("SQLite schema fixture should connect");
+            for sql in [
+                format!(
+                    "CREATE TABLE storage_policies (id INTEGER PRIMARY KEY{})",
+                    if policy_column {
+                        ", connector_id TEXT"
+                    } else {
+                        ""
+                    }
+                ),
+                format!(
+                    "CREATE TABLE remote_storage_targets (id INTEGER PRIMARY KEY{})",
+                    if target_column {
+                        ", connector_config TEXT"
+                    } else {
+                        ""
+                    }
+                ),
+                "CREATE TABLE storage_policy_connector_credentials (id INTEGER PRIMARY KEY)"
+                    .to_owned(),
+                "CREATE TABLE remote_storage_target_credentials (id INTEGER PRIMARY KEY)"
+                    .to_owned(),
+                "CREATE TABLE background_tasks (id INTEGER PRIMARY KEY)".to_owned(),
+                "CREATE TABLE upload_sessions (id INTEGER PRIMARY KEY)".to_owned(),
+            ] {
+                db.execute_unprepared(&sql)
+                    .await
+                    .expect("required fixture table should be created");
+            }
+            db
+        }
+
+        assert!(
+            qiniu_online_upgrade_schema_ready(&schema(true, true).await)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !qiniu_online_upgrade_schema_ready(&schema(false, true).await)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !qiniu_online_upgrade_schema_ready(&schema(true, false).await)
+                .await
+                .unwrap()
+        );
+    }
 }

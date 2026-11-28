@@ -94,6 +94,11 @@ static GLOBAL: aster_forge_alloc::TrackingAlloc = aster_forge_alloc::TrackingAll
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenvy::dotenv().ok();
+    run_server().await
+}
+
+/// Runs the server or CLI command, shared with the reliability fixture entry point.
+pub async fn run_server() -> std::io::Result<()> {
     aster_forge_auth::initialize_jwt_crypto_provider().map_err(io_other)?;
     let (serve_role, config_location) = match aster_drive::cli::run(&panic::initialize).await? {
         aster_drive::cli::CommandOutcome::Serve { role, location } => (role, location),

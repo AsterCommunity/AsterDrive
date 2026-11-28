@@ -174,6 +174,18 @@ async fn cleanup_remote_upload_state(
     session: &upload_session::Model,
     allow_corrupted_object_fields: bool,
 ) -> UploadRemoteCleanupOutcome {
+    if session.session_kind == UploadSessionKind::OffsetStaging {
+        return match cleanup_offset_staging_candidate(state, session).await {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                tracing::warn!(
+                    upload_id = %session.id,
+                    "local upload candidate cleanup failed, keeping session for retry: {error}"
+                );
+                UploadRemoteCleanupOutcome::DeferredRetry
+            }
+        };
+    }
     // The policy reservation is committed before provider session creation. A
     // process may stop in that window, before it receives any provider URL or
     // returns a client capability. Retire its owned object key without treating
@@ -275,6 +287,75 @@ async fn cleanup_remote_upload_state(
         session.object_multipart_id.as_deref(),
     )
     .await
+}
+
+async fn cleanup_offset_staging_candidate(
+    state: &impl SharedRuntimeState,
+    session: &upload_session::Model,
+) -> Result<UploadRemoteCleanupOutcome> {
+    use crate::services::files::upload::ingest::staging;
+
+    // The same inode fences completion and cleanup. Keep its directory until
+    // cleanup succeeds, including after cancellation of an active assembler.
+    let path = staging::file_path(state, &session.id);
+    let _assembly_lock = if tokio::fs::try_exists(&path).await.map_err(|error| {
+        AsterError::storage_driver_error(format!("inspect upload staging file: {error}"))
+    })? {
+        Some(staging::lock_offset_assembly_for_complete(path).await?)
+    } else {
+        None
+    };
+    let latest = match upload_session_repo::find_by_id(state.writer_db(), &session.id).await {
+        Ok(latest) => latest,
+        Err(AsterError::UploadSessionNotFound(_)) => {
+            return Ok(UploadRemoteCleanupOutcome::Complete);
+        }
+        Err(error) => return Err(error),
+    };
+    if latest.status == UploadSessionStatus::Completed {
+        return Ok(UploadRemoteCleanupOutcome::Complete);
+    }
+    if latest.status != UploadSessionStatus::Failed
+        && !upload_session_repo::try_fail_with_expiration(
+            state.writer_db(),
+            &latest.id,
+            latest.status,
+            latest.expires_at,
+        )
+        .await?
+    {
+        return Ok(UploadRemoteCleanupOutcome::DeferredRetry);
+    }
+
+    let candidate = aster_forge_validation::filename::storage_path_from_blob_key(&format!(
+        "upload-{}",
+        latest.id
+    ))?;
+    // A committed candidate belongs to the blob lifecycle, including zero-ref
+    // and cleanup-claimed rows. Never delete it through session cleanup.
+    if crate::db::repository::file_repo::blob_storage_path_exists_for_policy(
+        state.writer_db(),
+        latest.policy_id,
+        &candidate,
+    )
+    .await?
+    {
+        return Ok(UploadRemoteCleanupOutcome::Complete);
+    }
+    let policy = state
+        .policy_snapshot()
+        .get_policy(latest.policy_id)
+        .ok_or_else(|| {
+            AsterError::record_not_found(format!("upload storage policy #{}", latest.policy_id))
+        })?;
+    let driver = state.driver_registry().get_driver(&policy)?;
+    Ok(delete_temp_object_for_cleanup(
+        driver.as_ref(),
+        &latest.id,
+        &candidate,
+        "abandoned local upload candidate",
+    )
+    .await)
 }
 
 async fn cleanup_resolved_remote_upload_state(
@@ -393,7 +474,9 @@ async fn terminate_upload_stage_session(
     }
 
     let cleanup_outcome = cleanup_remote_upload_state(state, session, false).await;
-    cleanup_upload_temp_dir(state, upload_id).await;
+    if cleanup_outcome.is_complete() || session.session_kind != UploadSessionKind::OffsetStaging {
+        cleanup_upload_temp_dir(state, upload_id).await;
+    }
     if cleanup_outcome.is_complete() {
         if let Err(cleanup_error) = upload_session_repo::delete(state.writer_db(), upload_id).await
         {
@@ -463,7 +546,9 @@ async fn cancel_upload_impl(state: &PrimaryAppState, session: upload_session::Mo
             )
             .await?;
             if transitioned {
-                cleanup_upload_temp_dir(state, upload_id).await;
+                if session.session_kind != UploadSessionKind::OffsetStaging {
+                    cleanup_upload_temp_dir(state, upload_id).await;
+                }
                 tracing::debug!(
                     upload_id,
                     has_multipart_id = session.object_multipart_id.is_some(),
@@ -507,7 +592,9 @@ async fn cancel_upload_impl(state: &PrimaryAppState, session: upload_session::Mo
 
     let cleanup_outcome = cleanup_remote_upload_state(state, &session, false).await;
     if !cleanup_outcome.is_complete() {
-        cleanup_upload_temp_dir(state, upload_id).await;
+        if session.session_kind != UploadSessionKind::OffsetStaging {
+            cleanup_upload_temp_dir(state, upload_id).await;
+        }
         tracing::debug!(
             upload_id,
             expires_at = %expires_at,
@@ -682,7 +769,10 @@ pub async fn cleanup_expired(state: &PrimaryAppState) -> Result<u32> {
             );
         }
         let cleanup_outcome = cleanup_remote_upload_state(state, &session, false).await;
-        cleanup_upload_temp_dir(state, &session.id).await;
+        if cleanup_outcome.is_complete() || session.session_kind != UploadSessionKind::OffsetStaging
+        {
+            cleanup_upload_temp_dir(state, &session.id).await;
+        }
         if !cleanup_outcome.is_complete() {
             tracing::warn!(
                 session_id = %session.id,

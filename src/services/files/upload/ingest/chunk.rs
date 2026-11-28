@@ -208,6 +208,8 @@ async fn write_chunk_to_staging_file(
         .map_aster_err_ctx("sync chunk staging range", |message| {
             chunk_upload_error_with_code(ApiErrorCode::UploadChunkPersistFailed, message)
         })?;
+    #[cfg(feature = "reliability-e2e")]
+    crate::reliability::checkpoint("upload.after_staging_sync_before_receipt_transaction").await;
     Ok(())
 }
 
@@ -334,6 +336,8 @@ async fn write_chunk_payload_to_staging_file(
         .map_aster_err_ctx("sync chunk staging range", |message| {
             chunk_upload_error_with_code(ApiErrorCode::UploadChunkPersistFailed, message)
         })?;
+    #[cfg(feature = "reliability-e2e")]
+    crate::reliability::checkpoint("upload.after_staging_sync_before_receipt_transaction").await;
     Ok(())
 }
 
